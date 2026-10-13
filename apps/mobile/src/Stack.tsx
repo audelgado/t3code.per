@@ -123,6 +123,7 @@ import { SettingsProjectGroupingRouteScreen } from "./features/settings/Settings
 import { SettingsProjectOverviewRouteScreen } from "./features/settings/SettingsProjectOverviewRouteScreen";
 import { UsageLimitAccountScreen } from "./features/usage/UsageLimitsPooled";
 import { UsageRouteScreen } from "./features/usage/UsageRouteScreen";
+import { CommandCenterRouteScreen } from "./features/command-center/CommandCenterRouteScreen";
 import { SettingsAboutRouteScreen } from "./features/settings/SettingsAboutRouteScreen";
 import { SettingsNotificationsRouteScreen } from "./features/settings/SettingsNotificationsRouteScreen";
 import { SettingsRouteScreen } from "./features/settings/SettingsRouteScreen";
@@ -424,6 +425,13 @@ const SettingsContentStack = createV5SheetStackNavigator({
       linking: "usage",
       options: {
         title: "Usage",
+      },
+    }),
+    SettingsCommandCenter: createNativeStackScreen({
+      screen: CommandCenterRouteScreen,
+      linking: "command-center",
+      options: {
+        title: "Command Center",
       },
     }),
   },

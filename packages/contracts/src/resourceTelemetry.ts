@@ -6,13 +6,28 @@ import { DesktopUpdateStateSchema } from "./ipc.ts";
 
 export const RESOURCE_MONITOR_PROTOCOL_VERSION = 3 as const;
 
+/** One storage volume holding the T3 home and/or project roots. */
+export const HostDiskVolume = Schema.Struct({
+  /** The T3 home when it lives here, otherwise the first project root on the volume. */
+  path: Schema.String,
+  home: Schema.Boolean,
+  projectCount: NonNegativeInt,
+  /** Space the server's user can still write, like `df`'s "Avail". */
+  availableBytes: NonNegativeInt,
+  totalBytes: NonNegativeInt,
+});
+export type HostDiskVolume = typeof HostDiskVolume.Type;
+
 /** Whole-host capacity, independent of T3's process diagnostics. */
 export const HostResourcesSnapshot = Schema.Struct({
   sampledAt: NonNegativeInt,
+  /** Whole-machine CPU busy share across all cores, not just T3's processes. */
   cpuUtilization: Schema.NullOr(Schema.Number.check(Schema.isBetween({ minimum: 0, maximum: 1 }))),
   cpuCount: NonNegativeInt,
   availableMemoryBytes: NonNegativeInt,
   totalMemoryBytes: NonNegativeInt,
+  /** Home volume first. Absent from servers that predate disk sampling. */
+  disks: Schema.optionalKey(Schema.Array(HostDiskVolume)),
 });
 export type HostResourcesSnapshot = typeof HostResourcesSnapshot.Type;
 

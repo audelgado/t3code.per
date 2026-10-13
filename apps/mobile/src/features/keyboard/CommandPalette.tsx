@@ -56,6 +56,7 @@ const ACTION_ICONS: Record<string, AppSymbolName> = {
   appearance: "paintbrush",
   environments: "desktopcomputer",
   usage: "chart.bar.xaxis",
+  commandCenter: "person.2",
   archive: "archivebox",
   files: "doc.text",
   terminal: "terminal",
@@ -246,6 +247,17 @@ export function CommandPalette(props: {
           navigation.navigate("SettingsSheet", {
             screen: "SettingsContent",
             params: { screen: "SettingsUsage" },
+          }),
+      },
+      {
+        key: "commandCenter",
+        kind: "action",
+        title: "Command Center",
+        searchTerms: ["team", "agents", "deliveries", "waiting"],
+        run: () =>
+          navigation.navigate("SettingsSheet", {
+            screen: "SettingsContent",
+            params: { screen: "SettingsCommandCenter" },
           }),
       },
       {

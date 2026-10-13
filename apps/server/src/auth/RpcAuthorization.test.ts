@@ -67,6 +67,26 @@ describe("RPC authorization scopes", () => {
     }
   });
 
+  it("lets read-only clients watch the Command Center but not change it", () => {
+    for (const method of [
+      WS_METHODS.commandCenterSubscribe,
+      WS_METHODS.commandCenterListMemory,
+      WS_METHODS.commandCenterRecallMemory,
+      WS_METHODS.commandCenterListSections,
+    ]) {
+      expect(requiredScopeForRpcMethod(method)).toBe(AuthOrchestrationReadScope);
+    }
+    for (const method of [
+      WS_METHODS.commandCenterUpsert,
+      WS_METHODS.commandCenterDelete,
+      WS_METHODS.commandCenterSetMemoryDone,
+      WS_METHODS.commandCenterBuildRepoDigest,
+      WS_METHODS.commandCenterEnsureOnboardingTeam,
+    ]) {
+      expect(requiredScopeForRpcMethod(method)).toBe(AuthOrchestrationOperateScope);
+    }
+  });
+
   it("allows relay status reads without granting relay installation access", () => {
     expect(requiredScopeForRpcMethod(WS_METHODS.cloudGetRelayClientStatus)).toBe(
       AuthRelayReadScope,

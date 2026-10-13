@@ -347,6 +347,24 @@ import {
   ScheduledTaskUpsertInput,
   ScheduledTaskMutationResult,
 } from "./scheduledTask.ts";
+import {
+  CommandCenterBuildRepoDigestInput,
+  CommandCenterDeleteInput,
+  CommandCenterError,
+  CommandCenterListMemoryInput,
+  CommandCenterListMemoryResult,
+  CommandCenterListSectionsInput,
+  CommandCenterListSectionsResult,
+  CommandCenterMemoryEntry,
+  CommandCenterMemoryRecall,
+  CommandCenterMemoryRecallInput,
+  CommandCenterOnboardingTeam,
+  CommandCenterRecord,
+  CommandCenterSetMemoryDoneInput,
+  CommandCenterStreamEvent,
+  CommandCenterSubscribeInput,
+  CommandCenterUpsertInput,
+} from "./commandCenter.ts";
 import { SecretRequestAnswerInput, SecretRequestError } from "./secretRequest.ts";
 import {
   ProjectCloneActionInput,
@@ -522,6 +540,17 @@ export const WS_METHODS = {
   secretsAnswerRequest: "secrets.answerRequest",
   scheduledTasksListWebhookDeliveries: "scheduledTasks.listWebhookDeliveries",
   scheduledTasksGetWebhookDelivery: "scheduledTasks.getWebhookDelivery",
+
+  // Command Center
+  commandCenterSubscribe: "commandCenter.subscribe",
+  commandCenterUpsert: "commandCenter.upsert",
+  commandCenterDelete: "commandCenter.delete",
+  commandCenterSetMemoryDone: "commandCenter.setMemoryDone",
+  commandCenterListMemory: "commandCenter.listMemory",
+  commandCenterRecallMemory: "commandCenter.recallMemory",
+  commandCenterListSections: "commandCenter.listSections",
+  commandCenterBuildRepoDigest: "commandCenter.buildRepoDigest",
+  commandCenterEnsureOnboardingTeam: "commandCenter.ensureOnboardingTeam",
 
   // Cloud environment methods
   cloudGetRelayClientStatus: "cloud.getRelayClientStatus",
@@ -1844,6 +1873,68 @@ const WsScheduledTasksGetWebhookDeliveryRpc = Rpc.make(
   },
 );
 
+/** Streams the Command Center: one snapshot on subscribe, then each upsert or delete. */
+const WsCommandCenterSubscribeRpc = Rpc.make(WS_METHODS.commandCenterSubscribe, {
+  payload: CommandCenterSubscribeInput,
+  success: CommandCenterStreamEvent,
+  error: Schema.Union([CommandCenterError, EnvironmentAuthorizationError]),
+  stream: true,
+});
+
+const WsCommandCenterUpsertRpc = Rpc.make(WS_METHODS.commandCenterUpsert, {
+  payload: CommandCenterUpsertInput,
+  success: CommandCenterRecord,
+  error: Schema.Union([CommandCenterError, EnvironmentAuthorizationError]),
+});
+
+const WsCommandCenterDeleteRpc = Rpc.make(WS_METHODS.commandCenterDelete, {
+  payload: CommandCenterDeleteInput,
+  error: Schema.Union([CommandCenterError, EnvironmentAuthorizationError]),
+});
+
+const WsCommandCenterSetMemoryDoneRpc = Rpc.make(WS_METHODS.commandCenterSetMemoryDone, {
+  payload: CommandCenterSetMemoryDoneInput,
+  success: CommandCenterMemoryEntry,
+  error: Schema.Union([CommandCenterError, EnvironmentAuthorizationError]),
+});
+
+const WsCommandCenterListMemoryRpc = Rpc.make(WS_METHODS.commandCenterListMemory, {
+  payload: CommandCenterListMemoryInput,
+  success: CommandCenterListMemoryResult,
+  error: Schema.Union([CommandCenterError, EnvironmentAuthorizationError]),
+});
+
+/** Where we left off, the same answer agents get from `memory_recall`. */
+const WsCommandCenterRecallMemoryRpc = Rpc.make(WS_METHODS.commandCenterRecallMemory, {
+  payload: CommandCenterMemoryRecallInput,
+  success: CommandCenterMemoryRecall,
+  error: Schema.Union([CommandCenterError, EnvironmentAuthorizationError]),
+});
+
+/** Sections of one project, or every project; the same answer agents get from `section_list`. */
+const WsCommandCenterListSectionsRpc = Rpc.make(WS_METHODS.commandCenterListSections, {
+  payload: CommandCenterListSectionsInput,
+  success: CommandCenterListSectionsResult,
+  error: Schema.Union([CommandCenterError, EnvironmentAuthorizationError]),
+});
+
+/** Zero-token repo scan saved as the project's `note` digest entry (replacing the previous one). */
+const WsCommandCenterBuildRepoDigestRpc = Rpc.make(WS_METHODS.commandCenterBuildRepoDigest, {
+  payload: CommandCenterBuildRepoDigestInput,
+  success: CommandCenterMemoryEntry,
+  error: Schema.Union([CommandCenterError, EnvironmentAuthorizationError]),
+});
+
+/** Creates the Onboarding team when missing, restores it when archived, keeps user edits. */
+const WsCommandCenterEnsureOnboardingTeamRpc = Rpc.make(
+  WS_METHODS.commandCenterEnsureOnboardingTeam,
+  {
+    payload: Schema.Struct({}),
+    success: CommandCenterOnboardingTeam,
+    error: Schema.Union([CommandCenterError, EnvironmentAuthorizationError]),
+  },
+);
+
 const WsSubscribeAuthAccessRpc = Rpc.make(WS_METHODS.subscribeAuthAccess, {
   payload: Schema.Struct({}),
   success: AuthAccessStreamEvent,
@@ -1936,6 +2027,15 @@ export const WsRpcGroup = RpcGroup.make(
   WsSecretsAnswerRequestRpc,
   WsScheduledTasksListWebhookDeliveriesRpc,
   WsScheduledTasksGetWebhookDeliveryRpc,
+  WsCommandCenterSubscribeRpc,
+  WsCommandCenterUpsertRpc,
+  WsCommandCenterDeleteRpc,
+  WsCommandCenterSetMemoryDoneRpc,
+  WsCommandCenterListMemoryRpc,
+  WsCommandCenterRecallMemoryRpc,
+  WsCommandCenterListSectionsRpc,
+  WsCommandCenterBuildRepoDigestRpc,
+  WsCommandCenterEnsureOnboardingTeamRpc,
   WsServerReportClientActivityRpc,
   WsServerReportHostPowerStateRpc,
   WsServerGetBackgroundPolicyRpc,

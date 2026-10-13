@@ -123,6 +123,7 @@ import * as ThreadLaunchService from "./orchestration-v2/ThreadLaunchService.ts"
 import * as ThreadMessageIntake from "./orchestration-v2/ThreadMessageIntake.ts";
 import * as IdAllocator from "@t3tools/provider-core/server/IdAllocator";
 import * as ScheduledTasks from "./scheduledTasks/ScheduledTaskService.ts";
+import * as CommandCenter from "./commandCenter/CommandCenterService.ts";
 import * as SecretRequests from "./secrets/SecretRequests.ts";
 import {
   archivedShellStreamItemFromThreadShell,
@@ -1240,6 +1241,7 @@ const layerWsRpc = (
       const threadLaunch = yield* ThreadLaunchService.ThreadLaunchService;
       const providerSessionManager = yield* ProviderSessionManager.ProviderSessionManagerV2;
       const scheduledTasks = yield* ScheduledTasks.ScheduledTaskService;
+      const commandCenter = yield* CommandCenter.CommandCenterService;
       const secretRequests = yield* SecretRequests.SecretRequests;
       const pullRequests = yield* PullRequestService.PullRequestService;
       const reviewGuides = yield* PullRequestReviewGuideService.PullRequestReviewGuideService;
@@ -2099,6 +2101,18 @@ const layerWsRpc = (
           Effect.annotateCurrentSpan({ "scheduled_task.id": input.id }).pipe(
             Effect.andThen(scheduledTasks.getWebhookDelivery(input)),
           ),
+        [WS_METHODS.commandCenterSubscribe]: (input) => commandCenter.subscribe(input),
+        [WS_METHODS.commandCenterUpsert]: (input) => commandCenter.upsert(input),
+        [WS_METHODS.commandCenterDelete]: (input) => commandCenter.delete(input),
+        [WS_METHODS.commandCenterSetMemoryDone]: (input) => commandCenter.setMemoryDone(input),
+        [WS_METHODS.commandCenterListMemory]: (input) => commandCenter.listMemory(input),
+        [WS_METHODS.commandCenterRecallMemory]: (input) => commandCenter.recallMemory(input),
+        [WS_METHODS.commandCenterListSections]: (input) =>
+          commandCenter.listSections(input.projectId ?? null),
+        [WS_METHODS.commandCenterBuildRepoDigest]: (input) =>
+          commandCenter.buildRepoDigest(input.projectId),
+        [WS_METHODS.commandCenterEnsureOnboardingTeam]: (_input) =>
+          commandCenter.ensureOnboardingTeam(),
         [WS_METHODS.serverProbe]: (_input) => Effect.succeed({}),
         [WS_METHODS.serverGetConfig]: (_input) => loadServerConfig({ usageLimitsCommand: false }),
         [WS_METHODS.serverSearchAcpRegistry]: (input) =>
@@ -3168,6 +3182,7 @@ export const layer = Layer.unwrap(
     const serverSelfUpdate = yield* ServerSelfUpdate.ServerSelfUpdate;
     const pullRequests = yield* PullRequestService.PullRequestService;
     const reviewGuides = yield* PullRequestReviewGuideService.PullRequestReviewGuideService;
+    const commandCenter = yield* CommandCenter.CommandCenterService;
     const sql = yield* SqlClient.SqlClient;
     return HttpRouter.add(
       "GET",
@@ -3242,6 +3257,8 @@ export const layer = Layer.unwrap(
                   reviewGuides,
                 ),
               ),
+              // Shared so every connection hears the same change stream.
+              Layer.provide(Layer.succeed(CommandCenter.CommandCenterService, commandCenter)),
               Layer.provide(
                 SourceControlDiscovery.layer.pipe(
                   Layer.provide(

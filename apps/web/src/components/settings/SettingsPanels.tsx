@@ -2403,6 +2403,22 @@ export function GeneralSettingsPanel() {
             />
           }
         />
+        <SettingsRow
+          serverScoped
+          {...searchableSetting("command-center")}
+          description="Show Command Center in the sidebar. Off also stops its live updates and daily upkeep on this server."
+          settingKeys={["commandCenter"]}
+          control={
+            <ScopedSwitch
+              settingKeys={["commandCenter"]}
+              checked={settings.commandCenter.enabled}
+              onCheckedChange={(checked) =>
+                updateSettings({ commandCenter: { enabled: Boolean(checked) } })
+              }
+              aria-label="Command Center"
+            />
+          }
+        />
 
         {supportsAutoSettlement ? (
           <>

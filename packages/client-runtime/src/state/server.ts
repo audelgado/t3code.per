@@ -1,4 +1,5 @@
 import {
+  type CommandCenterSnapshot,
   type EnvironmentId,
   type ServerConfig,
   type ServerConfigStreamEvent,
@@ -38,6 +39,7 @@ import * as EnvironmentSupervisor from "../connection/supervisor.ts";
 import { safeErrorLogAttributes } from "../errors/safeLog.ts";
 import * as Persistence from "../platform/persistence.ts";
 import { runCachePersistence } from "./cachePersistence.ts";
+import { applyCommandCenterEvent } from "./commandCenter.ts";
 import {
   isRpcClientError,
   request,
@@ -636,6 +638,9 @@ export function createServerEnvironmentAtoms<R, E>(
     mode: "serial" as const,
     key: ({ environmentId }: { readonly environmentId: string }) => environmentId,
   };
+  // Command Center writes stay ordered (a status clicked twice lands twice, in order)
+  // without queueing behind settings edits on the config lane.
+  const commandCenterScheduler = createAtomCommandScheduler();
   const configProjectionFamily = Atom.family((environmentId: EnvironmentId) =>
     runtime
       .atom(
@@ -1082,6 +1087,21 @@ export function createServerEnvironmentAtoms<R, E>(
       execute: (input: EnvironmentRpcInput<typeof WS_METHODS.serverGetHostResources>) =>
         request(WS_METHODS.serverGetHostResources, input).pipe(Effect.timeout("5 seconds")),
     }),
+    /**
+     * Milliseconds for one no-op RPC on the live socket. Runs only while a view reads it and
+     * refreshes it; the socket's own keepalive pings do not expose their timing.
+     */
+    connectionRoundTrip: createEnvironmentQueryAtomFamily(runtime, {
+      label: "environment-data:server:connection-round-trip",
+      idleTtlMs: 0,
+      staleTimeMs: 5_000,
+      execute: (input: EnvironmentRpcInput<typeof WS_METHODS.serverProbe>) =>
+        request(WS_METHODS.serverProbe, input).pipe(
+          Effect.timed,
+          Effect.map(([duration]) => Duration.toMillis(duration)),
+          Effect.timeout("5 seconds"),
+        ),
+    }),
     processResourceHistory: createEnvironmentRpcQueryAtomFamily(runtime, {
       label: "environment-data:server:process-resource-history",
       tag: WS_METHODS.serverGetProcessResourceHistory,
@@ -1098,6 +1118,21 @@ export function createServerEnvironmentAtoms<R, E>(
     scheduledTasksLive: createEnvironmentRpcSubscriptionAtomFamily(runtime, {
       label: "environment-data:server:scheduled-tasks:live",
       tag: WS_METHODS.scheduledTasksSubscribe,
+    }),
+    /** Command Center snapshot, kept current by folding the stream's upserted/deleted changes. */
+    commandCenterLive: createEnvironmentRpcSubscriptionAtomFamily(runtime, {
+      label: "environment-data:server:command-center:live",
+      tag: WS_METHODS.commandCenterSubscribe,
+      transform: (stream) =>
+        stream.pipe(
+          Stream.mapAccum(
+            (): CommandCenterSnapshot | null => null,
+            (current, event) => {
+              const next = applyCommandCenterEvent(current, event);
+              return [next, next === null ? [] : [next]] as const;
+            },
+          ),
+        ),
     }),
     // A cold transcript scan is measured in seconds, so keep the result around
     // long enough that switching windows or re-rendering does not rescan.
@@ -1329,6 +1364,58 @@ export function createServerEnvironmentAtoms<R, E>(
       label: "environment-data:server:scheduled-task:rotate-webhook-token",
       tag: WS_METHODS.scheduledTasksRotateWebhookToken,
       scheduler: configScheduler,
+      concurrency: configConcurrency,
+    }),
+    upsertCommandCenter: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:server:command-center:upsert",
+      tag: WS_METHODS.commandCenterUpsert,
+      scheduler: commandCenterScheduler,
+      concurrency: configConcurrency,
+    }),
+    deleteCommandCenter: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:server:command-center:delete",
+      tag: WS_METHODS.commandCenterDelete,
+      scheduler: commandCenterScheduler,
+      concurrency: configConcurrency,
+    }),
+    setCommandCenterMemoryDone: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:server:command-center:set-memory-done",
+      tag: WS_METHODS.commandCenterSetMemoryDone,
+      scheduler: commandCenterScheduler,
+      concurrency: configConcurrency,
+    }),
+    /** One page of older memory (`before` = last entry id). A read; never queues behind writes. */
+    listCommandCenterMemory: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:server:command-center:list-memory",
+      tag: WS_METHODS.commandCenterListMemory,
+      concurrency: {
+        mode: "singleFlight",
+        key: ({ environmentId, input }) =>
+          `${environmentId}:${input.projectId ?? ""}:${input.kind ?? ""}:${input.before ?? "first"}`,
+      },
+    }),
+    /** Where we left off for a project, uncapped by the snapshot window. A read, off the write lane. */
+    recallCommandCenterMemory: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:server:command-center:recall-memory",
+      tag: WS_METHODS.commandCenterRecallMemory,
+      concurrency: {
+        mode: "singleFlight",
+        key: ({ environmentId, input }) => `${environmentId}:${input.projectId ?? ""}`,
+      },
+    }),
+    /** Off the write lane: a scan can take seconds (git, gh) and must not hold up edits. */
+    buildCommandCenterRepoDigest: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:server:command-center:build-repo-digest",
+      tag: WS_METHODS.commandCenterBuildRepoDigest,
+      concurrency: {
+        mode: "singleFlight",
+        key: ({ environmentId, input }) => `${environmentId}:${input.projectId}`,
+      },
+    }),
+    ensureCommandCenterOnboardingTeam: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:server:command-center:ensure-onboarding-team",
+      tag: WS_METHODS.commandCenterEnsureOnboardingTeam,
+      scheduler: commandCenterScheduler,
       concurrency: configConcurrency,
     }),
     // Off the config lane: answering a card must not queue behind settings

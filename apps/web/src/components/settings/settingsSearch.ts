@@ -362,6 +362,12 @@ export const SETTINGS_SEARCH_ITEMS = [
     searchTerms: ["hide fold running monitoring threads inbox sidebar shelf"],
   },
   {
+    id: "command-center",
+    title: "Command Center",
+    to: "/settings/general",
+    searchTerms: ["team agents memory finance infra dashboard sidebar"],
+  },
+  {
     id: "auto-settle-inactive-threads",
     title: "Auto-settle inactive threads",
     to: "/settings/general",

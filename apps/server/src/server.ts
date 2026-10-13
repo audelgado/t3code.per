@@ -41,6 +41,8 @@ import * as SqlitePersistence from "./persistence/Sqlite.ts";
 import * as PullRequestFilesViewed from "./persistence/PullRequestFilesViewed.ts";
 import * as PullRequestReviewGuides from "./persistence/PullRequestReviewGuides.ts";
 import * as PullRequestReviewGuideService from "./pullRequest/PullRequestReviewGuideService.ts";
+import * as CommandCenterService from "./commandCenter/CommandCenterService.ts";
+import * as Scheduler from "./scheduling/Scheduler.ts";
 import * as ServerLifecycleEvents from "./serverLifecycleEvents.ts";
 import * as AnalyticsService from "./telemetry/AnalyticsService.ts";
 import * as ProviderEventIngestor from "./orchestration-v2/ProviderEventIngestor.ts";
@@ -724,6 +726,13 @@ const layerMakeRoutes = Layer.mergeAll(
     Layer.provide(McpOAuth.layerMcpClientAuthenticator),
   ),
 ).pipe(
+  // One instance for WebSocket and MCP so every surface sees the same change stream. The
+  // scheduler is the memoized one the runtime uses, so its daily check shares that clock.
+  Layer.provide(
+    CommandCenterService.layer.pipe(
+      Layer.provide(Layer.merge(Scheduler.layer, ProcessRunner.layer)),
+    ),
+  ),
   // Guides read through the same pull request service as every other surface.
   Layer.provide(
     PullRequestReviewGuideService.layer.pipe(Layer.provide(PullRequestReviewGuides.layer)),

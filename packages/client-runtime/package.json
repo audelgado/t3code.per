@@ -87,6 +87,10 @@
       "types": "./src/rpc/index.ts",
       "default": "./src/rpc/index.ts"
     },
+    "./command-center-delegation": {
+      "types": "./src/commandCenterDelegation.ts",
+      "default": "./src/commandCenterDelegation.ts"
+    },
     "./operations": {
       "types": "./src/operations/index.ts",
       "default": "./src/operations/index.ts"
@@ -118,6 +122,10 @@
     "./relay": {
       "types": "./src/relay/index.ts",
       "default": "./src/relay/index.ts"
+    },
+    "./state/commandCenterDerive": {
+      "types": "./src/state/commandCenterDerive.ts",
+      "default": "./src/state/commandCenterDerive.ts"
     },
     "./state/auth": {
       "types": "./src/state/auth.ts",
