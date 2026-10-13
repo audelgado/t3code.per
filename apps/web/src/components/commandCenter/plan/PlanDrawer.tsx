@@ -1,10 +1,16 @@
-import { buildStepPrompt, latestHandoffs } from "@t3tools/client-runtime/command-center-delegation";
-import type {
-  CommandCenterAgentId,
-  CommandCenterSectionId,
-  CommandCenterTeamId,
-  EnvironmentId,
-  ProjectId,
+import {
+  artifactReferenceIds,
+  buildStepPrompt,
+  latestHandoffs,
+  type StepArtifact,
+} from "@t3tools/client-runtime/command-center-delegation";
+import {
+  CommandCenterArtifactId,
+  type CommandCenterAgentId,
+  type CommandCenterSectionId,
+  type CommandCenterTeamId,
+  type EnvironmentId,
+  type ProjectId,
 } from "@t3tools/contracts";
 import { useAtomValue } from "@effect/atom-react";
 import { Atom } from "effect/reactivity";
@@ -231,6 +237,21 @@ function PlanBody({
   const update = (key: number, patch: Partial<PlanStep>) =>
     setSteps((current) => current.map((step) => (step.key === key ? { ...step, ...patch } : step)));
 
+  // Artifacts live with the rest of Command Center on the primary machine; a step running
+  // elsewhere gets the ones its text names inlined, since artifact_get cannot reach them there.
+  const referencedArtifacts = async (text: string): Promise<StepArtifact[]> => {
+    const found = await Promise.all(
+      artifactReferenceIds(text).map((id) =>
+        commands.getArtifact({ id: CommandCenterArtifactId.make(id), includeContent: true }),
+      ),
+    );
+    return found.flatMap((result) =>
+      result._tag === "Success" && result.value.content !== null
+        ? [{ title: result.value.artifact.title, content: result.value.content }]
+        : [],
+    );
+  };
+
   const confirm = async () => {
     if (!ready || running || projectId === null) return;
     setRunning(true);
@@ -246,6 +267,8 @@ function PlanBody({
       if (!agent) break;
       const text = step.text.trim();
       const environmentId = machineOf(step);
+      const memoryReachable = environmentId === primaryEnvironmentId;
+      const artifacts = memoryReachable ? [] : await referencedArtifacts(text);
       const threadId = await startAgentThread({
         environmentId,
         projectId,
@@ -255,7 +278,8 @@ function PlanBody({
           rolePrompt: agent.rolePrompt,
           step: text,
           handoffs,
-          memoryReachable: environmentId === primaryEnvironmentId,
+          memoryReachable,
+          artifacts,
         }),
         sectionId: step.sectionId,
         worktree: step.worktree,

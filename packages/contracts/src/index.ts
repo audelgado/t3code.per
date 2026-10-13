@@ -60,6 +60,8 @@ export * from "./resourceTelemetry.ts";
 export * from "./usage.ts";
 export * from "./scheduledTask.ts";
 export * from "./commandCenter.ts";
+export * from "./commandCenterArtifacts.ts";
+export * from "./commandCenterWorkflows.ts";
 export * from "./worktreeMcp.ts";
 export * from "./resourceTelemetry.ts";
 export * from "./rpc.ts";

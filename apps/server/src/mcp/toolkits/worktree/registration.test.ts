@@ -20,7 +20,11 @@ import * as PullRequestReviewGuideService from "../../../pullRequest/PullRequest
 import * as ProjectSetupScriptRunner from "../../../project/ProjectSetupScriptRunner.ts";
 import * as ProviderRegistry from "../../../provider/ProviderRegistry.ts";
 import * as ScheduledTaskService from "../../../scheduledTasks/ScheduledTaskService.ts";
+import * as ArtifactsService from "../../../commandCenter/ArtifactsService.ts";
 import * as CommandCenterService from "../../../commandCenter/CommandCenterService.ts";
+import * as SkillWriter from "../../../commandCenter/SkillWriter.ts";
+import * as WorkflowRunner from "../../../commandCenter/WorkflowRunner.ts";
+import * as WorkflowStore from "../../../commandCenter/WorkflowStore.ts";
 import * as SecretRequests from "../../../secrets/SecretRequests.ts";
 import * as ServerSettings from "../../../serverSettings.ts";
 import * as VcsStatusBroadcaster from "../../../vcs/VcsStatusBroadcaster.ts";
@@ -45,6 +49,10 @@ const layerStubServices = Layer.mergeAll(
   Layer.mock(ProviderAdapterRegistry.ProviderAdapterRegistryV2)({}),
   Layer.mock(ScheduledTaskService.ScheduledTaskService)({}),
   Layer.mock(CommandCenterService.CommandCenterService)({}),
+  Layer.mock(ArtifactsService.ArtifactsService)({}),
+  Layer.mock(WorkflowStore.WorkflowStore)({}),
+  Layer.mock(SkillWriter.SkillWriter)({}),
+  Layer.mock(WorkflowRunner.WorkflowRunner)({}),
   Layer.mock(SecretRequests.SecretRequests)({}),
   Layer.mock(ProjectService.ProjectService)({}),
   Layer.mock(PullRequestReviewGuideService.PullRequestReviewGuideService)({}),

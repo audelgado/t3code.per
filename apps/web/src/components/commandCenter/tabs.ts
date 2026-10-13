@@ -6,5 +6,8 @@ export const COMMAND_CENTER_TABS = [
   { value: "projects", label: "Projects" },
   { value: "infra", label: "Infra" },
   { value: "finance", label: "Finance" },
+  { value: "artifacts", label: "Artifacts" },
+  { value: "canvas", label: "Canvas" },
+  { value: "workflows", label: "Workflows" },
 ] as const;
 export type CommandCenterTab = (typeof COMMAND_CENTER_TABS)[number]["value"];

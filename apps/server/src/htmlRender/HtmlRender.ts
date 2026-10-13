@@ -123,6 +123,16 @@ export class HtmlRender extends Context.Service<
       | PreviewBrowserHost.PreviewBrowserHostError
       | HeadlessChrome.HtmlRenderBrowserError
     >;
+    /**
+     * A small base64 WebP of the top of a stored page (dark theme), or none when the preview
+     * browser is not installed. Never installs it and never rewrites the page.
+     */
+    readonly thumbnail: (
+      html: string,
+    ) => Effect.Effect<
+      Option.Option<string>,
+      PreviewBrowserHost.PreviewBrowserHostError | HeadlessChrome.HtmlRenderBrowserError
+    >;
   }
 >()("t3/htmlRender/HtmlRender") {}
 
@@ -326,6 +336,10 @@ const MAX_CONCURRENT_BROWSERS = 2;
 // Publishing waits this long at most for heights before returning without them.
 const MEASURE_TIMEOUT = "6 seconds";
 
+// Thumbnails: a 16:10 window of the page at desktop width, scaled to 384x240.
+const THUMBNAIL_WIDTH = 1_024;
+const THUMBNAIL: HeadlessChrome.ThumbnailOptions = { maxHeight: 640, scale: 0.375 };
+
 // Measured in the dark theme with Arial-metric fonts, so text wraps close to how clients show it.
 const MEASURE_FRAGMENT = htmlRenderThemeFragment(
   htmlRenderTheme(T3_CODE_DARK_THEME_COLORS, "dark", HTML_RENDER_MEASURE_FONTS),
@@ -480,7 +494,23 @@ const make = Effect.gen(function* () {
     } satisfies HtmlPreview;
   });
 
-  return HtmlRender.of({ prepare, publish, preview });
+  const thumbnail = Effect.fn("HtmlRender.thumbnail")(function* (html: string) {
+    const executable = yield* previewBrowser.installed;
+    if (Option.isNone(executable)) return Option.none<string>();
+    const shot = yield* launching(executable.value, (noSandbox) =>
+      HeadlessChrome.captureHtmlScreenshot({
+        executable: executable.value,
+        noSandbox,
+        html,
+        width: THUMBNAIL_WIDTH,
+        urlFragment: MEASURE_FRAGMENT,
+        thumbnail: THUMBNAIL,
+      }).pipe(Effect.provideContext(services)),
+    );
+    return Option.some(shot.png);
+  });
+
+  return HtmlRender.of({ prepare, publish, preview, thumbnail });
 });
 
 export const layer = Layer.effect(HtmlRender, make);

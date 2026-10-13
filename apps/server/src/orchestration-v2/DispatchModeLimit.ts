@@ -50,3 +50,15 @@ export const exceededDispatchModeLimit = (
     : interactionModeRank[modes.interactionMode] > interactionModeRank[limit.interactionMode]
       ? "interaction"
       : undefined;
+
+/** `modes`, each stepped down to `limit` where it is broader. */
+export const clampDispatchModes = (limit: DispatchModes, modes: DispatchModes): DispatchModes => ({
+  runtimeMode:
+    runtimeModeRank[modes.runtimeMode] > runtimeModeRank[limit.runtimeMode]
+      ? limit.runtimeMode
+      : modes.runtimeMode,
+  interactionMode:
+    interactionModeRank[modes.interactionMode] > interactionModeRank[limit.interactionMode]
+      ? limit.interactionMode
+      : modes.interactionMode,
+});

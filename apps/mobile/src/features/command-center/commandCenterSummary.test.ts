@@ -1,9 +1,14 @@
 import { threadShellKey } from "@t3tools/client-runtime/state/commandCenterDerive";
 import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/shell";
-import type { CommandCenterSnapshot, EnvironmentId } from "@t3tools/contracts";
+import type {
+  CommandCenterArtifact,
+  CommandCenterSection,
+  CommandCenterSnapshot,
+  EnvironmentId,
+} from "@t3tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
 
-import { summarizeCommandCenter } from "./commandCenterSummary";
+import { artifactDetail, sectionPullRequest, summarizeCommandCenter } from "./commandCenterSummary";
 
 const home = "home" as EnvironmentId;
 const vps = "vps" as EnvironmentId;
@@ -80,5 +85,35 @@ describe("summarizeCommandCenter", () => {
       ["Late", -1],
     ]);
     expect(summary.upcoming.map(({ section }) => section.name)).toEqual(["Far"]);
+  });
+});
+
+describe("sectionPullRequest", () => {
+  const section = (prUrl: string | null | undefined, prNumber: number | null | undefined) =>
+    ({ prUrl, prNumber }) as unknown as CommandCenterSection;
+
+  it("labels a linked pull request by its number, read from the URL when not stored", () => {
+    const url = "https://github.com/acme/app/pull/42";
+    expect(sectionPullRequest(section(url, 7))).toEqual({ url, label: "PR #7" });
+    expect(sectionPullRequest(section(url, null))).toEqual({ url, label: "PR #42" });
+    expect(sectionPullRequest(section("https://example.com/review", null))?.label).toBe(
+      "Pull request",
+    );
+  });
+
+  it("is null for sections from older servers or with the link cleared", () => {
+    expect(sectionPullRequest(section(undefined, undefined))).toBeNull();
+    expect(sectionPullRequest(section(null, null))).toBeNull();
+  });
+});
+
+describe("artifactDetail", () => {
+  it("names the project, current version and age", () => {
+    const artifact = {
+      currentVersion: 3,
+      updatedAt: new Date(Date.now() - 2 * 60 * 60_000).toISOString(),
+    } as unknown as CommandCenterArtifact;
+    expect(artifactDetail(artifact, "Web")).toBe("Web · v3 · 2h ago");
+    expect(artifactDetail(artifact, null)).toBe("No project · v3 · 2h ago");
   });
 });

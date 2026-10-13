@@ -1,11 +1,17 @@
 import { useAtomValue } from "@effect/atom-react";
-import type { CommandCenterSnapshot, ProjectId } from "@t3tools/contracts";
+import type {
+  CommandCenterSnapshot,
+  CommandCenterWorkflowRunId,
+  ProjectId,
+} from "@t3tools/contracts";
 import { Link } from "@tanstack/react-router";
 import { BrainIcon, EyeIcon, EyeOffIcon } from "lucide-react";
 import {
   type Dispatch,
+  lazy,
   type ReactNode,
   type SetStateAction,
+  Suspense,
   useCallback,
   useEffect,
   useEffectEvent,
@@ -18,8 +24,10 @@ import { isElectron } from "~/env";
 import { usePrimarySettings } from "~/hooks/useSettings";
 import { useProjects } from "~/state/entities";
 import { usePrimaryEnvironment } from "~/state/environments";
+import { parseWorkflowCommand } from "~/workflowCommand";
 import { useEnvironmentQuery } from "~/state/query";
 import { serverEnvironment } from "~/state/server";
+import { requestWorkflowRun } from "../RunWorkflowDialog";
 import { Button } from "../ui/button";
 import { ScrollArea } from "../ui/scroll-area";
 import { SidebarInset } from "../ui/sidebar";
@@ -49,6 +57,17 @@ import {
 } from "./shared";
 import { COMMAND_CENTER_TABS, type CommandCenterTab } from "./tabs";
 import { TeamTab } from "./team/TeamTab";
+
+// Artifacts, Canvas and Workflows carry their own heavier views; load them only when opened.
+const ArtifactsTab = lazy(() =>
+  import("./artifacts/ArtifactsTab").then((module) => ({ default: module.ArtifactsTab })),
+);
+const CanvasTab = lazy(() =>
+  import("./canvas/CanvasTab").then((module) => ({ default: module.CanvasTab })),
+);
+const WorkflowsTab = lazy(() =>
+  import("./workflows/WorkflowsTab").then((module) => ({ default: module.WorkflowsTab })),
+);
 
 type PlanState = Pick<PlanDrawerProps, "request" | "projectId" | "target" | "seed"> & {
   readonly open: boolean;
@@ -91,12 +110,25 @@ function PageShell({ actions, children }: { actions?: ReactNode; children: React
   );
 }
 
+interface WorkflowRunLink {
+  readonly projectId: ProjectId;
+  readonly runId: CommandCenterWorkflowRunId;
+}
+
 export function CommandCenterPage({
   tab,
   onTabChange,
+  artifactId,
+  onArtifactChange,
+  workflowRun,
 }: {
   readonly tab: CommandCenterTab;
   readonly onTabChange: (tab: CommandCenterTab) => void;
+  /** Artifact open in the Artifacts tab (from the URL). */
+  readonly artifactId: string | null;
+  readonly onArtifactChange: (artifactId: string | null) => void;
+  /** A run the Workflows tab opens (from the URL), in its project. */
+  readonly workflowRun: WorkflowRunLink | null;
 }) {
   const primary = usePrimaryEnvironment();
   const primaryEnvironmentId = primary?.environmentId ?? null;
@@ -129,7 +161,13 @@ export function CommandCenterPage({
     });
   }, [allProjects]);
   const { hidden, toggle: toggleHidden } = useHideAmountsState();
-  const [projectId, setProjectId] = useState<ProjectId | null>(null);
+  const [projectId, setProjectId] = useState<ProjectId | null>(workflowRun?.projectId ?? null);
+  // A link to a run picks its project, once per link.
+  const [linkedRun, setLinkedRun] = useState(workflowRun);
+  if (workflowRun !== linkedRun) {
+    setLinkedRun(workflowRun);
+    if (workflowRun !== null) setProjectId(workflowRun.projectId);
+  }
 
   const [draft, setDraft] = useState("");
   const [draftProjectId, setDraftProjectId] = useState<ProjectId | null>(null);
@@ -231,6 +269,9 @@ export function CommandCenterPage({
       <CommandCenterBody
         tab={tab}
         onTabChange={onTabChange}
+        artifactId={artifactId}
+        onArtifactChange={onArtifactChange}
+        workflowRun={workflowRun}
         onProjectFilterChange={setProjectId}
         onToggleHidden={toggleHidden}
         draft={draft}
@@ -252,6 +293,9 @@ export function CommandCenterPage({
 function CommandCenterBody({
   tab,
   onTabChange,
+  artifactId,
+  onArtifactChange,
+  workflowRun,
   onProjectFilterChange,
   onToggleHidden,
   draft,
@@ -264,6 +308,9 @@ function CommandCenterBody({
 }: {
   readonly tab: CommandCenterTab;
   readonly onTabChange: (tab: CommandCenterTab) => void;
+  readonly artifactId: string | null;
+  readonly onArtifactChange: (artifactId: string | null) => void;
+  readonly workflowRun: WorkflowRunLink | null;
   readonly onProjectFilterChange: (projectId: ProjectId | null) => void;
   readonly onToggleHidden: () => void;
   readonly draft: string;
@@ -284,6 +331,22 @@ function CommandCenterBody({
   const submit = async () => {
     const text = draft.trim();
     if (!text || saving) return;
+    const workflowCommand = parseWorkflowCommand(text);
+    if (workflowCommand !== null) {
+      const project = projects.find((candidate) => candidate.id === draftProjectId);
+      if (!project) {
+        toastManager.add({ type: "error", title: "Pick a project to run a workflow in" });
+        return;
+      }
+      // The run starts where the project lives; the request asks for anything missing.
+      requestWorkflowRun({
+        environmentId: project.environmentId,
+        projectId: project.id,
+        command: workflowCommand,
+      });
+      onDraftChange("");
+      return;
+    }
     // `onboard` uses the bar's project; `onboard <project title>` names one. Anything else
     // starting with "onboard" ("onboard the new hire docs") is ordinary work for the plan.
     const onboard = /^onboard(?:\s+(.+))?$/i.exec(text);
@@ -436,8 +499,26 @@ function CommandCenterBody({
         <ProjectsTab />
       ) : tab === "infra" ? (
         <InfraTab />
-      ) : (
+      ) : tab === "finance" ? (
         <FinanceTab />
+      ) : (
+        <Suspense fallback={null}>
+          {tab === "artifacts" ? (
+            <ArtifactsTab
+              openId={artifactId}
+              onOpenChange={onArtifactChange}
+              onSendToAgent={(text, artifactProjectId) => {
+                // Appended, so a request already being typed keeps its words.
+                onDraftChange(draft.trim() === "" ? text : `${draft.trimEnd()} ${text}`);
+                if (artifactProjectId !== null) onDraftProjectChange(artifactProjectId);
+              }}
+            />
+          ) : tab === "canvas" ? (
+            <CanvasTab />
+          ) : (
+            <WorkflowsTab runLink={workflowRun} />
+          )}
+        </Suspense>
       )}
 
       <PlanDrawer

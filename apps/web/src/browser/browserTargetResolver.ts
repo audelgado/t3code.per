@@ -91,6 +91,17 @@ const reachesEnvironmentLoopback = (target: ConnectionTarget): boolean =>
   (target._tag === "PrimaryConnectionTarget" || isDesktopLocalConnectionTarget(target));
 
 export function resolveDiscoveredServerUrl(environmentId: EnvironmentId, rawUrl: string): string {
+  return resolveReachableServerUrl(environmentId, rawUrl) ?? rawUrl;
+}
+
+/**
+ * `resolveDiscoveredServerUrl`, or null when this client cannot reach that server at all (a
+ * loopback URL on an environment that is neither this machine nor on a private network).
+ */
+export function resolveReachableServerUrl(
+  environmentId: EnvironmentId,
+  rawUrl: string,
+): string | null {
   try {
     const normalizedUrl = normalizePreviewUrl(rawUrl);
     const parsed = new URL(normalizedUrl);
@@ -110,6 +121,6 @@ export function resolveDiscoveredServerUrl(environmentId: EnvironmentId, rawUrl:
       parsed,
     ).resolvedUrl;
   } catch {
-    return rawUrl;
+    return null;
   }
 }

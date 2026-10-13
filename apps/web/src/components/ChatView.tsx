@@ -187,6 +187,8 @@ import {
   collapseExpandedComposerCursor,
   parseStandaloneComposerSlashCommand,
 } from "../composer-logic";
+import { parseWorkflowCommand } from "../workflowCommand";
+import { requestWorkflowRun } from "./RunWorkflowDialog";
 import {
   derivePendingApprovals,
   derivePendingUserInputs,
@@ -9240,6 +9242,29 @@ export default function ChatView(props: ChatViewProps) {
       ) {
         handleNewThreadInActiveProject();
       }
+      return;
+    }
+    // `/wf <slug> ...` runs a Command Center workflow in this thread's project instead of sending.
+    const workflowCommand =
+      activeProject &&
+      settings.commandCenter.enabled &&
+      composerImages.length === 0 &&
+      composerFiles.length === 0 &&
+      sendableComposerTerminalContexts.length === 0 &&
+      composerPreviewAnnotations.length === 0 &&
+      composerReviewComments.length === 0 &&
+      composerThreadContexts.length === 0
+        ? parseWorkflowCommand(trimmed)
+        : null;
+    if (activeProject && workflowCommand) {
+      requestWorkflowRun({
+        environmentId: activeProject.environmentId,
+        projectId: activeProject.id,
+        command: workflowCommand,
+      });
+      promptRef.current = "";
+      clearComposerDraftContent(composerDraftTarget);
+      composerRef.current?.resetCursorState();
       return;
     }
     // Providers without the legacy toggle receive their native commands unchanged.

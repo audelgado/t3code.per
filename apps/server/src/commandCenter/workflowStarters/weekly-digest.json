@@ -1,0 +1,15 @@
+{
+  "slug": "weekly-digest",
+  "title": "Weekly project digest",
+  "description": "Summarize the week's commits and open work into a short digest.",
+  "nodes": [
+    {
+      "id": "digest",
+      "kind": "agent",
+      "title": "Write digest",
+      "prompt": "Summarize this project's last seven days: what shipped (from git log), what is in progress, and the open todos and blockers. Under 200 words, as bullets.",
+      "outputs": "artifact"
+    }
+  ],
+  "layout": { "digest": { "x": 0, "y": 0 } }
+}

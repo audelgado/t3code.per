@@ -1,9 +1,13 @@
 import {
   CommandCenterMemoryId,
   CommandCenterSectionId,
+  EnvironmentId,
   ProjectId,
+  ScheduledTaskId,
+  ThreadId,
   type CommandCenterMemoryEntry,
   type CommandCenterSection,
+  type ScheduledTask,
 } from "@t3tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
 
@@ -12,8 +16,11 @@ import {
   daysBetween,
   delegationSteps,
   nextDelivery,
+  previewThreadFor,
   projectHealth,
   projectProgress,
+  pullRequestLinkFromInput,
+  recurringProjectTasks,
   stripMarkers,
   unmetDependencies,
   whereWeLeftOff,
@@ -206,5 +213,80 @@ describe("dependencies and health", () => {
     expect(health([section({ id: "week", dueDate: "2026-10-19" })])).toBe("amber");
     expect(health([section({ id: "idle" })], 0)).toBe("amber");
     expect(health([section({ id: "waits" })], 1, 1)).toBe("amber");
+  });
+});
+
+describe("pullRequestLinkFromInput", () => {
+  it("keeps web addresses, reading the number when the host is known", () => {
+    expect(pullRequestLinkFromInput(" https://github.com/acme/app/pull/42 ")).toEqual({
+      prUrl: "https://github.com/acme/app/pull/42",
+      prNumber: 42,
+    });
+    expect(pullRequestLinkFromInput("https://example.com/review/7")).toEqual({
+      prUrl: "https://example.com/review/7",
+      prNumber: null,
+    });
+  });
+
+  it("refuses anything that is not a single web address", () => {
+    expect(pullRequestLinkFromInput("#42")).toBeNull();
+    expect(pullRequestLinkFromInput("https://github.com/a b")).toBeNull();
+    expect(pullRequestLinkFromInput(`https://x.dev/${"a".repeat(2_000)}`)).toBeNull();
+  });
+});
+
+describe("recurringProjectTasks", () => {
+  const task = (id: string, patch: Partial<ScheduledTask>) =>
+    ({
+      id: ScheduledTaskId.make(id),
+      projectId: PROJECT,
+      enabled: true,
+      nextRunAt: null,
+      schedule: { type: "interval", everyMs: 60_000 },
+      ...patch,
+    }) as ScheduledTask;
+
+  it("keeps this project's timed tasks, soonest run first and paused ones last", () => {
+    const tasks = [
+      task("paused", { enabled: false, nextRunAt: "2026-10-13T08:00:00.000Z" }),
+      task("later", { nextRunAt: "2026-10-14T09:00:00.000Z" }),
+      task("hook", { schedule: { type: "webhook" } as ScheduledTask["schedule"] }),
+      task("other", { projectId: OTHER, nextRunAt: "2026-10-13T07:00:00.000Z" }),
+      task("soon", { nextRunAt: "2026-10-13T09:00:00.000Z" }),
+    ];
+    expect(recurringProjectTasks(tasks, PROJECT).map((entry) => entry.id)).toEqual([
+      "soon",
+      "later",
+      "paused",
+    ]);
+  });
+});
+
+describe("previewThreadFor", () => {
+  const LOCAL = EnvironmentId.make("local");
+  const shell = (id: string, patch: Partial<Parameters<typeof previewThreadFor>[0][number]>) => ({
+    environmentId: LOCAL,
+    id: ThreadId.make(id),
+    projectId: PROJECT,
+    updatedAt: "2026-10-10T00:00:00.000Z",
+    archivedAt: null,
+    deletedAt: null,
+    ...patch,
+  });
+
+  it("picks the project's most recently updated live thread on that machine", () => {
+    const shells = [
+      shell("old", {}),
+      shell("new", { updatedAt: "2026-10-12T00:00:00.000Z" }),
+      shell("archived", { updatedAt: "2026-10-13T00:00:00.000Z", archivedAt: "2026-10-13" }),
+      shell("deleted", { updatedAt: "2026-10-13T00:00:00.000Z", deletedAt: "2026-10-13" }),
+      shell("elsewhere", {
+        updatedAt: "2026-10-13T00:00:00.000Z",
+        environmentId: EnvironmentId.make("remote"),
+      }),
+      shell("other-project", { updatedAt: "2026-10-13T00:00:00.000Z", projectId: OTHER }),
+    ];
+    expect(previewThreadFor(shells, LOCAL, PROJECT)).toBe("new");
+    expect(previewThreadFor(shells, LOCAL, ProjectId.make("none"))).toBeNull();
   });
 });

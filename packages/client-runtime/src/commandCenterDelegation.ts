@@ -1,4 +1,8 @@
-import type { CommandCenterMemoryEntry, ProjectId } from "@t3tools/contracts";
+import type {
+  CommandCenterArtifact,
+  CommandCenterMemoryEntry,
+  ProjectId,
+} from "@t3tools/contracts";
 import { sanitizeBranchFragment } from "@t3tools/shared/git";
 
 // How Command Center starts agent threads, shared by the web plan drawer, the web onboarding
@@ -6,6 +10,25 @@ import { sanitizeBranchFragment } from "@t3tools/shared/git";
 
 const HANDOFF_PROMPT_LIMIT = 3;
 const HANDOFF_TEXT_LIMIT = 500;
+const ARTIFACT_PROMPT_CHARS = 20_000;
+
+/** Orchestrator text that points an agent at an artifact; the agent reads it with `artifact_get`. */
+export function artifactAgentReference(
+  artifact: Pick<CommandCenterArtifact, "id" | "title" | "currentVersion">,
+): string {
+  return `Use the artifact "${artifact.title}" (id ${artifact.id}, v${artifact.currentVersion}); read it with artifact_get. `;
+}
+
+/** Artifact ids a step's text points at with `artifactAgentReference`. */
+export function artifactReferenceIds(text: string): string[] {
+  return [...new Set(Array.from(text.matchAll(/\(id ([^\s,)]+), v\d+\)/g), (match) => match[1]!))];
+}
+
+/** An artifact a step refers to, inlined into the prompt where the artifact tools cannot reach. */
+export interface StepArtifact {
+  readonly title: string;
+  readonly content: string;
+}
 
 /** Newest handoff entries for a project, as included in delegated prompts. */
 export function latestHandoffs(
@@ -29,6 +52,8 @@ export interface StepPromptInput {
    * refuse there, so the agent hands off in its final reply instead. Defaults to true.
    */
   readonly memoryReachable?: boolean;
+  /** Artifacts the step refers to; inlined (capped) only when memory is out of reach. */
+  readonly artifacts?: ReadonlyArray<StepArtifact>;
 }
 
 /**
@@ -41,6 +66,7 @@ export function buildStepPrompt({
   step,
   handoffs = [],
   memoryReachable = true,
+  artifacts = [],
 }: StepPromptInput) {
   const handoffBlock =
     handoffs.length === 0
@@ -59,10 +85,27 @@ export function buildStepPrompt({
     ? "Before you start, call the memory_recall tool for this project to see where we left off. " +
       'When you finish, call memory_save with kind "handoff" saying what is ready and what is ' +
       "missing for whoever picks this project up next. Save open todos with memory_save too."
-    : "Command Center memory lives on another machine, so its tools do not work here; the " +
-      'latest handoffs are above. When you finish, end your reply with a short "Handoff:" ' +
-      "paragraph saying what is ready and what is missing.";
-  return [rolePrompt.trim(), `Task: ${step}`, handoffBlock, contract]
+    : "Command Center memory and artifacts live on another machine, so their tools do not " +
+      "work here; the latest handoffs and the artifacts the task names are in this message. " +
+      'When you finish, end your reply with a short "Handoff:" paragraph saying what is ready ' +
+      "and what is missing.";
+  const artifactBlock = memoryReachable
+    ? ""
+    : artifacts
+        .map((artifact) => {
+          // Inlined images are bulk the agent cannot read as text.
+          const text = artifact.content.replace(
+            /data:[a-z0-9.+/-]+;base64,[a-z0-9+/=]{200,}/gi,
+            "data:inline-image",
+          );
+          const clipped =
+            text.length > ARTIFACT_PROMPT_CHARS
+              ? `${text.slice(0, ARTIFACT_PROMPT_CHARS)}\n[… cut at ${ARTIFACT_PROMPT_CHARS} characters]`
+              : text;
+          return `Artifact "${artifact.title}":\n${clipped}`;
+        })
+        .join("\n\n");
+  return [rolePrompt.trim(), `Task: ${step}`, handoffBlock, artifactBlock, contract]
     .filter((part) => part.length > 0)
     .join("\n\n");
 }

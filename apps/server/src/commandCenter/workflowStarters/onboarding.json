@@ -1,0 +1,46 @@
+{
+  "slug": "onboarding",
+  "title": "Onboarding",
+  "description": "Map a new project, propose Command Center sections, and create them once you agree.",
+  "nodes": [
+    {
+      "id": "map",
+      "kind": "agent",
+      "title": "Map the repository",
+      "prompt": "Read this repository and write a short map: what it does, the stack, how to run and test it, and where the main code lives. Keep it under 300 words.",
+      "outputs": "memory"
+    },
+    {
+      "id": "sections",
+      "kind": "agent",
+      "title": "Propose sections",
+      "prompt": "From the repository map, propose three to seven Command Center sections (areas of work) with one line each on what is done and what is missing. Do not create them yet.",
+      "outputs": "text"
+    },
+    {
+      "id": "confirm",
+      "kind": "ask",
+      "title": "Confirm sections",
+      "question": "Create these sections in Command Center?",
+      "choices": ["Create them", "Stop"]
+    },
+    {
+      "id": "create",
+      "kind": "agent",
+      "title": "Create sections",
+      "prompt": "Create the proposed sections in Command Center: call section_list first and skip any that already exist, then section_create for each new one, with what is done and missing as its trying or missing fields. Reply with the sections you created.",
+      "outputs": "text"
+    }
+  ],
+  "edges": [
+    { "from": "map", "to": "sections" },
+    { "from": "sections", "to": "confirm" },
+    { "from": "confirm", "to": "create" }
+  ],
+  "layout": {
+    "map": { "x": 0, "y": 0 },
+    "sections": { "x": 280, "y": 0 },
+    "confirm": { "x": 560, "y": 0 },
+    "create": { "x": 840, "y": 0 }
+  }
+}

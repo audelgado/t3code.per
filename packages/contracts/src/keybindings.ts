@@ -123,9 +123,20 @@ export const SCRIPT_RUN_COMMAND_PATTERN = Schema.TemplateLiteral([
   Schema.Literal(".run"),
 ]);
 
+/** `workflow.<slug>.run` runs a Command Center workflow in the active project. No default keys. */
+export const WORKFLOW_RUN_COMMAND_PATTERN = Schema.TemplateLiteral([
+  Schema.Literal("workflow."),
+  Schema.NonEmptyString.check(
+    Schema.isMaxLength(64),
+    Schema.isPattern(/^[a-z0-9]+(?:-[a-z0-9]+)*$/),
+  ),
+  Schema.Literal(".run"),
+]);
+
 export const KeybindingCommand = Schema.Union([
   Schema.Literals(STATIC_KEYBINDING_COMMANDS),
   SCRIPT_RUN_COMMAND_PATTERN,
+  WORKFLOW_RUN_COMMAND_PATTERN,
 ]);
 export type KeybindingCommand = typeof KeybindingCommand.Type;
 

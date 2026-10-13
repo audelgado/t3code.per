@@ -78,6 +78,7 @@ import {
   SquarePenIcon,
   SunIcon,
   TextSearchIcon,
+  WorkflowIcon,
 } from "lucide-react";
 import { requestThreadFindOpen } from "./chat/threadFindActionBus";
 import {
@@ -131,7 +132,13 @@ import { useScratchProject } from "../hooks/useScratchProject";
 import { useNewProject } from "../hooks/useNewProject";
 import { isScratchProject } from "@t3tools/client-runtime/state/projects";
 import { useEnvironments, usePrimaryEnvironmentId } from "../state/environments";
-import { useProjects, useServerConfigs, useThreadShells, waitForProject } from "../state/entities";
+import {
+  readThreadShell,
+  useProjects,
+  useServerConfigs,
+  useThreadShells,
+  waitForProject,
+} from "../state/entities";
 import { useThreadSearch } from "../state/queries";
 import { resolveThreadActionProjectRef, startNewThreadFromContext } from "../lib/chatThreadActions";
 import {
@@ -229,6 +236,8 @@ import {
   type ProviderInstanceEntry,
 } from "../providerInstances";
 import { resolveShortcutCommand, threadJumpIndexFromCommand } from "../keybindings";
+import { commandForWorkflow, workflowSlugFromCommand } from "../workflowCommand";
+import { RunWorkflowHost, runWorkflowNow, useWorkflowChoices } from "./RunWorkflowDialog";
 import { CommandDialog, CommandDialogPopup, CommandFooterAction } from "./ui/command";
 import { Button } from "./ui/button";
 import { Kbd, KbdGroup } from "./ui/kbd";
@@ -480,6 +489,24 @@ export function CommandPalette({ children }: { children: ReactNode }) {
         void navigate({ to: "/command" });
         return;
       }
+      const workflowSlug = workflowSlugFromCommand(command);
+      if (workflowSlug !== null) {
+        event.preventDefault();
+        event.stopPropagation();
+        if (event.repeat) return;
+        const shell = routeThreadRef ? readThreadShell(routeThreadRef) : null;
+        if (shell === null) {
+          toastManager.add({
+            type: "info",
+            title: "Open a thread to run this workflow",
+            description: "Workflow shortcuts run in the open thread's project.",
+          });
+          return;
+        }
+        setOpen(false);
+        runWorkflowNow(shell.environmentId, shell.projectId, workflowSlug);
+        return;
+      }
       const mode = overlayModeForCommand(command);
       if (mode === null) {
         return;
@@ -496,6 +523,7 @@ export function CommandPalette({ children }: { children: ReactNode }) {
     navigate,
     previewOpen,
     resolvedTheme,
+    routeThreadRef,
     setAppearanceMode,
     setOpen,
     terminalOpen,
@@ -549,6 +577,8 @@ export function CommandPalette({ children }: { children: ReactNode }) {
           clearOpenIntent={clearOpenIntent}
         />
       </CommandDialog>
+      {/* Outside the palette's dialog so a run's input prompt is its own top-level dialog. */}
+      <RunWorkflowHost />
     </ComposerHandleContext>
   );
 }
@@ -1067,6 +1097,12 @@ function OpenCommandPaletteDialog(props: {
   const currentProjectEnvironmentId =
     activeThread?.environmentId ?? activeDraftThread?.environmentId ?? null;
   const currentProjectId = activeThread?.projectId ?? activeDraftThread?.projectId ?? null;
+  // Live only while the palette is open (this dialog unmounts when it closes).
+  const workflowChoicesForPalette = useWorkflowChoices(
+    currentProjectEnvironmentId,
+    currentProjectId,
+    commandCenterEnabled,
+  );
   // Where "without a project" threads start: the current environment when it
   // offers them, otherwise the first connected one that does.
   const scratchTargetEnvironmentId = scratchEnvironmentId(
@@ -2234,12 +2270,41 @@ function OpenCommandPaletteDialog(props: {
     actionItems.push({
       kind: "action",
       value: "action:command-center",
-      searchTerms: ["command center", "team", "agents", "memory", "projects", "infra", "finance"],
+      searchTerms: [
+        "command center",
+        "team",
+        "agents",
+        "memory",
+        "projects",
+        "infra",
+        "finance",
+        "artifacts",
+        "library",
+        "canvas",
+        "workflows",
+        "skills",
+      ],
       title: "Open Command Center",
       icon: <LayoutDashboardIcon className={ITEM_ICON_CLASS} />,
       shortcutCommand: "commandCenter.open",
       run: async () => {
         await navigate({ to: "/command" });
+      },
+    });
+  }
+
+  for (const workflow of workflowChoicesForPalette.choices) {
+    const shortcutCommand = commandForWorkflow(workflow.slug);
+    actionItems.push({
+      kind: "action",
+      value: `action:workflow:${workflow.slug}`,
+      searchTerms: ["run workflow", "workflow", "/wf", workflow.slug, workflow.title],
+      title: `Run workflow: ${workflow.title}`,
+      icon: <WorkflowIcon className={ITEM_ICON_CLASS} />,
+      ...(shortcutCommand ? { shortcutCommand } : {}),
+      run: async () => {
+        if (currentProjectEnvironmentId === null || currentProjectId === null) return;
+        runWorkflowNow(currentProjectEnvironmentId, currentProjectId, workflow.slug);
       },
     });
   }

@@ -840,10 +840,12 @@ export const layerAttachmentToolkit = toolkitRegistration(
   AttachmentHandlers.layer,
 );
 
+// artifact_save inlines local images like html_render; layers are memoized, so this shares the
+// HTML toolkit's renderer.
 export const layerCommandCenterToolkit = toolkitRegistration(
   CommandCenterToolkit,
   CommandCenterHandlers.layer,
-);
+).pipe(Layer.provide(HtmlRender.layer));
 
 export const layerPullRequestsToolkit = toolkitRegistration(
   PullRequestsToolkit,

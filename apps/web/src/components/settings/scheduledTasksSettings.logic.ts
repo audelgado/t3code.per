@@ -42,6 +42,8 @@ export function validateScheduledTasksSearch(raw: Record<string, unknown>) {
     ...(typeof raw.taskId === "string" && raw.taskId.trim()
       ? { taskId: ScheduledTaskId.make(raw.taskId) }
       : {}),
+    // Links such as Command Center's "New task" open the editor for a new task right away.
+    ...(raw.newTask === true || raw.newTask === "true" ? { newTask: true as const } : {}),
   };
 }
 

@@ -532,6 +532,27 @@ it.effect("treats section names that differ only in case or Unicode form as one"
   }).pipe(Effect.provide(testLayer)),
 );
 
+it.effect("links a section's pull request, keeps it across edits and clears it", () =>
+  Effect.gen(function* () {
+    const service = yield* CommandCenterService.CommandCenterService;
+    const { value } = section("Checkout");
+    const created = yield* service.createSection(value);
+    const prUrl = "https://github.com/acme/shop/pull/42";
+    const linked = yield* service.setSectionPullRequest({ id: created.id, prUrl, prNumber: 42 });
+    assert.deepInclude(linked, { prUrl, prNumber: 42 });
+    yield* service.upsert({ entity: "section", value: { ...value, id: created.id, tasksDone: 2 } });
+    const [kept] = (yield* service.listSections(projectA)).sections;
+    assert.deepInclude(kept, { prUrl, prNumber: 42, tasksDone: 2 });
+    // Clearing the URL clears the number with it.
+    const cleared = yield* service.setSectionPullRequest({
+      id: created.id,
+      prUrl: null,
+      prNumber: 42,
+    });
+    assert.deepInclude(cleared, { prUrl: null, prNumber: null });
+  }).pipe(Effect.provide(testLayer)),
+);
+
 it.effect("serves a summary subscription without memory or money", () =>
   Effect.gen(function* () {
     const service = yield* CommandCenterService.CommandCenterService;

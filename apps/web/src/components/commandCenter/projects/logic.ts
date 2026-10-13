@@ -1,8 +1,12 @@
-import type {
-  CommandCenterMemoryEntry,
-  CommandCenterSection,
-  CommandCenterSectionStatus,
-  ProjectId,
+import {
+  type CommandCenterMemoryEntry,
+  type CommandCenterSection,
+  type CommandCenterSectionStatus,
+  type EnvironmentId,
+  type ProjectId,
+  pullRequestNumberFromUrl,
+  type ScheduledTask,
+  type ThreadId,
 } from "@t3tools/contracts";
 
 /** Days shown on the delivery strip. */
@@ -236,4 +240,56 @@ export function projectHealth({
   if (red.length > 0) return { level: "red", reasons: [...red, ...amber] };
   if (amber.length > 0) return { level: "amber", reasons: amber };
   return { level: "green", reasons: [] };
+}
+
+/**
+ * A pasted pull request link as `setSectionPullRequest` takes it, or null when it is not a web
+ * address. Links outside GitHub, GitLab and Bitbucket still save, just without a number.
+ */
+export function pullRequestLinkFromInput(text: string) {
+  const prUrl = text.trim();
+  if (prUrl.length > 2_000 || !/^https?:\/\/\S+$/i.test(prUrl)) return null;
+  return { prUrl, prNumber: pullRequestNumberFromUrl(prUrl) };
+}
+
+/** The project's recurring scheduled tasks (webhook tasks only run when called), next run first. */
+export function recurringProjectTasks(
+  tasks: ReadonlyArray<ScheduledTask>,
+  projectId: ProjectId,
+): ReadonlyArray<ScheduledTask> {
+  const next = (task: ScheduledTask) =>
+    task.enabled && task.nextRunAt !== null ? Date.parse(task.nextRunAt) : Infinity;
+  return tasks
+    .filter((task) => task.projectId === projectId && task.schedule.type !== "webhook")
+    .toSorted((left, right) => next(left) - next(right));
+}
+
+/**
+ * The thread a project's preview opens beside: the preview browser lives in a thread's panel,
+ * so this is the most recently updated live thread of the project on that machine.
+ */
+export function previewThreadFor(
+  shells: ReadonlyArray<{
+    readonly environmentId: EnvironmentId;
+    readonly id: ThreadId;
+    readonly projectId: ProjectId;
+    readonly updatedAt: string;
+    readonly archivedAt: string | null;
+    readonly deletedAt: string | null;
+  }>,
+  environmentId: EnvironmentId,
+  projectId: ProjectId,
+): ThreadId | null {
+  let best: (typeof shells)[number] | null = null;
+  for (const shell of shells) {
+    if (
+      shell.environmentId !== environmentId ||
+      shell.projectId !== projectId ||
+      shell.archivedAt !== null ||
+      shell.deletedAt !== null
+    )
+      continue;
+    if (best === null || shell.updatedAt > best.updatedAt) best = shell;
+  }
+  return best?.id ?? null;
 }

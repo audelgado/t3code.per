@@ -7,6 +7,7 @@ import type { RpcSession } from "../rpc/session.ts";
 import { describe, expect, it } from "@effect/vitest";
 import { vi } from "vite-plus/test";
 import {
+  AuthFilesystemWriteScope,
   AuthOrchestrationOperateScope,
   AuthSettingsWriteScope,
   AuthSourceControlWriteScope,
@@ -102,6 +103,46 @@ describe("command permissions", () => {
         );
         expect(registry.get(check.permissionAtom(env))).toBe(true);
         yield* check.authorize(registry, env);
+      }),
+    ),
+  );
+
+  it.effect("needs a file write grant for workflow files and operate for runs", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const registry = yield* setup;
+        const save = createCommandPermissions(runtime, WS_METHODS.commandCenterSaveWorkflow);
+        const skill = createCommandPermissions(runtime, WS_METHODS.commandCenterCreateSkill);
+        const start = createCommandPermissions(runtime, WS_METHODS.commandCenterStartWorkflowRun);
+        const trash = [
+          WS_METHODS.commandCenterDeleteSnippet,
+          WS_METHODS.commandCenterRestoreSnippet,
+          WS_METHODS.commandCenterDeleteSkill,
+          WS_METHODS.commandCenterRestoreSkill,
+        ].map((method) => createCommandPermissions(runtime, method));
+        const operate = [
+          WS_METHODS.commandCenterAnswerWorkflowStep,
+          WS_METHODS.commandCenterRewriteText,
+        ].map((method) => createCommandPermissions(runtime, method));
+        registry.set(sessions(env), AsyncResult.success(grant(true)));
+        expect(registry.get(save.permissionAtom(env))).toBe(false);
+        expect(registry.get(skill.permissionAtom(env))).toBe(false);
+        expect(registry.get(start.permissionAtom(env))).toBe(true);
+        for (const check of trash) expect(registry.get(check.permissionAtom(env))).toBe(false);
+        for (const check of operate) expect(registry.get(check.permissionAtom(env))).toBe(true);
+        registry.set(
+          sessions(env),
+          AsyncResult.success({
+            ...grant(false),
+            scopes: [AuthFilesystemWriteScope],
+            permissions: [AuthFilesystemWriteScope],
+          }),
+        );
+        expect(registry.get(save.permissionAtom(env))).toBe(true);
+        expect(registry.get(start.permissionAtom(env))).toBe(false);
+        for (const check of trash) expect(registry.get(check.permissionAtom(env))).toBe(true);
+        for (const check of operate) expect(registry.get(check.permissionAtom(env))).toBe(false);
+        yield* skill.authorize(registry, env);
       }),
     ),
   );

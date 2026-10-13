@@ -286,6 +286,7 @@ describe("KeybindingsSettings.logic", () => {
     expect(commandLabel("view.reopenClosed")).toBe("Reopen Closed Tab");
     expect(commandLabel("preview.focusUrl")).toBe("Preview: Focus URL");
     expect(commandLabel("script.setup-db.run")).toBe("Run Script: Setup Db");
+    expect(commandLabel("workflow.release-notes.run")).toBe("Run Workflow: Release Notes");
   });
 
   it("builds known when variable options from defaults without frontend labels", () => {

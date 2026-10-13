@@ -41,8 +41,15 @@ import * as SqlitePersistence from "./persistence/Sqlite.ts";
 import * as PullRequestFilesViewed from "./persistence/PullRequestFilesViewed.ts";
 import * as PullRequestReviewGuides from "./persistence/PullRequestReviewGuides.ts";
 import * as PullRequestReviewGuideService from "./pullRequest/PullRequestReviewGuideService.ts";
+import * as ArtifactsService from "./commandCenter/ArtifactsService.ts";
 import * as CommandCenterService from "./commandCenter/CommandCenterService.ts";
+import * as SkillWriter from "./commandCenter/SkillWriter.ts";
+import * as TextRewriter from "./commandCenter/TextRewriter.ts";
+import * as WorkflowRunner from "./commandCenter/WorkflowRunner.ts";
+import * as WorkflowThreads from "./commandCenter/workflowThreads.ts";
+import * as WorkflowStore from "./commandCenter/WorkflowStore.ts";
 import * as Scheduler from "./scheduling/Scheduler.ts";
+import * as ScheduledTaskPromptRoutes from "./scheduledTasks/ScheduledTaskPromptRoutes.ts";
 import * as ServerLifecycleEvents from "./serverLifecycleEvents.ts";
 import * as AnalyticsService from "./telemetry/AnalyticsService.ts";
 import * as ProviderEventIngestor from "./orchestration-v2/ProviderEventIngestor.ts";
@@ -62,6 +69,7 @@ import * as TextGeneration from "./textGeneration/TextGeneration.ts";
 import * as ProviderInstanceRegistryHydration from "./provider/ProviderInstanceRegistryHydration.ts";
 import * as ProjectSettingsOverrideSweep from "./provider/ProjectSettingsOverrideSweep.ts";
 import * as TerminalManager from "./terminal/Manager.ts";
+import * as HtmlRender from "./htmlRender/HtmlRender.ts";
 import * as McpHttpServer from "./mcp/McpHttpServer.ts";
 import * as McpSessionRegistry from "./mcp/McpSessionRegistry.ts";
 import * as PreviewAutomationBroker from "./mcp/PreviewAutomationBroker.ts";
@@ -488,6 +496,8 @@ const layerScheduledTaskWebhookOrigin = Layer.effect(
 
 const layerOrchestrationV2Runtime = RuntimeLayer.layerProduction.pipe(
   Layer.provide(layerScheduledTaskWebhookOrigin),
+  // Memoized with the one the workflow runner registers `/wf` prompts into.
+  Layer.provide(ScheduledTaskPromptRoutes.layer),
   Layer.provide(ProviderEventIngestor.layerAnalytics),
   Layer.provide(layerCheckpointStore),
   Layer.provide(layerGitWorkflow),
@@ -728,6 +738,18 @@ const layerMakeRoutes = Layer.mergeAll(
 ).pipe(
   // One instance for WebSocket and MCP so every surface sees the same change stream. The
   // scheduler is the memoized one the runtime uses, so its daily check shares that clock.
+  // Artifacts build on Command Center; HtmlRender is the memoized one the MCP toolkit uses.
+  // Workflow files and skills are per project; the runner reads them and starts step threads.
+  Layer.provide(
+    WorkflowRunner.layer.pipe(
+      Layer.provide(WorkflowThreads.layer),
+      Layer.provide(ScheduledTaskPromptRoutes.layer),
+      Layer.provideMerge(
+        Layer.mergeAll(WorkflowStore.layer, SkillWriter.layer, TextRewriter.layer),
+      ),
+    ),
+  ),
+  Layer.provide(ArtifactsService.layer.pipe(Layer.provide(HtmlRender.layer))),
   Layer.provide(
     CommandCenterService.layer.pipe(
       Layer.provide(Layer.merge(Scheduler.layer, ProcessRunner.layer)),

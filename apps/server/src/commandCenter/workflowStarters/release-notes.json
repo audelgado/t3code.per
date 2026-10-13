@@ -1,0 +1,37 @@
+{
+  "slug": "release-notes",
+  "title": "Release notes",
+  "description": "Turn the changes since a tag into user-facing release notes.",
+  "inputs": [{ "name": "since", "label": "Since (tag or date)", "default": "the latest tag" }],
+  "nodes": [
+    {
+      "id": "collect",
+      "kind": "agent",
+      "title": "Collect changes",
+      "prompt": "List the changes merged since {{input:since}} using git log, grouped as features, fixes and internal work. One line each."
+    },
+    {
+      "id": "review",
+      "kind": "ask",
+      "title": "Review changes",
+      "question": "Write release notes from these changes?",
+      "choices": ["Write them", "Stop"]
+    },
+    {
+      "id": "write",
+      "kind": "agent",
+      "title": "Write notes",
+      "prompt": "Write release notes for users from the collected changes. Leave out internal work. Plain language, short bullets.",
+      "outputs": "artifact"
+    }
+  ],
+  "edges": [
+    { "from": "collect", "to": "review" },
+    { "from": "review", "to": "write" }
+  ],
+  "layout": {
+    "collect": { "x": 0, "y": 0 },
+    "review": { "x": 280, "y": 0 },
+    "write": { "x": 560, "y": 0 }
+  }
+}

@@ -10,7 +10,7 @@ import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as SqlitePersistence from "../persistence/Sqlite.ts";
 import { CodexProviderCapabilitiesV2 } from "./Adapters/CodexAdapterV2.ts";
-import { DispatchModeLimit } from "./DispatchModeLimit.ts";
+import { clampDispatchModes, DispatchModeLimit } from "./DispatchModeLimit.ts";
 import * as Orchestrator from "./Orchestrator.ts";
 import * as ProjectionStore from "./ProjectionStore.ts";
 import * as ProviderAdapterRegistry from "./ProviderAdapterRegistry.ts";
@@ -163,5 +163,15 @@ it.layer(layerTest)("DispatchModeLimit", (it) => {
         .pipe(Effect.provideService(DispatchModeLimit, supervised), Effect.flip);
       assert.equal(retried._tag, "OrchestratorDispatchError");
     }),
+  );
+});
+
+it("clamps each mode down to the limit and keeps narrower ones", () => {
+  assert.deepStrictEqual(
+    clampDispatchModes(
+      { runtimeMode: "approval-required", interactionMode: "default" },
+      { runtimeMode: "full-access", interactionMode: "plan" },
+    ),
+    { runtimeMode: "approval-required", interactionMode: "plan" },
   );
 });

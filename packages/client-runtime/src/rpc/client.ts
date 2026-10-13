@@ -59,6 +59,9 @@ export type EnvironmentSubscriptionRpcTag =
   | typeof WS_METHODS.subscribeServerLifecycle
   | typeof WS_METHODS.scheduledTasksSubscribe
   | typeof WS_METHODS.commandCenterSubscribe
+  | typeof WS_METHODS.commandCenterSubscribeArtifacts
+  | typeof WS_METHODS.commandCenterSubscribeWorkflows
+  | typeof WS_METHODS.commandCenterSubscribeWorkflowRuns
   | typeof WS_METHODS.serverGetStorageCleanupReport
   | typeof WS_METHODS.subscribeTerminalEvents
   | typeof WS_METHODS.subscribeTerminalMetadata

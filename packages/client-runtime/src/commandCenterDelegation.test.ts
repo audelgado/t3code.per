@@ -1,7 +1,13 @@
-import type { CommandCenterMemoryEntry, ProjectId } from "@t3tools/contracts";
+import type {
+  CommandCenterArtifactId,
+  CommandCenterMemoryEntry,
+  ProjectId,
+} from "@t3tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
 
 import {
+  artifactAgentReference,
+  artifactReferenceIds,
   buildOnboardingPrompt,
   buildStepPrompt,
   delegationBranchName,
@@ -53,6 +59,33 @@ describe("buildStepPrompt", () => {
     expect(last).not.toContain("memory_recall");
     expect(last).not.toContain("memory_save");
     expect(last).toContain('"Handoff:"');
+  });
+
+  it("inlines referenced artifacts only where the artifact tools cannot reach", () => {
+    const reference = artifactAgentReference({
+      id: "art-1" as CommandCenterArtifactId,
+      title: "Plan",
+      currentVersion: 3,
+    });
+    expect(artifactReferenceIds(`${reference} and ${reference}then go`)).toEqual(["art-1"]);
+    const artifacts = [
+      {
+        title: "Plan",
+        content: `<img src="data:image/png;base64,${"A".repeat(300)}">${"b".repeat(20_100)}`,
+      },
+    ];
+    const remote = buildStepPrompt({
+      rolePrompt: "",
+      step: reference,
+      memoryReachable: false,
+      artifacts,
+    });
+    expect(remote).toContain('Artifact "Plan":\n<img src="data:inline-image">');
+    expect(remote).toContain("[… cut at 20000 characters]");
+    expect(remote).not.toContain("AAAA");
+    expect(buildStepPrompt({ rolePrompt: "", step: reference, artifacts })).not.toContain(
+      'Artifact "Plan"',
+    );
   });
 
   it("skips an empty role and handoff block, and trims long handoffs", () => {

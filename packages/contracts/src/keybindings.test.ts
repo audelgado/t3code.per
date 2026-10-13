@@ -176,6 +176,20 @@ it.effect("accepts dynamic script run commands", () =>
   }),
 );
 
+it.effect("accepts workflow run commands by slug only", () =>
+  Effect.gen(function* () {
+    const parsed = yield* decode(KeybindingRule, {
+      key: "mod+alt+b",
+      command: "workflow.release-notes.run",
+    });
+    assert.strictEqual(parsed.command, "workflow.release-notes.run");
+    const bad = yield* Effect.exit(
+      decode(KeybindingRule, { key: "mod+alt+b", command: "workflow.Release_Notes.run" }),
+    );
+    assert.strictEqual(bad._tag, "Failure");
+  }),
+);
+
 it.effect("parses keybindings array payload", () =>
   Effect.gen(function* () {
     const parsed = yield* decode(KeybindingsConfig, [

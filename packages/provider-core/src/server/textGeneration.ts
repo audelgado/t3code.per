@@ -115,6 +115,18 @@ export type ReviewGuideGenerationResult = Omit<
   "headSha" | "generatedAt" | "modelSelection"
 >;
 
+/** One free prompt whose reply is a single rewritten text (Command Center's "Rewrite shorter"). */
+export interface RewriteTextGenerationInput {
+  cwd: string;
+  /** Carries the text and how to rewrite it; the reply is JSON `{"text": ...}`. */
+  prompt: string;
+  modelSelection: ModelSelection;
+}
+
+export interface RewriteTextGenerationResult {
+  text: string;
+}
+
 /** Commit, change request, branch, and title generation backed by one provider instance. */
 export interface ProviderTextGeneration {
   /**
@@ -147,4 +159,9 @@ export interface ProviderTextGeneration {
   readonly generateReviewGuide: (
     input: ReviewGuideGenerationInput,
   ) => Effect.Effect<ReviewGuideGenerationResult, TextGenerationError>;
+
+  /** Rewrite a text as a prompt instructs, with no tools. */
+  readonly rewriteText: (
+    input: RewriteTextGenerationInput,
+  ) => Effect.Effect<RewriteTextGenerationResult, TextGenerationError>;
 }

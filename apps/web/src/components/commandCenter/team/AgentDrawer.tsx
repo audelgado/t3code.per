@@ -1,8 +1,18 @@
+import { scopeThreadRef } from "@t3tools/client-runtime/environment";
 import type { CommandCenterAgentProfile, CommandCenterTeamId } from "@t3tools/contracts";
 import { useNavigate } from "@tanstack/react-router";
-import { ArchiveIcon, ExternalLinkIcon, PencilIcon, SquareIcon, UnlinkIcon } from "lucide-react";
+import {
+  ArchiveIcon,
+  ExternalLinkIcon,
+  FileDiffIcon,
+  PencilIcon,
+  SquareIcon,
+  UnlinkIcon,
+} from "lucide-react";
 import { useState } from "react";
 
+import { useDiffPanelStore } from "~/diffPanelStore";
+import { useRightPanelStore } from "~/rightPanelStore";
 import { deriveCanInterruptRunningThread } from "~/session-logic";
 import { formatElapsedDurationLabel } from "~/timestampFormat";
 import { threadEnvironment } from "~/state/threads";
@@ -78,6 +88,24 @@ export function AgentDrawer({
     });
   };
   const worktreePath = state?.shell?.worktreePath ?? null;
+  const openThread = (panel: "diff" | null) => {
+    if (!assignment) return;
+    const { environmentId, threadId } = assignment;
+    if (panel === "diff") {
+      const threadRef = scopeThreadRef(environmentId, threadId);
+      const latestRun = state?.shell?.latestRun ?? null;
+      // In its own worktree everything since the base is the agent's work (the Changes view).
+      // In a shared checkout that would include other agents' and the user's edits, so it shows
+      // the agent's latest turn instead.
+      if (worktreePath === null && latestRun !== null) {
+        useDiffPanelStore.getState().selectTurn(threadRef, latestRun.runId);
+      } else {
+        useDiffPanelStore.getState().selectGitScope(threadRef, "branch");
+      }
+      useRightPanelStore.getState().open(threadRef, "diff");
+    }
+    void navigate({ to: "/$environmentId/$threadId", params: { environmentId, threadId } });
+  };
 
   return (
     <Sheet open={open && agent !== null} onOpenChange={onOpenChange}>
@@ -120,19 +148,19 @@ export function AgentDrawer({
                   size="sm"
                   variant="outline"
                   disabled={assignment === null}
-                  onClick={() =>
-                    assignment &&
-                    void navigate({
-                      to: "/$environmentId/$threadId",
-                      params: {
-                        environmentId: assignment.environmentId,
-                        threadId: assignment.threadId,
-                      },
-                    })
-                  }
+                  onClick={() => openThread(null)}
                 >
                   <ExternalLinkIcon />
                   Open thread
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={assignment === null}
+                  onClick={() => openThread("diff")}
+                >
+                  <FileDiffIcon />
+                  View changes
                 </Button>
                 <Button
                   size="sm"

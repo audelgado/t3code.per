@@ -46,6 +46,7 @@ import * as ThreadManagementService from "../orchestration-v2/ThreadManagementSe
 import * as SecretRequests from "../secrets/SecretRequests.ts";
 import * as Scheduler from "../scheduling/Scheduler.ts";
 import { isMissedFixedTimeRun, isSameSchedule, nextScheduledRunAt } from "./Schedule.ts";
+import { ScheduledTaskPromptRoutes } from "./ScheduledTaskPromptRoutes.ts";
 import {
   redactHeaders,
   redactQuery,
@@ -397,6 +398,8 @@ export const layer = Layer.effect(
     const secretRequests = yield* SecretRequests.SecretRequests;
     const scheduler = yield* Scheduler.Scheduler;
     const readWebhookOrigin = yield* ScheduledTaskWebhookOrigin;
+    // Optional, so the task service stands alone; the server provides it for Command Center.
+    const promptRoutes = yield* Effect.serviceOption(ScheduledTaskPromptRoutes);
     // Webhook deliveries for one task dispatch in arrival order rather than
     // being dropped while an earlier delivery is still dispatching.
     const webhookPermits = yield* Ref.make<ReadonlyMap<ScheduledTaskId, Semaphore.Semaphore>>(
@@ -792,26 +795,43 @@ export const layer = Layer.effect(
         // Effect.exit (not Effect.result) so defects and interruptions in the
         // dispatch are also captured and recorded as a failed run instead of
         // aborting before markCompleted.
+        // A route (Command Center's `/wf <slug>`) may run the prompt instead of a new thread.
+        const routed = Option.match(promptRoutes, {
+          onNone: () => Effect.succeed(false),
+          onSome: (routes) =>
+            routes.route({
+              projectId: active.projectId,
+              prompt,
+              runtimeMode: active.runtimeMode,
+              interactionMode: active.interactionMode,
+            }),
+        });
         const result =
           active.threadId === null
             ? yield* Effect.exit(
-                threadLaunch.launch({
-                  commandId,
-                  projectId: active.projectId,
-                  title: active.title,
-                  modelSelection: active.modelSelection,
-                  runtimeMode: active.runtimeMode,
-                  interactionMode: active.interactionMode,
-                  workspaceStrategy: active.workspaceStrategy,
-                  initialMessage: {
-                    messageId,
-                    scheduledTaskId: active.id,
-                    text: prompt,
-                    attachments: [],
-                  },
-                  createdBy: active.createdBy,
-                  creationSource: active.creationSource,
-                }),
+                Effect.flatMap(routed, (handled) =>
+                  handled
+                    ? Effect.void
+                    : threadLaunch
+                        .launch({
+                          commandId,
+                          projectId: active.projectId,
+                          title: active.title,
+                          modelSelection: active.modelSelection,
+                          runtimeMode: active.runtimeMode,
+                          interactionMode: active.interactionMode,
+                          workspaceStrategy: active.workspaceStrategy,
+                          initialMessage: {
+                            messageId,
+                            scheduledTaskId: active.id,
+                            text: prompt,
+                            attachments: [],
+                          },
+                          createdBy: active.createdBy,
+                          creationSource: active.creationSource,
+                        })
+                        .pipe(Effect.asVoid),
+                ),
               )
             : yield* Effect.exit(
                 threadManagement.sendToThread({

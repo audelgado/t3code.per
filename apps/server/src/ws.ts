@@ -100,6 +100,8 @@ import {
   type TerminalMetadataStreamEvent,
   type PullRequestRef,
   WS_METHODS,
+  CommandCenterRpcGroup,
+  WsCoreRpcGroup,
   WsRpcGroup,
 } from "@t3tools/contracts";
 import { resolveServerBackgroundActivitySettings } from "@t3tools/shared/backgroundActivitySettings";
@@ -123,7 +125,12 @@ import * as ThreadLaunchService from "./orchestration-v2/ThreadLaunchService.ts"
 import * as ThreadMessageIntake from "./orchestration-v2/ThreadMessageIntake.ts";
 import * as IdAllocator from "@t3tools/provider-core/server/IdAllocator";
 import * as ScheduledTasks from "./scheduledTasks/ScheduledTaskService.ts";
+import * as Artifacts from "./commandCenter/ArtifactsService.ts";
 import * as CommandCenter from "./commandCenter/CommandCenterService.ts";
+import * as SkillWriter from "./commandCenter/SkillWriter.ts";
+import * as TextRewriter from "./commandCenter/TextRewriter.ts";
+import * as WorkflowRunner from "./commandCenter/WorkflowRunner.ts";
+import * as WorkflowStore from "./commandCenter/WorkflowStore.ts";
 import * as SecretRequests from "./secrets/SecretRequests.ts";
 import {
   archivedShellStreamItemFromThreadShell,
@@ -1198,6 +1205,73 @@ export const subscribeOrchestrationV2Shell = Effect.fn("ws.orchestrationV2.subsc
   },
 );
 
+/** Command Center's WebSocket handlers, built once per connection beside `layerWsRpc`'s. */
+const layerCommandCenterRpc = CommandCenterRpcGroup.toLayer(
+  Effect.gen(function* () {
+    const commandCenter = yield* CommandCenter.CommandCenterService;
+    const artifacts = yield* Artifacts.ArtifactsService;
+    const workflows = yield* WorkflowStore.WorkflowStore;
+    const skills = yield* SkillWriter.SkillWriter;
+    const workflowRuns = yield* WorkflowRunner.WorkflowRunner;
+    const textRewriter = yield* TextRewriter.TextRewriter;
+    return {
+      [WS_METHODS.commandCenterSubscribe]: (input) => commandCenter.subscribe(input),
+      [WS_METHODS.commandCenterUpsert]: (input) => commandCenter.upsert(input),
+      [WS_METHODS.commandCenterDelete]: (input) => commandCenter.delete(input),
+      [WS_METHODS.commandCenterSetMemoryDone]: (input) => commandCenter.setMemoryDone(input),
+      [WS_METHODS.commandCenterListMemory]: (input) => commandCenter.listMemory(input),
+      [WS_METHODS.commandCenterRecallMemory]: (input) => commandCenter.recallMemory(input),
+      [WS_METHODS.commandCenterListSections]: (input) =>
+        commandCenter.listSections(input.projectId ?? null),
+      [WS_METHODS.commandCenterBuildRepoDigest]: (input) =>
+        commandCenter.buildRepoDigest(input.projectId),
+      [WS_METHODS.commandCenterEnsureOnboardingTeam]: (_input) =>
+        commandCenter.ensureOnboardingTeam(),
+      [WS_METHODS.commandCenterSetSectionPullRequest]: (input) =>
+        commandCenter.setSectionPullRequest(input),
+      [WS_METHODS.commandCenterSubscribeArtifacts]: (input) => artifacts.subscribe(input),
+      [WS_METHODS.commandCenterListArtifacts]: (input) => artifacts.list(input),
+      [WS_METHODS.commandCenterGetArtifact]: (input) => artifacts.get(input),
+      [WS_METHODS.commandCenterSaveArtifact]: (input) => artifacts.save(input),
+      [WS_METHODS.commandCenterImportArtifact]: (input) => artifacts.importArtifact(input),
+      [WS_METHODS.commandCenterRestoreArtifactVersion]: (input) => artifacts.restoreVersion(input),
+      [WS_METHODS.commandCenterSetArtifactArchived]: (input) => artifacts.setArchived(input),
+      [WS_METHODS.commandCenterGetArtifactThumbnail]: (input) => artifacts.thumbnail(input),
+      [WS_METHODS.commandCenterGetCanvas]: (input) => artifacts.getCanvas(input),
+      [WS_METHODS.commandCenterUpsertCanvasItems]: (input) => artifacts.upsertCanvasItems(input),
+      [WS_METHODS.commandCenterUpsertCanvasEdges]: (input) => artifacts.upsertCanvasEdges(input),
+      [WS_METHODS.commandCenterDeleteCanvasEntries]: (input) =>
+        artifacts.deleteCanvasEntries(input),
+      [WS_METHODS.commandCenterListWorkflows]: (input) => workflows.list(input),
+      [WS_METHODS.commandCenterSubscribeWorkflows]: (input) => workflows.subscribe(input),
+      [WS_METHODS.commandCenterGetWorkflow]: (input) => workflows.get(input),
+      [WS_METHODS.commandCenterSaveWorkflow]: (input) => workflows.save(input),
+      [WS_METHODS.commandCenterDeleteWorkflow]: (input) => workflows.remove(input),
+      [WS_METHODS.commandCenterRestoreWorkflow]: (input) => workflows.restore(input),
+      [WS_METHODS.commandCenterListWorkflowStarters]: (_input) => workflows.starters(),
+      [WS_METHODS.commandCenterListSnippets]: (input) => workflows.listSnippets(input),
+      [WS_METHODS.commandCenterGetSnippet]: (input) => workflows.getSnippet(input),
+      [WS_METHODS.commandCenterSaveSnippet]: (input) => workflows.saveSnippet(input),
+      [WS_METHODS.commandCenterDeleteSnippet]: (input) => workflows.deleteSnippet(input),
+      [WS_METHODS.commandCenterRestoreSnippet]: (input) => workflows.restoreSnippet(input),
+      [WS_METHODS.commandCenterListSkills]: (input) => skills.list(input),
+      [WS_METHODS.commandCenterCreateSkill]: (input) => skills.create(input),
+      [WS_METHODS.commandCenterUpdateSkill]: (input) => skills.update(input),
+      [WS_METHODS.commandCenterDeleteSkill]: (input) => skills.remove(input),
+      [WS_METHODS.commandCenterRestoreSkill]: (input) => skills.restore(input),
+      [WS_METHODS.commandCenterRewriteText]: (input) => textRewriter.rewrite(input),
+      [WS_METHODS.commandCenterStartWorkflowRun]: (input) => workflowRuns.start(input),
+      [WS_METHODS.commandCenterStopWorkflowRun]: (input) => workflowRuns.stop(input),
+      [WS_METHODS.commandCenterRetryWorkflowStep]: (input) => workflowRuns.retryStep(input),
+      [WS_METHODS.commandCenterResumeWorkflowRun]: (input) => workflowRuns.resume(input),
+      [WS_METHODS.commandCenterAnswerWorkflowStep]: (input) => workflowRuns.answer(input),
+      [WS_METHODS.commandCenterListWorkflowRuns]: (input) => workflowRuns.list(input),
+      [WS_METHODS.commandCenterGetWorkflowRun]: (input) => workflowRuns.get(input),
+      [WS_METHODS.commandCenterSubscribeWorkflowRuns]: (input) => workflowRuns.subscribe(input),
+    };
+  }),
+);
+
 const layerWsRpc = (
   currentSession: EnvironmentAuth.AuthenticatedSession,
   clientOrigin: OrchestrationClientOrigin,
@@ -1205,7 +1279,7 @@ const layerWsRpc = (
   previewAutomationBroker: PreviewAutomationBroker.PreviewAutomationBroker["Service"],
   serverBrowser: ServerBrowser.ServerBrowser["Service"],
 ) =>
-  ServerWsRpcGroup.toLayer(
+  WsCoreRpcGroup.toLayer(
     Effect.gen(function* () {
       const currentSessionId = currentSession.sessionId;
       const sql = yield* SqlClient.SqlClient;
@@ -1241,7 +1315,6 @@ const layerWsRpc = (
       const threadLaunch = yield* ThreadLaunchService.ThreadLaunchService;
       const providerSessionManager = yield* ProviderSessionManager.ProviderSessionManagerV2;
       const scheduledTasks = yield* ScheduledTasks.ScheduledTaskService;
-      const commandCenter = yield* CommandCenter.CommandCenterService;
       const secretRequests = yield* SecretRequests.SecretRequests;
       const pullRequests = yield* PullRequestService.PullRequestService;
       const reviewGuides = yield* PullRequestReviewGuideService.PullRequestReviewGuideService;
@@ -1834,7 +1907,7 @@ const layerWsRpc = (
         return result;
       });
 
-      const handlers = ServerWsRpcGroup.of({
+      const handlers = WsCoreRpcGroup.of({
         [ORCHESTRATION_V2_WS_METHODS.dispatchCommand]: (command) =>
           Effect.annotateCurrentSpan({
             "orchestration_v2.command_id": command.commandId,
@@ -2101,18 +2174,6 @@ const layerWsRpc = (
           Effect.annotateCurrentSpan({ "scheduled_task.id": input.id }).pipe(
             Effect.andThen(scheduledTasks.getWebhookDelivery(input)),
           ),
-        [WS_METHODS.commandCenterSubscribe]: (input) => commandCenter.subscribe(input),
-        [WS_METHODS.commandCenterUpsert]: (input) => commandCenter.upsert(input),
-        [WS_METHODS.commandCenterDelete]: (input) => commandCenter.delete(input),
-        [WS_METHODS.commandCenterSetMemoryDone]: (input) => commandCenter.setMemoryDone(input),
-        [WS_METHODS.commandCenterListMemory]: (input) => commandCenter.listMemory(input),
-        [WS_METHODS.commandCenterRecallMemory]: (input) => commandCenter.recallMemory(input),
-        [WS_METHODS.commandCenterListSections]: (input) =>
-          commandCenter.listSections(input.projectId ?? null),
-        [WS_METHODS.commandCenterBuildRepoDigest]: (input) =>
-          commandCenter.buildRepoDigest(input.projectId),
-        [WS_METHODS.commandCenterEnsureOnboardingTeam]: (_input) =>
-          commandCenter.ensureOnboardingTeam(),
         [WS_METHODS.serverProbe]: (_input) => Effect.succeed({}),
         [WS_METHODS.serverGetConfig]: (_input) => loadServerConfig({ usageLimitsCommand: false }),
         [WS_METHODS.serverSearchAcpRegistry]: (input) =>
@@ -3183,6 +3244,11 @@ export const layer = Layer.unwrap(
     const pullRequests = yield* PullRequestService.PullRequestService;
     const reviewGuides = yield* PullRequestReviewGuideService.PullRequestReviewGuideService;
     const commandCenter = yield* CommandCenter.CommandCenterService;
+    const artifacts = yield* Artifacts.ArtifactsService;
+    const workflows = yield* WorkflowStore.WorkflowStore;
+    const skills = yield* SkillWriter.SkillWriter;
+    const workflowRuns = yield* WorkflowRunner.WorkflowRunner;
+    const textRewriter = yield* TextRewriter.TextRewriter;
     const sql = yield* SqlClient.SqlClient;
     return HttpRouter.add(
       "GET",
@@ -3238,6 +3304,7 @@ export const layer = Layer.unwrap(
               previewAutomationBroker,
               serverBrowser,
             ).pipe(
+              Layer.merge(layerCommandCenterRpc),
               Layer.provideMerge(RpcSerialization.layerJson),
               // Request fibers run in the handlers' context, so this reporter sees
               // their defects, not the rest of the server's.
@@ -3259,6 +3326,11 @@ export const layer = Layer.unwrap(
               ),
               // Shared so every connection hears the same change stream.
               Layer.provide(Layer.succeed(CommandCenter.CommandCenterService, commandCenter)),
+              Layer.provide(Layer.succeed(Artifacts.ArtifactsService, artifacts)),
+              Layer.provide(Layer.succeed(WorkflowStore.WorkflowStore, workflows)),
+              Layer.provide(Layer.succeed(SkillWriter.SkillWriter, skills)),
+              Layer.provide(Layer.succeed(WorkflowRunner.WorkflowRunner, workflowRuns)),
+              Layer.provide(Layer.succeed(TextRewriter.TextRewriter, textRewriter)),
               Layer.provide(
                 SourceControlDiscovery.layer.pipe(
                   Layer.provide(

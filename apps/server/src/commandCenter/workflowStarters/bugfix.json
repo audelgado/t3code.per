@@ -1,0 +1,31 @@
+{
+  "slug": "bugfix",
+  "title": "Bugfix",
+  "description": "Reproduce a bug, fix the root cause in a worktree, and prove it with a test.",
+  "inputs": [{ "name": "bug", "label": "The bug" }],
+  "nodes": [
+    {
+      "id": "reproduce",
+      "kind": "agent",
+      "title": "Reproduce",
+      "prompt": "Reproduce this bug and find its root cause: {{input:bug}}\n\nList every caller of the code at fault. Do not edit files yet."
+    },
+    {
+      "id": "fix",
+      "kind": "agent",
+      "title": "Fix",
+      "prompt": "Fix the root cause of: {{input:bug}}\n\nAdd a test that fails without the fix.",
+      "worktree": true
+    },
+    { "id": "tests", "kind": "gate", "title": "Tests pass", "check": "tests" }
+  ],
+  "edges": [
+    { "from": "reproduce", "to": "fix" },
+    { "from": "fix", "to": "tests" }
+  ],
+  "layout": {
+    "reproduce": { "x": 0, "y": 0 },
+    "fix": { "x": 280, "y": 0 },
+    "tests": { "x": 560, "y": 0 }
+  }
+}

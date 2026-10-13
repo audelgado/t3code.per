@@ -2,6 +2,7 @@ import {
   AuthEnvironmentMaintainScope,
   AuthDiagnosticsReadScope,
   AuthFilesystemReadScope,
+  AuthFilesystemWriteScope,
   AuthProvidersManageScope,
   AuthSettingsWriteScope,
   DEFAULT_SERVER_SETTINGS,
@@ -73,6 +74,15 @@ describe("RPC authorization scopes", () => {
       WS_METHODS.commandCenterListMemory,
       WS_METHODS.commandCenterRecallMemory,
       WS_METHODS.commandCenterListSections,
+      WS_METHODS.commandCenterSubscribeArtifacts,
+      WS_METHODS.commandCenterListArtifacts,
+      WS_METHODS.commandCenterGetArtifact,
+      WS_METHODS.commandCenterGetArtifactThumbnail,
+      WS_METHODS.commandCenterGetCanvas,
+      WS_METHODS.commandCenterListWorkflowStarters,
+      WS_METHODS.commandCenterListWorkflowRuns,
+      WS_METHODS.commandCenterGetWorkflowRun,
+      WS_METHODS.commandCenterSubscribeWorkflowRuns,
     ]) {
       expect(requiredScopeForRpcMethod(method)).toBe(AuthOrchestrationReadScope);
     }
@@ -82,8 +92,47 @@ describe("RPC authorization scopes", () => {
       WS_METHODS.commandCenterSetMemoryDone,
       WS_METHODS.commandCenterBuildRepoDigest,
       WS_METHODS.commandCenterEnsureOnboardingTeam,
+      WS_METHODS.commandCenterSetSectionPullRequest,
+      WS_METHODS.commandCenterSaveArtifact,
+      WS_METHODS.commandCenterImportArtifact,
+      WS_METHODS.commandCenterRestoreArtifactVersion,
+      WS_METHODS.commandCenterSetArtifactArchived,
+      WS_METHODS.commandCenterUpsertCanvasItems,
+      WS_METHODS.commandCenterUpsertCanvasEdges,
+      WS_METHODS.commandCenterDeleteCanvasEntries,
+      WS_METHODS.commandCenterStartWorkflowRun,
+      WS_METHODS.commandCenterStopWorkflowRun,
+      WS_METHODS.commandCenterRetryWorkflowStep,
+      WS_METHODS.commandCenterResumeWorkflowRun,
+      WS_METHODS.commandCenterAnswerWorkflowStep,
+      WS_METHODS.commandCenterRewriteText,
     ]) {
       expect(requiredScopeForRpcMethod(method)).toBe(AuthOrchestrationOperateScope);
+    }
+    // Workflow, snippet and skill files are project files, read and written like any other.
+    for (const method of [
+      WS_METHODS.commandCenterListWorkflows,
+      WS_METHODS.commandCenterSubscribeWorkflows,
+      WS_METHODS.commandCenterGetWorkflow,
+      WS_METHODS.commandCenterListSnippets,
+      WS_METHODS.commandCenterGetSnippet,
+      WS_METHODS.commandCenterListSkills,
+    ]) {
+      expect(requiredScopeForRpcMethod(method)).toBe(AuthFilesystemReadScope);
+    }
+    for (const method of [
+      WS_METHODS.commandCenterSaveWorkflow,
+      WS_METHODS.commandCenterDeleteWorkflow,
+      WS_METHODS.commandCenterRestoreWorkflow,
+      WS_METHODS.commandCenterSaveSnippet,
+      WS_METHODS.commandCenterDeleteSnippet,
+      WS_METHODS.commandCenterRestoreSnippet,
+      WS_METHODS.commandCenterCreateSkill,
+      WS_METHODS.commandCenterUpdateSkill,
+      WS_METHODS.commandCenterDeleteSkill,
+      WS_METHODS.commandCenterRestoreSkill,
+    ]) {
+      expect(requiredScopeForRpcMethod(method)).toBe(AuthFilesystemWriteScope);
     }
   });
 

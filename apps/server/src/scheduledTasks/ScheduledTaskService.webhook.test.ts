@@ -20,6 +20,10 @@ import * as ThreadManagementService from "../orchestration-v2/ThreadManagementSe
 import * as SecretRequests from "../secrets/SecretRequests.ts";
 import * as SqlitePersistence from "../persistence/Sqlite.ts";
 import * as Scheduler from "../scheduling/Scheduler.ts";
+import {
+  ScheduledTaskPromptRoutes,
+  type ScheduledPromptRoute,
+} from "./ScheduledTaskPromptRoutes.ts";
 import * as ScheduledTaskService from "./ScheduledTaskService.ts";
 
 const decodeUpsertInput = Schema.decodeUnknownEffect(ScheduledTaskUpsertInput);
@@ -71,7 +75,12 @@ const withService = <A, E>(
     /** Secrets the user entered for an agent, by ref; consuming one removes it. */
     readonly secretsByRef: Map<string, string>;
   }) => Effect.Effect<A, E, never>,
-  options: { readonly gate?: Deferred.Deferred<void>; readonly relayHookBaseUrl?: string } = {},
+  options: {
+    readonly gate?: Deferred.Deferred<void>;
+    readonly relayHookBaseUrl?: string;
+    /** A prompt route (Command Center's `/wf`) asked before each unbound run launches. */
+    readonly route?: ScheduledPromptRoute;
+  } = {},
 ) =>
   Effect.gen(function* () {
     const launches = yield* Queue.unbounded<LaunchInput>();
@@ -100,6 +109,12 @@ const withService = <A, E>(
         ScheduledTaskService.ScheduledTaskWebhookOrigin,
         Effect.succeed({ relayHookBaseUrl: options.relayHookBaseUrl ?? null }),
       ),
+      options.route === undefined
+        ? Layer.empty
+        : Layer.succeed(
+            ScheduledTaskPromptRoutes,
+            ScheduledTaskPromptRoutes.of({ register: () => Effect.void, route: options.route }),
+          ),
     );
     return yield* Effect.gen(function* () {
       const service = yield* ScheduledTaskService.ScheduledTaskService;
@@ -292,6 +307,38 @@ it.effect("queues a burst of deliveries instead of dropping them", () =>
     );
   }),
 );
+
+it.effect("lets a prompt route take a run instead of launching a thread", () => {
+  const routed: Array<{ readonly prompt: string; readonly runtimeMode: string }> = [];
+  return withService(
+    ({ service, launches }) =>
+      Effect.gen(function* () {
+        const { task } = yield* service.upsert(
+          yield* webhookTaskInput({ prompt: "{{body.text}}" }),
+        );
+        const body = (text: string) => {
+          const bytes = new TextEncoder().encode(JSON.stringify({ text }));
+          return { body: bytes, bodyText: new TextDecoder().decode(bytes) };
+        };
+        yield* service.triggerWebhook(requestFor(task, body("/wf ship")));
+        yield* service.triggerWebhook(requestFor(task, body("Summarize.")));
+        // Deliveries run in turn, so the routed one finished before this launch.
+        assert.equal((yield* Queue.take(launches)).initialMessage?.text, "Summarize.");
+        assert.equal(yield* Queue.size(launches), 0);
+        assert.deepEqual(routed, [
+          { prompt: "/wf ship", runtimeMode: "full-access" },
+          { prompt: "Summarize.", runtimeMode: "full-access" },
+        ]);
+      }),
+    {
+      route: ({ prompt, runtimeMode }) =>
+        Effect.sync(() => {
+          routed.push({ prompt, runtimeMode });
+          return prompt.startsWith("/wf ");
+        }),
+    },
+  );
+});
 
 it.effect("rate limits a hook past 60 deliveries a minute", () =>
   withService(({ service }) =>

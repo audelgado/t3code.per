@@ -5,13 +5,12 @@ import {
   squashAtomCommandFailure,
 } from "@t3tools/client-runtime/state/runtime";
 import { useNavigate } from "@tanstack/react-router";
-import { FileDiffIcon, Trash2Icon } from "lucide-react";
+import { Trash2Icon } from "lucide-react";
 import { useMemo, useState } from "react";
 
 import { useThreadActions } from "~/hooks/useThreadActions";
 import { useOpenPrLink } from "~/lib/openPullRequestLink";
 import { randomUUID } from "~/lib/utils";
-import { useRightPanelStore } from "~/rightPanelStore";
 import { useEnvironmentQuery } from "~/state/query";
 import { useGitStackedAction } from "~/state/sourceControlActions";
 import { vcsEnvironment } from "~/state/vcs";
@@ -25,9 +24,9 @@ import { toastManager } from "../../ui/toast";
 
 /**
  * The way back from a delegated step's worktree, through the same flows as the thread view:
- * the Changes panel, the Git quick action (commit, push, open a PR), and deleting the thread
- * with its worktree. Mount it only for a thread that has a worktree; it watches that
- * worktree's Git status while mounted.
+ * the Git quick action (commit, push, open a PR) and deleting the thread with its worktree (the
+ * drawer's View changes opens the diff). Mount it only for a thread that has a worktree; it
+ * watches that worktree's Git status while mounted.
  */
 export function AgentWorktree({
   shell,
@@ -68,10 +67,6 @@ export function AgentWorktree({
 
   const openThread = () =>
     void navigate({ to: "/$environmentId/$threadId", params: buildThreadRouteParams(threadRef) });
-  const openDiff = () => {
-    useRightPanelStore.getState().open(threadRef, "diff");
-    openThread();
-  };
 
   const apply = async () => {
     if (quick.kind !== "run_action" || quick.action === undefined) return;
@@ -117,10 +112,6 @@ export function AgentWorktree({
         {shell.branch ?? "Preparing branch"} · {formatWorktreePathForDisplay(worktreePath)}
       </p>
       <div className="flex flex-wrap gap-2">
-        <Button size="sm" variant="outline" onClick={openDiff}>
-          <FileDiffIcon />
-          Open diff
-        </Button>
         <Button
           size="sm"
           variant="outline"

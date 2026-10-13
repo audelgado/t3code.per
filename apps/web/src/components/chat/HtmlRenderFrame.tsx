@@ -1,18 +1,26 @@
-import type { EnvironmentId } from "@t3tools/contracts";
+import { useAtomValue } from "@effect/atom-react";
+import type { EnvironmentId, ScopedThreadRef } from "@t3tools/contracts";
 import {
   HTML_RENDER_COLUMN_WIDTH,
   htmlRenderFileName,
   htmlRenderFrameHeight,
   type HtmlRenderReference,
 } from "@t3tools/shared/htmlRender";
-import { Maximize2Icon } from "lucide-react";
+import { useNavigate } from "@tanstack/react-router";
+import { LibraryIcon, Maximize2Icon } from "lucide-react";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 
 import { useAssetUrlRefresh, useAssetUrlState } from "~/assets/assetUrls";
+import { usePrimarySettings } from "~/hooks/useSettings";
+import { useThreadShell } from "~/state/entities";
+import { usePrimaryEnvironmentId } from "~/state/environments";
+import { serverEnvironment } from "~/state/server";
+import { useAtomCommand } from "~/state/use-atom-command";
 import type { ChatFileAttachment } from "~/types";
 
 import { HtmlRenderDocument } from "../files/BrowserDocumentFrame";
 import { Button } from "../ui/button";
+import { toastManager } from "../ui/toast";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { observeResize } from "~/lib/observeResize";
 
@@ -29,6 +37,8 @@ export function HtmlRenderFrame(props: {
   readonly environmentId: EnvironmentId;
   readonly htmlRender: HtmlRenderReference;
   readonly onOpen: (attachment: ChatFileAttachment) => void;
+  /** The thread the page belongs to; Save to library files it under the thread's project. */
+  readonly threadRef?: ScopedThreadRef | undefined;
 }) {
   const { attachmentId, title } = props.htmlRender;
   // The frame takes the page's measured height at its own width, read before
@@ -100,7 +110,13 @@ export function HtmlRenderFrame(props: {
             className="block size-full"
             onContentHeight={setContentHeight}
           />
-          <div className="absolute end-2 top-2 opacity-0 transition-opacity duration-150 focus-within:opacity-100 group-hover/html-render:opacity-100 pointer-coarse:opacity-100">
+          <div className="absolute end-2 top-2 flex gap-1 opacity-0 transition-opacity duration-150 focus-within:opacity-100 group-hover/html-render:opacity-100 pointer-coarse:opacity-100">
+            <SaveToLibraryButton
+              environmentId={props.environmentId}
+              threadRef={props.threadRef}
+              attachmentId={attachmentId}
+              title={title}
+            />
             <Tooltip>
               <TooltipTrigger
                 render={
@@ -134,5 +150,72 @@ export function HtmlRenderFrame(props: {
         </p>
       ) : null}
     </div>
+  );
+}
+
+/**
+ * Copies the page into Command Center's artifact library. The library lives on the primary
+ * machine and reads the page from its own attachment store, so this shows only for pages there.
+ */
+function SaveToLibraryButton(props: {
+  readonly environmentId: EnvironmentId;
+  readonly threadRef: ScopedThreadRef | undefined;
+  readonly attachmentId: string;
+  readonly title: string;
+}) {
+  const primaryEnvironmentId = usePrimaryEnvironmentId();
+  const enabled = usePrimarySettings((settings) => settings.commandCenter.enabled);
+  const permitted = useAtomValue(
+    serverEnvironment.saveCommandCenterArtifact.permissionAtom(primaryEnvironmentId),
+  );
+  const shell = useThreadShell(props.threadRef ?? null);
+  const save = useAtomCommand(serverEnvironment.saveCommandCenterArtifact, "save to library");
+  const navigate = useNavigate();
+  const [busy, setBusy] = useState(false);
+  if (!enabled || !permitted || props.environmentId !== primaryEnvironmentId) return null;
+
+  const run = async () => {
+    setBusy(true);
+    const result = await save({
+      environmentId: props.environmentId,
+      input: {
+        title: props.title,
+        fromAttachmentId: props.attachmentId,
+        ...(shell ? { projectId: shell.projectId, threadId: shell.id } : {}),
+      },
+    });
+    setBusy(false);
+    if (result._tag !== "Success") return;
+    const { artifact } = result.value;
+    const id = toastManager.add({
+      type: "success",
+      title: `Saved ${artifact.title} to Artifacts`,
+      actionProps: {
+        children: "Open",
+        onClick: () => {
+          toastManager.close(id);
+          void navigate({ to: "/command", search: { tab: "artifacts", artifact: artifact.id } });
+        },
+      },
+    });
+  };
+
+  return (
+    <Tooltip>
+      <TooltipTrigger
+        render={
+          <Button
+            aria-label="Save to library"
+            size="icon-xs"
+            variant="glass"
+            disabled={busy}
+            onClick={() => void run()}
+          />
+        }
+      >
+        <LibraryIcon className="size-3.5" />
+      </TooltipTrigger>
+      <TooltipPopup side="left">Save to Artifacts</TooltipPopup>
+    </Tooltip>
   );
 }

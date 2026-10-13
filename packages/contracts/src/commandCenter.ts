@@ -4,6 +4,7 @@ import {
   EnvironmentId,
   IsoDateTime,
   NonNegativeInt,
+  PositiveInt,
   ProjectId,
   ThreadId,
   TrimmedNonEmptyString,
@@ -177,10 +178,30 @@ export type CommandCenterAssignment = typeof CommandCenterAssignment.Type;
 /** Sections (of any project) this one waits on. */
 const SectionDependsOn = Schema.Array(CommandCenterSectionId).check(Schema.isMaxLength(50));
 
+/** Web address of a pull request, such as `https://github.com/acme/app/pull/42`. */
+export const CommandCenterPullRequestUrl = TrimmedNonEmptyString.check(
+  Schema.isMaxLength(2_000),
+  Schema.isPattern(/^https?:\/\/\S+$/i),
+);
+
+/** The number in a GitHub pull, GitLab merge request or Bitbucket pull request URL, else null. */
+export const pullRequestNumberFromUrl = (url: string) => {
+  const digits = /\/(?:pull|pulls|pull-requests|merge_requests)\/(\d{1,9})(?:[/?#]|$)/.exec(
+    url,
+  )?.[1];
+  return digits === undefined || Number(digits) < 1 ? null : Number(digits);
+};
+
 export const CommandCenterSection = Schema.Struct({
   id: CommandCenterSectionId,
   ...SectionFields,
   dependsOn: SectionDependsOn,
+  /**
+   * The section's linked pull request, set through `commandCenter.setSectionPullRequest` (an
+   * upsert keeps it unless it passes one). Optional so older rows and clients still decode.
+   */
+  prUrl: Schema.optionalKey(Schema.NullOr(CommandCenterPullRequestUrl)),
+  prNumber: Schema.optionalKey(Schema.NullOr(PositiveInt)),
   ...timestamps,
 });
 export type CommandCenterSection = typeof CommandCenterSection.Type;
@@ -250,6 +271,9 @@ export const CommandCenterUpsertInput = Schema.Union([
       ...SectionFields,
       /** Omitted keeps the stored dependencies (none on create). */
       dependsOn: Schema.optionalKey(SectionDependsOn),
+      /** Omitted keeps the link; given, as when undo writes a deleted section back, sets it. */
+      prUrl: Schema.optionalKey(Schema.NullOr(CommandCenterPullRequestUrl)),
+      prNumber: Schema.optionalKey(Schema.NullOr(PositiveInt)),
     }),
   }),
   Schema.Struct({
@@ -273,6 +297,16 @@ export const CommandCenterDeleteInput = Schema.Struct({
   id: TrimmedNonEmptyString,
 });
 export type CommandCenterDeleteInput = typeof CommandCenterDeleteInput.Type;
+
+/** Links a section to its pull request; nulls clear the link. */
+export const CommandCenterSetSectionPullRequestInput = Schema.Struct({
+  id: CommandCenterSectionId,
+  prUrl: Schema.NullOr(CommandCenterPullRequestUrl),
+  /** Null when the URL has no number (or to clear). */
+  prNumber: Schema.NullOr(PositiveInt),
+});
+export type CommandCenterSetSectionPullRequestInput =
+  typeof CommandCenterSetSectionPullRequestInput.Type;
 
 export const CommandCenterSetMemoryDoneInput = Schema.Struct({
   id: CommandCenterMemoryId,

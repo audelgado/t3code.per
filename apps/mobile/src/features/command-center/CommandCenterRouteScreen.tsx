@@ -3,13 +3,15 @@ import {
   type CommandCenterAgentStatus,
 } from "@t3tools/client-runtime/state/commandCenterDerive";
 import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/shell";
+import type { CommandCenterSection } from "@t3tools/contracts";
 import { useFocusEffect, useNavigation } from "@react-navigation/native";
-import { useCallback, useMemo, useState } from "react";
+import { Fragment, useCallback, useMemo, useState } from "react";
 import { AppState, Pressable, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { AppText as Text } from "../../components/AppText";
 import { ScreenScrollView as ScrollView } from "../../components/ScreenScrollView";
+import { tryOpenExternalUrl } from "../../lib/openExternalUrl";
 import { useEnvironments } from "../../state/environments";
 import { useProjects, useThreadShells } from "../../state/entities";
 import { useEnvironmentQuery } from "../../state/query";
@@ -20,7 +22,9 @@ import {
   useSettingsEnvironmentFilter,
   type SettingsTarget,
 } from "../settings/settings-environment-filter";
-import { formatDue, summarizeCommandCenter } from "./commandCenterSummary";
+import { ArtifactsSection } from "./CommandCenterArtifacts";
+import { formatDue, sectionPullRequest, summarizeCommandCenter } from "./commandCenterSummary";
+import { WorkflowsSection } from "./CommandCenterWorkflows";
 
 const STATUS_LABEL: Record<CommandCenterAgentStatus, string> = {
   working: "Working",
@@ -38,7 +42,10 @@ const STATUS_CLASS: Record<CommandCenterAgentStatus, string> = {
   idle: "text-foreground-muted",
 };
 
-/** Read-only Command Center summary: team status, what is missing, upcoming deliveries. */
+/**
+ * Command Center summary (team status, what is missing, upcoming deliveries, artifacts), plus
+ * each project's workflows with their runs, which can be started, stopped and retried here.
+ */
 export function CommandCenterRouteScreen() {
   const [now, setNow] = useState(Date.now);
   useFocusEffect(
@@ -84,13 +91,19 @@ export function CommandCenterRouteScreen() {
           </Text>
         ) : (
           targets.map((target) => (
-            <EnvironmentSummary
-              key={target.environmentId}
-              target={target}
-              shells={shells}
-              now={now}
-              showTitle={targets.length > 1}
-            />
+            <Fragment key={target.environmentId}>
+              <EnvironmentSummary
+                target={target}
+                shells={shells}
+                now={now}
+                showTitle={targets.length > 1}
+              />
+              {/* Workflows run on whichever machine has the project, home or not. */}
+              <WorkflowsSection
+                environmentId={target.environmentId}
+                title={targets.length > 1 ? `${target.label} · Workflows` : "Workflows"}
+              />
+            </Fragment>
           ))
         )}
       </ScrollView>
@@ -127,6 +140,16 @@ function EnvironmentSummary({
   // Sections can belong to a project checked out on any machine.
   const projectTitle = (id: string) =>
     projects.find((project) => project.id === id)?.title ?? "Unknown project";
+  // A section linked to a pull request names it and opens it when tapped.
+  const sectionRow = (section: CommandCenterSection, details: ReadonlyArray<string | null>) => {
+    const pullRequest = sectionPullRequest(section);
+    return {
+      detail: [...details, pullRequest?.label ?? null].filter(Boolean).join(" · "),
+      ...(pullRequest
+        ? { onPress: () => void tryOpenExternalUrl(pullRequest.url, "pull-request") }
+        : {}),
+    };
+  };
 
   // A machine that is not a Command Center home (or cannot be read) has nothing to show.
   if (live.error) return null;
@@ -162,12 +185,15 @@ function EnvironmentSummary({
     ...summary.blocked.map((section) => ({
       key: `blocked:${section.id}`,
       text: `${section.name} is blocked`,
-      detail: [projectTitle(section.projectId), section.blocker].filter(Boolean).join(" · "),
+      ...sectionRow(section, [projectTitle(section.projectId), section.blocker]),
     })),
     ...summary.dueSoon.map(({ section, days }) => ({
       key: `due:${section.id}`,
       text: `${section.name} is ${formatDue(days)}`,
-      detail: `${projectTitle(section.projectId)} · ${section.tasksDone}/${section.tasksTotal} tasks`,
+      ...sectionRow(section, [
+        projectTitle(section.projectId),
+        `${section.tasksDone}/${section.tasksTotal} tasks`,
+      ]),
     })),
   ];
   const prefix = showTitle ? `${target.label} · ` : "";
@@ -233,12 +259,22 @@ function EnvironmentSummary({
             <Row
               key={section.id}
               text={`${section.name} · ${formatDue(days)}`}
-              detail={`${projectTitle(section.projectId)} · ${section.dueDate} · ${section.tasksDone}/${section.tasksTotal} tasks`}
+              {...sectionRow(section, [
+                projectTitle(section.projectId),
+                section.dueDate,
+                `${section.tasksDone}/${section.tasksTotal} tasks`,
+              ])}
               divided={index > 0}
             />
           ))
         )}
       </SettingsSection>
+
+      <ArtifactsSection
+        environmentId={environmentId}
+        title={`${prefix}Artifacts`}
+        projectTitle={projectTitle}
+      />
     </>
   );
 }

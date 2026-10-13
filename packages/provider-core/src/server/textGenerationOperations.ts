@@ -189,11 +189,25 @@ export function fromRunner(name: string, run: Runner): ProviderTextGeneration {
     });
   });
 
+  const rewriteText: ProviderTextGeneration["rewriteText"] = Effect.fn(`${name}.rewriteText`)(
+    function* (input) {
+      const generated = yield* run({
+        operation: "rewriteText",
+        cwd: input.cwd,
+        modelSelection: input.modelSelection,
+        prompt: input.prompt,
+        outputSchema: Schema.Struct({ text: Schema.String }),
+      });
+      return { text: generated.text.trim() };
+    },
+  );
+
   return {
     generateCommitMessage,
     generatePrContent,
     generateBranchName,
     generateThreadTitle,
     generateReviewGuide,
+    rewriteText,
   } satisfies ProviderTextGeneration;
 }

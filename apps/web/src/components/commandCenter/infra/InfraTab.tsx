@@ -1,3 +1,4 @@
+import type { EnvironmentProject } from "@t3tools/client-runtime/state/shell";
 import {
   AuthDiagnosticsReadScope,
   type CommandCenterAgentProfile,
@@ -6,7 +7,7 @@ import {
   type ProjectId,
 } from "@t3tools/contracts";
 import * as DateTime from "effect/DateTime";
-import { type ReactNode, useEffect, useMemo, useState, useSyncExternalStore } from "react";
+import { type ReactNode, useEffect, useMemo, useState } from "react";
 
 import { formatBytes } from "~/lib/formatBytes";
 import { useResourceTelemetry } from "~/lib/resourceTelemetryState";
@@ -30,24 +31,13 @@ import {
   pushSample,
   sparklinePoints,
 } from "./logic";
+import { ProjectPreviewButton } from "../projects/ProjectPreview";
+import { useDocumentVisible } from "./useDocumentVisible";
 
 const HOST_REFRESH_MS = 5_000;
 const SPARKLINE_SAMPLES = 40;
 /** Processes doing agent work, as opposed to T3's own server and desktop shell. */
 const WORK_PROCESS_CATEGORIES = new Set(["server-child", "provider-root", "terminal-root"]);
-
-const subscribeVisibility = (onChange: () => void) => {
-  document.addEventListener("visibilitychange", onChange);
-  return () => document.removeEventListener("visibilitychange", onChange);
-};
-/** Whether the window is on screen; a hidden one should not keep live telemetry running. */
-function useDocumentVisible() {
-  return useSyncExternalStore(
-    subscribeVisibility,
-    () => document.visibilityState === "visible",
-    () => true,
-  );
-}
 
 interface InfraMachine {
   readonly environmentId: EnvironmentId;
@@ -61,8 +51,8 @@ interface InfraMachine {
 interface InfraProject {
   readonly id: ProjectId;
   readonly title: string;
-  /** Machines that have this project checked out. */
-  readonly hosts: ReadonlySet<EnvironmentId>;
+  /** Machines that have this project checked out, with that machine's copy. */
+  readonly hosts: ReadonlyMap<EnvironmentId, EnvironmentProject>;
   /** Machines with an open assignment on it. */
   readonly builders: ReadonlySet<EnvironmentId>;
 }
@@ -106,16 +96,20 @@ export function InfraTab() {
   const projects = useMemo((): ReadonlyArray<InfraProject> => {
     const byId = new Map<
       ProjectId,
-      { title: string; hosts: Set<EnvironmentId>; builders: Set<EnvironmentId> }
+      {
+        title: string;
+        hosts: Map<EnvironmentId, EnvironmentProject>;
+        builders: Set<EnvironmentId>;
+      }
     >();
     for (const project of allProjects) {
       if (project.isScratch) continue;
       const entry = byId.get(project.id) ?? {
         title: project.title,
-        hosts: new Set(),
+        hosts: new Map(),
         builders: new Set(),
       };
-      entry.hosts.add(project.environmentId);
+      entry.hosts.set(project.environmentId, project);
       byId.set(project.id, entry);
     }
     for (const assignment of snapshot.assignments) {
@@ -543,22 +537,28 @@ function MachineCard({
       )}
 
       <CardList title="Projects" empty="No projects on this machine.">
-        {projects.map((project) => (
-          <li
-            key={project.id}
-            className={cn(
-              "flex items-center gap-2 text-xs",
-              projectId !== null && project.id !== projectId && "opacity-40",
-            )}
-          >
-            <span className="min-w-0 flex-1 truncate">{project.title}</span>
-            {project.builders.has(environmentId) ? (
-              <Badge variant="info" size="sm">
-                building
-              </Badge>
-            ) : null}
-          </li>
-        ))}
+        {projects.map((project) => {
+          const checkout = connected ? project.hosts.get(environmentId) : undefined;
+          return (
+            <li
+              key={project.id}
+              className={cn(
+                "flex items-center gap-2 text-xs",
+                projectId !== null && project.id !== projectId && "opacity-40",
+              )}
+            >
+              <span className="min-w-0 flex-1 truncate">{project.title}</span>
+              {project.builders.has(environmentId) ? (
+                <Badge variant="info" size="sm">
+                  building
+                </Badge>
+              ) : null}
+              {checkout ? (
+                <ProjectPreviewButton project={checkout} environmentId={environmentId} compact />
+              ) : null}
+            </li>
+          );
+        })}
       </CardList>
     </section>
   );

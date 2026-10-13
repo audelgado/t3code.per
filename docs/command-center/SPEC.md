@@ -157,15 +157,34 @@ cc_assignments     id, agent_id, environment_id, thread_id, project_id,
                    section_id NULL, task, created_at, finished_at NULL
 cc_sections        id, project_id, name, status, tasks_done, tasks_total,
                    due_date NULL, trying NULL, blocker NULL, missing (json),
-                   depends_on (json section ids), sort_key, created_at,
-                   updated_at
+                   depends_on (json section ids), pr_url NULL, pr_number NULL,
+                   sort_key, created_at, updated_at
 cc_memory          id, project_id NULL, section_id NULL, thread_id NULL, kind,
                    text, done, source, created_at, updated_at
 cc_income          id, concept, client_name, date, amount_cents, currency, status,
                    created_at, updated_at
 cc_costs           id, concept, category, monthly_cents, currency,
                    project_ids (json), created_at, updated_at, archived_at
+cc_artifacts       id, project_id NULL, title, kind (html|markdown),
+                   current_version, source_thread_id NULL, created_at,
+                   updated_at, archived_at
+cc_artifact_versions artifact_id, version, author, author_label NULL,
+                   thread_id NULL, attachment_id, size_bytes, created_at
+cc_canvas_items    id, project_id, kind (artifact|section|memory|note), ref_id
+                   NULL, text NULL, x, y, w NULL, h NULL, created_at, updated_at
+cc_canvas_edges    id, project_id, from_item_id, to_item_id, label NULL,
+                   created_at, updated_at
+cc_workflow_runs   id, slug, title, project_id, environment_id, status, inputs
+                   (json), workflow (json, as started), mode_limit (json) NULL,
+                   error NULL, started_at, finished_at NULL, updated_at
+cc_workflow_steps  id, run_id, node_id, item NULL, attempt, thread_id NULL,
+                   status, output NULL, error NULL, items (json) NULL,
+                   started_at NULL, finished_at NULL, updated_at
 ```
+
+Workflow, snippet and skill files live in the project (`.t3/workflows`,
+`.agents/skills`, `.claude/skills`), not in SQLite; see
+[WORKFLOWS.md](WORKFLOWS.md).
 
 ## Server
 
@@ -277,41 +296,61 @@ constraint; the token budget that matters is the user's at runtime.
 
 ## Wave 4: shared artifacts and T3 integration (approved 2026-10-13)
 
-T3 already has artifact-like pages: the `html_render` / `html_preview` MCP
-tools (`apps/server/src/mcp/toolkits/html/`, `apps/server/src/htmlRender/`,
-`components/chat/HtmlRenderFrame.tsx`) show an HTML page inline in a thread,
-for any provider. Today those pages are stuck inside the thread that made
-them. Wave 4 turns them into a shared library.
+T3's `html_render` / `html_preview` pages used to be stuck in the thread that
+made them. Wave 4 keeps them in a shared, versioned library
+(`commandCenter/ArtifactsService.ts`).
 
-- **Artifacts library** (`cc_artifacts`: id, project_id NULL, title, kind
-  `html|markdown`, current_version, source thread, created/updated;
-  `cc_artifact_versions`: artifact_id, version, author agent/user, thread_id,
-  file path, created_at). HTML lives as files under the server's attachments
-  directory, never as blobs in SQLite; the DB holds metadata only.
-- **Cross-agent sharing over MCP:** `artifact_save` (new or new version),
-  `artifact_list(project?)`, `artifact_get(id, version?)`. A page Claude made
-  can be opened and revised by Codex (or any provider) as a new version.
-  `html_render` gets a "save to library" path so rendered pages can be kept.
-- **UI:** an Artifacts view per project (and global) with lazy thumbnails from
-  the existing headless browser (generated once per version, cached), open in
-  the right panel preview or full page, version history with diff/restore,
-  "send to agent" (pre-fills the orchestrator with the artifact attached).
-- **Canvas:** a board per project where artifacts, sections and memory notes
-  are cards you can place and connect (positions stored in
-  `cc_canvas_items`). Static rendering, no continuous animation.
+- **Storage:** each version is a file in the server's attachments directory
+  named `cc-artifact-<uuid>-html|md`; SQLite holds metadata only. A thumbnail
+  is captured by the existing headless browser on first request and cached
+  next to it as `cc-artifact-<uuid>.webp` (written to `.part`, then renamed).
+- **Versions are append-only.** Restore saves the old content as a new
+  version; delete archives (`archived_at`) and the Deleted view restores.
+- **Reads stay small.** `artifact get` returns content only for Markdown unless
+  `includeContent` is set; HTML loads by attachment id. The list subscription
+  pushes one page of rows, never content.
+- **Agents (MCP):** `artifact_save`, `artifact_list`, `artifact_get`.
+  `artifact_get` replaces inline images (`data:` URIs) with
+  `data:t3-inline/<n>` placeholders and pages long pages by `offset`
+  (60k characters per call); `artifact_save` puts the placeholders back from
+  the current version and inlines local images like `html_render`. A step on a
+  machine that cannot reach the primary server gets referenced artifacts
+  inlined in its prompt instead.
+- **Canvas:** cards (artifacts, sections, memory, notes) and edges per project.
+  Drags send positions-only moves batched for 400 ms; undo re-saves the full
+  rows. The server enforces 200 cards per project. The board re-reads its
+  canvas when any artifact changes (a one-row live list), only while visible.
+- **Integrations:** a section links one pull request (`pr_url`/`pr_number`)
+  and shows its live state; a project card lists its recurring scheduled tasks
+  and opens Settings to create or edit them; Preview opens the project's dev
+  server in the browser panel beside its latest thread; an agent's View
+  changes opens its worktree's branch diff, or its latest turn in a shared
+  checkout. HTML renders in a thread have Save to Artifacts.
 - **claude.ai artifacts:** there is no public API to sync them. Import by
-  pasting the HTML or dropping the file; Claude Code sessions can push one
-  with `artifact_save`.
+  pasting or dropping the file, or `t3 cc artifacts save`.
 
-Other T3 capabilities to wire in:
+## Wave 5: workflows (approved 2026-10-13)
 
-- Pull requests: link a section to its PR and show review state on the card.
-- Scheduled tasks: recurring work per project ("every Monday update deps")
-  shown in the project card; the daily digest can run as one.
-- Preview browser / device panel: open a project's deployed URL or dev server
-  from the project card and Infra node.
-- Checkpoints and diff: from an assignment, open the diff of what the agent
-  changed.
+Design and behavior: [WORKFLOWS.md](WORKFLOWS.md). Services in
+`apps/server/src/commandCenter/`: `WorkflowStore` (files, snippets, trash),
+`SkillWriter`, `WorkflowRunner`, `TextRewriter`.
+
+- **RPCs:** Command Center's RPCs are their own group (`CommandCenterRpcGroup`,
+  merged into `WsRpcGroup`) so the server's handler layers stay under the type
+  checker's budget. Reading workflow files, snippets and skills needs
+  `filesystem:read`; writing or trashing them needs `filesystem:write`;
+  starting, stopping, retrying, resuming, answering runs and Rewrite shorter
+  need `orchestration:operate`; starters and run reads stay on
+  `orchestration:read`.
+- **MCP:** `workflow_list`, `workflow_get`, `workflow_save`, `workflow_run`,
+  `workflow_answer`, `workflow_status`, `skill_create`, `skill_update`,
+  `agent_profile_save`. Saving workflows and skills needs a default
+  (full-access) caller; runs and profiles never go broader than the caller's
+  modes.
+- **Scheduled tasks:** a `/wf <slug> ...` prompt runs the workflow through
+  `ScheduledTaskPromptRoutes`, within the task's modes.
+- **CLI:** `t3 wf list`, `t3 wf run <slug> --input name=value`,
+  `t3 wf status <runId>`, `t3 wf answer <runId> <step> [answer] [--approve|--reject]`.
 
 ## Not in this round
 

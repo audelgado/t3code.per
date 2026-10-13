@@ -10,6 +10,7 @@ import { useState } from "react";
 
 import { cn } from "~/lib/utils";
 import { formatRelativeTimeLabel } from "~/timestampFormat";
+import { RunWorkflowMenu } from "../../RunWorkflowDialog";
 import { Badge } from "../../ui/badge";
 import { Button } from "../../ui/button";
 import { Checkbox } from "../../ui/checkbox";
@@ -30,6 +31,9 @@ import {
   SECTION_STATUS_LABEL,
   whereWeLeftOff,
 } from "./logic";
+import { ProjectPreviewButton } from "./ProjectPreview";
+import { ProjectSchedules } from "./ProjectSchedules";
+import { SectionPullRequest } from "./SectionPullRequest";
 
 export const STATUS_BADGE = {
   todo: "outline",
@@ -170,6 +174,8 @@ export function ProjectCard({
           <SparklesIcon />
           Onboard
         </Button>
+        <RunWorkflowMenu environmentId={project.environmentId} projectId={project.id} />
+        <ProjectPreviewButton project={project} />
       </div>
 
       <div className="flex flex-col gap-1.5">
@@ -217,6 +223,8 @@ export function ProjectCard({
         ))}
       </div>
 
+      <ProjectSchedules project={project} />
+
       <div className="flex flex-col divide-y">
         {sections.map((section) =>
           editing === section.id ? (
@@ -230,6 +238,7 @@ export function ProjectCard({
           ) : (
             <SectionRow
               key={section.id}
+              project={project}
               section={section}
               waitingOn={(unmet.get(section.id) ?? []).map((dependency) =>
                 dependency.projectId === project.id
@@ -269,11 +278,13 @@ export function ProjectCard({
 }
 
 function SectionRow({
+  project,
   section,
   waitingOn,
   today,
   onEdit,
 }: {
+  readonly project: EnvironmentProject;
   readonly section: CommandCenterSection;
   /** Labels of the unfinished sections this one depends on. */
   readonly waitingOn: ReadonlyArray<string>;
@@ -307,6 +318,7 @@ function SectionRow({
             ))}
           </ul>
         ) : null}
+        <SectionPullRequest section={section} project={project} />
       </div>
       <div className="col-start-2 flex flex-col gap-1 sm:col-start-auto">
         <ProgressBar percent={percent} danger={section.status === "blocked"} />

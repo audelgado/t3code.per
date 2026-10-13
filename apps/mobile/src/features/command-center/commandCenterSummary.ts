@@ -7,13 +7,17 @@ import {
   threadShellKey,
 } from "@t3tools/client-runtime/state/commandCenterDerive";
 import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/shell";
-import type {
-  CommandCenterAgentProfile,
-  CommandCenterSection,
-  CommandCenterSnapshot,
-  EnvironmentId,
-  ThreadId,
+import {
+  pullRequestNumberFromUrl,
+  type CommandCenterAgentProfile,
+  type CommandCenterArtifact,
+  type CommandCenterSection,
+  type CommandCenterSnapshot,
+  type EnvironmentId,
+  type ThreadId,
 } from "@t3tools/contracts";
+
+import { relativeTime } from "../../lib/time";
 
 export interface SummaryAgent {
   readonly agent: CommandCenterAgentProfile;
@@ -115,4 +119,21 @@ export function formatDue(days: number) {
   if (days < 0) return `${-days} day${days === -1 ? "" : "s"} overdue`;
   if (days === 0) return "due today";
   return `due in ${days} day${days === 1 ? "" : "s"}`;
+}
+
+/** A section's linked pull request as a tappable label, or null when none is linked. */
+export function sectionPullRequest(section: CommandCenterSection) {
+  const url = section.prUrl ?? null;
+  if (url === null) return null;
+  const number = section.prNumber ?? pullRequestNumberFromUrl(url);
+  return { url, label: number === null ? "Pull request" : `PR #${number}` };
+}
+
+/** "Project · v3 · 2h ago" under an artifact's title; a null project means a global artifact. */
+export function artifactDetail(artifact: CommandCenterArtifact, projectTitle: string | null) {
+  return [
+    projectTitle ?? "No project",
+    `v${artifact.currentVersion}`,
+    `${relativeTime(artifact.updatedAt)} ago`,
+  ].join(" · ");
 }

@@ -1,0 +1,50 @@
+{
+  "slug": "feature",
+  "title": "Feature",
+  "description": "Plan a feature, get approval, build it in a worktree, and check the tests.",
+  "inputs": [{ "name": "feature", "label": "What to build" }],
+  "nodes": [
+    {
+      "id": "plan",
+      "kind": "agent",
+      "title": "Plan",
+      "prompt": "Plan this feature: {{input:feature}}\n\nRead the code it touches first. List the files to change, the approach, and how it will be tested. Do not edit files.",
+      "outputs": "artifact"
+    },
+    {
+      "id": "approve",
+      "kind": "ask",
+      "title": "Approve plan",
+      "question": "Build this plan?",
+      "choices": ["Build it", "Stop"]
+    },
+    {
+      "id": "build",
+      "kind": "agent",
+      "title": "Build",
+      "prompt": "Implement the approved plan for: {{input:feature}}\n\nAdd focused tests for the new behavior.",
+      "worktree": true
+    },
+    { "id": "tests", "kind": "gate", "title": "Tests pass", "check": "tests" },
+    {
+      "id": "summary",
+      "kind": "agent",
+      "title": "Summarize",
+      "prompt": "Summarize what changed for {{input:feature}} in three bullets, and note anything left to do.",
+      "outputs": "memory"
+    }
+  ],
+  "edges": [
+    { "from": "plan", "to": "approve" },
+    { "from": "approve", "to": "build" },
+    { "from": "build", "to": "tests" },
+    { "from": "tests", "to": "summary" }
+  ],
+  "layout": {
+    "plan": { "x": 0, "y": 0 },
+    "approve": { "x": 280, "y": 0 },
+    "build": { "x": 560, "y": 0 },
+    "tests": { "x": 840, "y": 0 },
+    "summary": { "x": 1120, "y": 0 }
+  }
+}

@@ -1,6 +1,10 @@
 import {
+  type CommandCenterArtifactId,
   type CommandCenterSnapshot,
+  type CommandCenterWorkflowRunsState,
+  type CommandCenterWorkflowSlug,
   type EnvironmentId,
+  type ProjectId,
   type ServerConfig,
   type ServerConfigStreamEvent,
   type ServerLifecycleWelcomePayload,
@@ -22,7 +26,7 @@ import * as Result from "effect/Result";
 import * as Schema from "effect/Schema";
 import * as Stream from "effect/Stream";
 import * as SubscriptionRef from "effect/SubscriptionRef";
-import { AsyncResult, Atom } from "effect/reactivity";
+import { AsyncResult, Atom, AtomRegistry } from "effect/reactivity";
 
 import {
   createAtomCommandScheduler,
@@ -32,6 +36,7 @@ import {
   createEnvironmentRpcSubscriptionAtomFamily,
   createEnvironmentSubscriptionAtomFamily,
   createRuntimeCommand,
+  environmentRpcKey,
   scheduleAtomCommandEffect,
 } from "./runtime.ts";
 import * as EnvironmentRegistry from "../connection/registry.ts";
@@ -40,6 +45,7 @@ import { safeErrorLogAttributes } from "../errors/safeLog.ts";
 import * as Persistence from "../platform/persistence.ts";
 import { runCachePersistence } from "./cachePersistence.ts";
 import { applyCommandCenterEvent } from "./commandCenter.ts";
+import { applyWorkflowRunEvent } from "./commandCenterWorkflows.ts";
 import {
   isRpcClientError,
   request,
@@ -985,6 +991,60 @@ export function createServerEnvironmentAtoms<R, E>(
     scheduler: configScheduler,
     concurrency: configConcurrency,
   });
+  /**
+   * One artifact version (`{ id }` for the current one) with its history; content per
+   * `includeContent`. Content can be megabytes, so a closed view lets go of it within a minute.
+   */
+  const commandCenterArtifact = createEnvironmentRpcQueryAtomFamily(runtime, {
+    label: "environment-data:server:command-center:artifact",
+    tag: WS_METHODS.commandCenterGetArtifact,
+    idleTtlMs: 60_000,
+  });
+  /** A project's canvas with the artifacts and memory its cards point at. */
+  const commandCenterCanvas = createEnvironmentRpcQueryAtomFamily(runtime, {
+    label: "environment-data:server:command-center:canvas",
+    tag: WS_METHODS.commandCenterGetCanvas,
+  });
+  // This client's writes refresh what it reads; the live artifact list carries everyone's
+  // changes, so a view can compare `currentVersion` there to refresh an open artifact.
+  const refreshArtifact = (
+    registry: AtomRegistry.AtomRegistry,
+    environmentId: EnvironmentId,
+    id: CommandCenterArtifactId,
+  ) => Effect.sync(() => registry.refresh(commandCenterArtifact({ environmentId, input: { id } })));
+  const refreshCanvas = (
+    registry: AtomRegistry.AtomRegistry,
+    environmentId: EnvironmentId,
+    projectId: ProjectId,
+  ) =>
+    Effect.sync(() =>
+      registry.refresh(commandCenterCanvas({ environmentId, input: { projectId } })),
+    );
+
+  /** One workflow file; an editor that closed lets go of it within a minute. */
+  const commandCenterWorkflow = createEnvironmentRpcQueryAtomFamily(runtime, {
+    label: "environment-data:server:command-center:workflow",
+    tag: WS_METHODS.commandCenterGetWorkflow,
+    idleTtlMs: 60_000,
+  });
+  const commandCenterSnippets = createEnvironmentRpcQueryAtomFamily(runtime, {
+    label: "environment-data:server:command-center:snippets",
+    tag: WS_METHODS.commandCenterListSnippets,
+  });
+  const commandCenterSkills = createEnvironmentRpcQueryAtomFamily(runtime, {
+    label: "environment-data:server:command-center:skills",
+    tag: WS_METHODS.commandCenterListSkills,
+  });
+  // The live workflow list follows the files; these refresh what this client opened.
+  const refreshWorkflow = (
+    registry: AtomRegistry.AtomRegistry,
+    environmentId: EnvironmentId,
+    projectId: ProjectId,
+    slug: CommandCenterWorkflowSlug,
+  ) =>
+    Effect.sync(() =>
+      registry.refresh(commandCenterWorkflow({ environmentId, input: { projectId, slug } })),
+    );
 
   return {
     configValueAtom,
@@ -1133,6 +1193,65 @@ export function createServerEnvironmentAtoms<R, E>(
             },
           ),
         ),
+    }),
+    /**
+     * Newest page of the artifacts library, re-sent after every artifact change. Ends with its
+     * last reader (every search term is its own stream, and subscribing re-sends the page).
+     */
+    commandCenterArtifactsLive: createEnvironmentRpcSubscriptionAtomFamily(runtime, {
+      label: "environment-data:server:command-center:artifacts-live",
+      tag: WS_METHODS.commandCenterSubscribeArtifacts,
+      idleTtlMs: 0,
+    }),
+    commandCenterArtifact,
+    /** A version's thumbnail attachment; each version's image never changes once captured. */
+    commandCenterArtifactThumbnail: createEnvironmentRpcQueryAtomFamily(runtime, {
+      label: "environment-data:server:command-center:artifact-thumbnail",
+      tag: WS_METHODS.commandCenterGetArtifactThumbnail,
+      staleTimeMs: 10 * 60_000,
+    }),
+    commandCenterCanvas,
+    /** The project's workflow files, re-sent whenever one changes (here or on disk). */
+    commandCenterWorkflowsLive: createEnvironmentRpcSubscriptionAtomFamily(runtime, {
+      label: "environment-data:server:command-center:workflows-live",
+      tag: WS_METHODS.commandCenterSubscribeWorkflows,
+      idleTtlMs: 0,
+    }),
+    commandCenterWorkflow,
+    /** Built-in workflows; they only change with the server. */
+    commandCenterWorkflowStarters: createEnvironmentRpcQueryAtomFamily(runtime, {
+      label: "environment-data:server:command-center:workflow-starters",
+      tag: WS_METHODS.commandCenterListWorkflowStarters,
+      staleTimeMs: 60 * 60_000,
+    }),
+    commandCenterSnippets,
+    commandCenterSnippet: createEnvironmentRpcQueryAtomFamily(runtime, {
+      label: "environment-data:server:command-center:snippet",
+      tag: WS_METHODS.commandCenterGetSnippet,
+      idleTtlMs: 60_000,
+    }),
+    commandCenterSkills,
+    /** Newest runs and the steps of unfinished ones, kept current by folding each change. */
+    commandCenterWorkflowRunsLive: createEnvironmentRpcSubscriptionAtomFamily(runtime, {
+      label: "environment-data:server:command-center:workflow-runs-live",
+      tag: WS_METHODS.commandCenterSubscribeWorkflowRuns,
+      idleTtlMs: 0,
+      transform: (stream) =>
+        stream.pipe(
+          Stream.mapAccum(
+            (): CommandCenterWorkflowRunsState | null => null,
+            (current, event) => {
+              const next = applyWorkflowRunEvent(current, event);
+              return [next, next === null || next === current ? [] : [next]] as const;
+            },
+          ),
+        ),
+    }),
+    /** One run with all its steps and the workflow it started with. */
+    commandCenterWorkflowRun: createEnvironmentRpcQueryAtomFamily(runtime, {
+      label: "environment-data:server:command-center:workflow-run",
+      tag: WS_METHODS.commandCenterGetWorkflowRun,
+      idleTtlMs: 60_000,
     }),
     // A cold transcript scan is measured in seconds, so keep the result around
     // long enough that switching windows or re-rendering does not rescan.
@@ -1417,6 +1536,247 @@ export function createServerEnvironmentAtoms<R, E>(
       tag: WS_METHODS.commandCenterEnsureOnboardingTeam,
       scheduler: commandCenterScheduler,
       concurrency: configConcurrency,
+    }),
+    setCommandCenterSectionPullRequest: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:server:command-center:set-section-pull-request",
+      tag: WS_METHODS.commandCenterSetSectionPullRequest,
+      scheduler: commandCenterScheduler,
+      concurrency: configConcurrency,
+    }),
+    /** An older page of artifacts (`before` = last row). A read; never queues behind writes. */
+    listCommandCenterArtifacts: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:server:command-center:list-artifacts",
+      tag: WS_METHODS.commandCenterListArtifacts,
+      concurrency: {
+        mode: "singleFlight",
+        key: ({ environmentId, input }) =>
+          JSON.stringify([
+            environmentId,
+            input.projectId ?? null,
+            input.archived ?? false,
+            input.query ?? "",
+            input.before ?? null,
+          ]),
+      },
+    }),
+    /** One version read on demand, e.g. to inline an artifact into a remote step's prompt. */
+    getCommandCenterArtifact: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:server:command-center:get-artifact",
+      tag: WS_METHODS.commandCenterGetArtifact,
+      concurrency: { mode: "singleFlight", key: environmentRpcKey },
+    }),
+    saveCommandCenterArtifact: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:server:command-center:save-artifact",
+      tag: WS_METHODS.commandCenterSaveArtifact,
+      scheduler: commandCenterScheduler,
+      concurrency: configConcurrency,
+      onSuccess: ({ environmentId }, registry, result) =>
+        refreshArtifact(registry, environmentId, result.artifact.id),
+    }),
+    importCommandCenterArtifact: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:server:command-center:import-artifact",
+      tag: WS_METHODS.commandCenterImportArtifact,
+      scheduler: commandCenterScheduler,
+      concurrency: configConcurrency,
+    }),
+    restoreCommandCenterArtifactVersion: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:server:command-center:restore-artifact-version",
+      tag: WS_METHODS.commandCenterRestoreArtifactVersion,
+      scheduler: commandCenterScheduler,
+      concurrency: configConcurrency,
+      onSuccess: ({ environmentId, input }, registry) =>
+        refreshArtifact(registry, environmentId, input.id),
+    }),
+    setCommandCenterArtifactArchived: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:server:command-center:set-artifact-archived",
+      tag: WS_METHODS.commandCenterSetArtifactArchived,
+      scheduler: commandCenterScheduler,
+      concurrency: configConcurrency,
+      onSuccess: ({ environmentId, input }, registry) =>
+        refreshArtifact(registry, environmentId, input.id),
+    }),
+    upsertCommandCenterCanvasItems: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:server:command-center:upsert-canvas-items",
+      tag: WS_METHODS.commandCenterUpsertCanvasItems,
+      scheduler: commandCenterScheduler,
+      concurrency: configConcurrency,
+      onSuccess: ({ environmentId, input }, registry) =>
+        refreshCanvas(registry, environmentId, input.projectId),
+    }),
+    upsertCommandCenterCanvasEdges: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:server:command-center:upsert-canvas-edges",
+      tag: WS_METHODS.commandCenterUpsertCanvasEdges,
+      scheduler: commandCenterScheduler,
+      concurrency: configConcurrency,
+      onSuccess: ({ environmentId, input }, registry) =>
+        refreshCanvas(registry, environmentId, input.projectId),
+    }),
+    /** Returns the removed rows; upserting them again (with their ids) is the undo. */
+    deleteCommandCenterCanvasEntries: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:server:command-center:delete-canvas-entries",
+      tag: WS_METHODS.commandCenterDeleteCanvasEntries,
+      scheduler: commandCenterScheduler,
+      concurrency: configConcurrency,
+      onSuccess: ({ environmentId, input }, registry) =>
+        refreshCanvas(registry, environmentId, input.projectId),
+    }),
+    saveCommandCenterWorkflow: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:server:command-center:save-workflow",
+      tag: WS_METHODS.commandCenterSaveWorkflow,
+      scheduler: commandCenterScheduler,
+      concurrency: configConcurrency,
+      onSuccess: ({ environmentId, input }, registry) =>
+        refreshWorkflow(registry, environmentId, input.projectId, input.workflow.slug),
+    }),
+    /** Moves the file to the trash; restoreCommandCenterWorkflow is the undo. */
+    deleteCommandCenterWorkflow: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:server:command-center:delete-workflow",
+      tag: WS_METHODS.commandCenterDeleteWorkflow,
+      scheduler: commandCenterScheduler,
+      concurrency: configConcurrency,
+      onSuccess: ({ environmentId, input }, registry) =>
+        refreshWorkflow(registry, environmentId, input.projectId, input.slug),
+    }),
+    restoreCommandCenterWorkflow: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:server:command-center:restore-workflow",
+      tag: WS_METHODS.commandCenterRestoreWorkflow,
+      scheduler: commandCenterScheduler,
+      concurrency: configConcurrency,
+      onSuccess: ({ environmentId, input }, registry) =>
+        refreshWorkflow(registry, environmentId, input.projectId, input.slug),
+    }),
+    /** Deleted workflows (a read for the trash view; never queues behind writes). */
+    listCommandCenterWorkflows: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:server:command-center:list-workflows",
+      tag: WS_METHODS.commandCenterListWorkflows,
+      concurrency: { mode: "singleFlight", key: environmentRpcKey },
+    }),
+    saveCommandCenterSnippet: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:server:command-center:save-snippet",
+      tag: WS_METHODS.commandCenterSaveSnippet,
+      scheduler: commandCenterScheduler,
+      concurrency: configConcurrency,
+      onSuccess: ({ environmentId, input }, registry) =>
+        Effect.sync(() =>
+          registry.refresh(
+            commandCenterSnippets({ environmentId, input: { projectId: input.projectId } }),
+          ),
+        ),
+    }),
+    deleteCommandCenterSnippet: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:server:command-center:delete-snippet",
+      tag: WS_METHODS.commandCenterDeleteSnippet,
+      scheduler: commandCenterScheduler,
+      concurrency: configConcurrency,
+      onSuccess: ({ environmentId, input }, registry) =>
+        Effect.sync(() =>
+          registry.refresh(
+            commandCenterSnippets({ environmentId, input: { projectId: input.projectId } }),
+          ),
+        ),
+    }),
+    restoreCommandCenterSnippet: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:server:command-center:restore-snippet",
+      tag: WS_METHODS.commandCenterRestoreSnippet,
+      scheduler: commandCenterScheduler,
+      concurrency: configConcurrency,
+      onSuccess: ({ environmentId, input }, registry) =>
+        Effect.sync(() =>
+          registry.refresh(
+            commandCenterSnippets({ environmentId, input: { projectId: input.projectId } }),
+          ),
+        ),
+    }),
+    createCommandCenterSkill: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:server:command-center:create-skill",
+      tag: WS_METHODS.commandCenterCreateSkill,
+      scheduler: commandCenterScheduler,
+      concurrency: configConcurrency,
+      onSuccess: ({ environmentId, input }, registry) =>
+        Effect.sync(() =>
+          registry.refresh(
+            commandCenterSkills({ environmentId, input: { projectId: input.projectId } }),
+          ),
+        ),
+    }),
+    updateCommandCenterSkill: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:server:command-center:update-skill",
+      tag: WS_METHODS.commandCenterUpdateSkill,
+      scheduler: commandCenterScheduler,
+      concurrency: configConcurrency,
+      onSuccess: ({ environmentId, input }, registry) =>
+        Effect.sync(() =>
+          registry.refresh(
+            commandCenterSkills({ environmentId, input: { projectId: input.projectId } }),
+          ),
+        ),
+    }),
+    deleteCommandCenterSkill: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:server:command-center:delete-skill",
+      tag: WS_METHODS.commandCenterDeleteSkill,
+      scheduler: commandCenterScheduler,
+      concurrency: configConcurrency,
+      onSuccess: ({ environmentId, input }, registry) =>
+        Effect.sync(() =>
+          registry.refresh(
+            commandCenterSkills({ environmentId, input: { projectId: input.projectId } }),
+          ),
+        ),
+    }),
+    restoreCommandCenterSkill: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:server:command-center:restore-skill",
+      tag: WS_METHODS.commandCenterRestoreSkill,
+      scheduler: commandCenterScheduler,
+      concurrency: configConcurrency,
+      onSuccess: ({ environmentId, input }, registry) =>
+        Effect.sync(() =>
+          registry.refresh(
+            commandCenterSkills({ environmentId, input: { projectId: input.projectId } }),
+          ),
+        ),
+    }),
+    /** A shorter prompt or skill text from the project's text model; changes nothing. */
+    rewriteCommandCenterText: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:server:command-center:rewrite-text",
+      tag: WS_METHODS.commandCenterRewriteText,
+      concurrency: { mode: "singleFlight", key: environmentRpcKey },
+    }),
+    // Run changes arrive on commandCenterWorkflowRunsLive, so these refresh nothing.
+    startCommandCenterWorkflowRun: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:server:command-center:start-workflow-run",
+      tag: WS_METHODS.commandCenterStartWorkflowRun,
+      scheduler: commandCenterScheduler,
+      concurrency: configConcurrency,
+    }),
+    stopCommandCenterWorkflowRun: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:server:command-center:stop-workflow-run",
+      tag: WS_METHODS.commandCenterStopWorkflowRun,
+      scheduler: commandCenterScheduler,
+      concurrency: configConcurrency,
+    }),
+    retryCommandCenterWorkflowStep: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:server:command-center:retry-workflow-step",
+      tag: WS_METHODS.commandCenterRetryWorkflowStep,
+      scheduler: commandCenterScheduler,
+      concurrency: configConcurrency,
+    }),
+    resumeCommandCenterWorkflowRun: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:server:command-center:resume-workflow-run",
+      tag: WS_METHODS.commandCenterResumeWorkflowRun,
+      scheduler: commandCenterScheduler,
+      concurrency: configConcurrency,
+    }),
+    answerCommandCenterWorkflowStep: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:server:command-center:answer-workflow-step",
+      tag: WS_METHODS.commandCenterAnswerWorkflowStep,
+      scheduler: commandCenterScheduler,
+      concurrency: configConcurrency,
+    }),
+    /** An older page of runs (`before` = last row). A read; never queues behind writes. */
+    listCommandCenterWorkflowRuns: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:server:command-center:list-workflow-runs",
+      tag: WS_METHODS.commandCenterListWorkflowRuns,
+      concurrency: { mode: "singleFlight", key: environmentRpcKey },
     }),
     // Off the config lane: answering a card must not queue behind settings
     // edits. One answer per card at a time.

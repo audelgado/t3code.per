@@ -6,6 +6,9 @@ import {
 } from "@t3tools/client-runtime/command-center-delegation";
 import {
   AuthAdministrativeScopes,
+  type CommandCenterArtifact,
+  type CommandCenterArtifactDetail,
+  CommandCenterArtifactId,
   CommandCenterMemoryKind,
   CommandCenterMemoryId,
   type CommandCenterMemoryEntry,
@@ -24,6 +27,7 @@ import {
 import * as Console from "effect/Console";
 import * as Crypto from "effect/Crypto";
 import * as Effect from "effect/Effect";
+import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Path from "effect/Path";
@@ -36,6 +40,7 @@ import { RpcClient, RpcSerialization } from "effect/rpc";
 import * as Socket from "effect/socket/Socket";
 
 import * as EnvironmentAuth from "../auth/EnvironmentAuth.ts";
+import { detectArtifactImport } from "../commandCenter/artifactImport.ts";
 import { ONBOARDING_LEAD_ID, ONBOARDING_TEAM_ID } from "../commandCenter/onboarding.ts";
 import * as ServerConfig from "../config.ts";
 import { readPersistedServerRuntimeState } from "../serverRuntimeState.ts";
@@ -82,10 +87,23 @@ export const formatSectionLine = (section: CommandCenterSection) => {
   return `${section.id}  ${section.name}  ${section.status}  ${section.tasksDone}/${section.tasksTotal}${due}${blocker}`;
 };
 
+export const formatArtifactLine = (artifact: CommandCenterArtifact) => {
+  const archived = artifact.archivedAt === null ? "" : "  archived";
+  return `${artifact.id}  ${artifact.updatedAt.slice(0, 10)}  ${artifact.kind.padEnd(8)} v${artifact.currentVersion}  ${artifact.title}${archived}`;
+};
+
+/** Version history of one artifact, newest first, marking the one shown. */
+export const formatArtifactVersions = (detail: CommandCenterArtifactDetail) =>
+  detail.versions.map((version) => {
+    const mark = version.version === detail.version.version ? "*" : " ";
+    const author = version.authorLabel ?? version.author;
+    return `${mark} v${version.version}  ${version.createdAt.slice(0, 16).replace("T", " ")}  ${author}  ${version.sizeBytes} B`;
+  });
+
 const makeWsClient = RpcClient.make(WsRpcGroup);
 type CommandCenterCliClient = Effect.Success<typeof makeWsClient>;
 
-interface CommandCenterCliContext {
+export interface CommandCenterCliContext {
   readonly rpc: CommandCenterCliClient;
   readonly projects: ReadonlyArray<ProjectShell>;
   readonly resolveProject: (
@@ -99,7 +117,7 @@ interface CommandCenterCliContext {
  * WebSocket ticket over HTTP, then the same WS RPCs the web app calls. Command Center has
  * no offline mode because its change stream and daily tick live in the server process.
  */
-const withCommandCenter = <A, E>(
+export const withCommandCenter = <A, E>(
   flags: CliAuthLocationFlags,
   run: (context: CommandCenterCliContext) => Effect.Effect<A, E, Crypto.Crypto>,
 ) =>
@@ -173,7 +191,7 @@ const withCommandCenter = <A, E>(
     );
   });
 
-const projectFlag = Flag.String("project").pipe(
+export const projectFlag = Flag.String("project").pipe(
   Flag.withDescription("Project id, workspace root or title."),
   Flag.optional,
 );
@@ -183,7 +201,7 @@ const projectIdOf = (context: CommandCenterCliContext, project: Option.Option<st
     ? Effect.succeed(undefined)
     : context.resolveProject(project.value).pipe(Effect.map((shell) => shell.id));
 
-const printLines = (lines: ReadonlyArray<string>, empty: string) =>
+export const printLines = (lines: ReadonlyArray<string>, empty: string) =>
   Console.log(lines.length === 0 ? empty : lines.join("\n"));
 
 const memoryListCommand = Command.make("list", {
@@ -403,7 +421,148 @@ const ccOnboardCommand = Command.make("onboard", {
   ),
 );
 
+const artifactsListCommand = Command.make("list", {
+  ...projectLocationFlags,
+  project: projectFlag,
+  archived: Flag.Boolean("archived").pipe(
+    Flag.withDescription("List archived artifacts instead."),
+    Flag.withDefault(false),
+  ),
+  query: Flag.String("query").pipe(Flag.withDescription("Match on the title."), Flag.optional),
+  limit: Flag.Int("limit").pipe(Flag.withDefault(50)),
+  before: Flag.String("before").pipe(
+    Flag.withDescription("Only artifacts updated before this artifact id."),
+    Flag.optional,
+  ),
+}).pipe(
+  Command.withDescription("List library artifacts, most recently updated first."),
+  Command.withHandler((flags) =>
+    withCommandCenter(flags, (context) =>
+      Effect.gen(function* () {
+        const projectId = yield* projectIdOf(context, flags.project);
+        const page = yield* context.rpc[WS_METHODS.commandCenterListArtifacts]({
+          limit: flags.limit,
+          archived: flags.archived,
+          ...(projectId === undefined ? {} : { projectId }),
+          ...(Option.isSome(flags.query) ? { query: flags.query.value } : {}),
+          ...(Option.isSome(flags.before)
+            ? { before: CommandCenterArtifactId.make(flags.before.value) }
+            : {}),
+        });
+        yield* printLines(page.artifacts.map(formatArtifactLine), "No artifacts.");
+        const last = page.artifacts.at(-1);
+        if (page.hasMore && last) yield* Console.log(`More: --before ${last.id}`);
+      }),
+    ),
+  ),
+);
+
+const artifactsGetCommand = Command.make("get", {
+  ...projectLocationFlags,
+  id: Argument.String("id").pipe(Argument.withDescription("Artifact id.")),
+  version: Flag.Int("version").pipe(
+    Flag.withDescription("Version to read; the current one when omitted."),
+    Flag.optional,
+  ),
+  out: Flag.String("out").pipe(
+    Flag.withDescription("Write the content to this file instead of printing it."),
+    Flag.optional,
+  ),
+  history: Flag.Boolean("history").pipe(
+    Flag.withDescription("Print the version history instead of the content."),
+    Flag.withDefault(false),
+  ),
+}).pipe(
+  Command.withDescription("Print (or save with --out) one artifact version."),
+  Command.withHandler((flags) =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const detail = yield* withCommandCenter(flags, (context) =>
+        context.rpc[WS_METHODS.commandCenterGetArtifact]({
+          id: CommandCenterArtifactId.make(flags.id),
+          ...(Option.isSome(flags.version) ? { version: flags.version.value } : {}),
+          includeContent: !flags.history,
+        }),
+      );
+      if (flags.history) {
+        return yield* Console.log(
+          [formatArtifactLine(detail.artifact), ...formatArtifactVersions(detail)].join("\n"),
+        );
+      }
+      const content = detail.content ?? "";
+      if (Option.isNone(flags.out)) return yield* Console.log(content);
+      const target = path.resolve(flags.out.value);
+      yield* fs
+        .writeFileString(target, content)
+        .pipe(Effect.mapError(fail(`Could not write ${target}.`)));
+      yield* Console.log(`Wrote ${detail.artifact.title} v${detail.version.version} to ${target}.`);
+    }),
+  ),
+);
+
+const artifactsSaveCommand = Command.make("save", {
+  ...projectLocationFlags,
+  file: Argument.String("file").pipe(
+    Argument.withDescription("HTML or Markdown file (.md / .markdown save as Markdown)."),
+  ),
+  id: Flag.String("id").pipe(
+    Flag.withDescription("Save as a new version of this artifact instead of a new one."),
+    Flag.optional,
+  ),
+  title: Flag.String("title").pipe(
+    Flag.withDescription("Title; a new artifact otherwise takes the page's own title."),
+    Flag.optional,
+  ),
+  project: projectFlag,
+}).pipe(
+  Command.withDescription("Save a file to the artifacts library, or as a new version with --id."),
+  Command.withHandler((flags) =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const source = path.resolve(flags.file);
+      const content = yield* fs
+        .readFileString(source)
+        .pipe(Effect.mapError(fail(`Could not read ${source}.`)));
+      if (content.trim().length === 0) return yield* fail(`${source} is empty.`)();
+      const saved = yield* withCommandCenter(flags, (context) =>
+        Effect.gen(function* () {
+          const projectId = yield* projectIdOf(context, flags.project);
+          const title = Option.getOrUndefined(flags.title)?.trim() || undefined;
+          // A new artifact goes through import, which reads the kind from the file name and the
+          // title from the page, the same path as dropping a file in the Artifacts tab.
+          // A new version names the file's kind too, so the server refuses a .md saved onto an
+          // HTML artifact instead of storing it as HTML.
+          return yield* Option.isSome(flags.id)
+            ? context.rpc[WS_METHODS.commandCenterSaveArtifact]({
+                id: CommandCenterArtifactId.make(flags.id.value),
+                kind: detectArtifactImport({ content, fileName: path.basename(source) }).kind,
+                content,
+                ...(title === undefined ? {} : { title }),
+                ...(projectId === undefined ? {} : { projectId }),
+              })
+            : context.rpc[WS_METHODS.commandCenterImportArtifact]({
+                content,
+                fileName: path.basename(source),
+                ...(title === undefined ? {} : { title }),
+                ...(projectId === undefined ? {} : { projectId }),
+              });
+        }),
+      );
+      yield* Console.log(
+        `Saved ${saved.artifact.title} v${saved.version.version} (${saved.artifact.id}).`,
+      );
+    }),
+  ),
+);
+
+const ccArtifactsCommand = Command.make("artifacts").pipe(
+  Command.withDescription("List, read and save artifacts in the Command Center library."),
+  Command.withSubcommands([artifactsListCommand, artifactsGetCommand, artifactsSaveCommand]),
+);
+
 export const commandCenterCommand = Command.make("cc").pipe(
   Command.withDescription("Command Center on the running server."),
-  Command.withSubcommands([ccSectionsCommand, ccOnboardCommand]),
+  Command.withSubcommands([ccSectionsCommand, ccOnboardCommand, ccArtifactsCommand]),
 );

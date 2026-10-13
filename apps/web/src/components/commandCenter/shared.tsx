@@ -6,6 +6,7 @@ import {
 } from "@t3tools/client-runtime/state/runtime";
 import {
   type CommandCenterAgentId,
+  type CommandCenterArtifactGetInput,
   type CommandCenterBuildRepoDigestInput,
   type CommandCenterDeleteInput,
   type CommandCenterListMemoryInput,
@@ -115,6 +116,10 @@ export function useCommandCenterCommands() {
     serverEnvironment.recallCommandCenterMemory,
     "command center recall memory",
   );
+  const getArtifact = useAtomCommand(
+    serverEnvironment.getCommandCenterArtifact,
+    "command center get artifact",
+  );
   return useMemo(() => {
     const reportAs =
       (title: string) =>
@@ -173,9 +178,13 @@ export function useCommandCenterCommands() {
       /** Not reported: callers fall back to the snapshot's memory window. */
       recallMemory: (projectId: ProjectId) =>
         recallMemory({ environmentId: primaryEnvironmentId, input: { projectId } }),
+      /** Not reported: callers fall back to what they already have. */
+      getArtifact: (input: CommandCenterArtifactGetInput) =>
+        getArtifact({ environmentId: primaryEnvironmentId, input }),
     };
   }, [
     buildRepoDigest,
+    getArtifact,
     ensureOnboardingTeam,
     recallMemory,
     listMemory,

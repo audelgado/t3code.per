@@ -482,13 +482,13 @@ const launchBrowser = Effect.fnUntraced(function* (input: {
       return Math.max(0, Math.ceil(measured.result.value));
     });
 
-    const screenshot = (height: number) =>
+    const screenshot = (height: number, thumbnail?: ThumbnailOptions) =>
       send(
         "Page.captureScreenshot",
         {
-          format: "png",
+          ...(thumbnail ? { format: "webp", quality: THUMBNAIL_QUALITY } : { format: "png" }),
           captureBeyondViewport: true,
-          clip: { x: 0, y: 0, width, height, scale: 1 },
+          clip: { x: 0, y: 0, width, height, scale: thumbnail?.scale ?? 1 },
         },
         Schema.Struct({ data: Schema.String }),
         sessionId,
@@ -531,7 +531,18 @@ const scratchDirectory = Effect.gen(function* () {
   );
 });
 
-/** Loads `html` at `width` and returns a PNG of the top of the page. */
+/** A small preview instead of a full capture: the top `maxHeight` pixels, scaled, as WebP. */
+export interface ThumbnailOptions {
+  readonly maxHeight: number;
+  readonly scale: number;
+}
+
+const THUMBNAIL_QUALITY = 80;
+
+/**
+ * Loads `html` at `width` and returns a base64 image of the top of the page: a PNG, or a WebP
+ * when `thumbnail` is given.
+ */
 export const captureHtmlScreenshot = Effect.fn("headlessChrome.captureHtmlScreenshot")(
   function* (input: {
     readonly executable: string;
@@ -539,6 +550,7 @@ export const captureHtmlScreenshot = Effect.fn("headlessChrome.captureHtmlScreen
     readonly html: string;
     readonly width: number;
     readonly urlFragment: string;
+    readonly thumbnail?: ThumbnailOptions | undefined;
   }) {
     const path = yield* Path.Path;
     const directory = yield* scratchDirectory;
@@ -549,8 +561,11 @@ export const captureHtmlScreenshot = Effect.fn("headlessChrome.captureHtmlScreen
     });
     const page = yield* browser.openPage(input.width);
     const contentHeight = yield* page.load(pageBody(input.html), input.urlFragment);
-    const capturedHeight = Math.max(1, Math.min(contentHeight, MAX_CAPTURE_HEIGHT));
-    const png = yield* page.screenshot(capturedHeight);
+    // A thumbnail always takes the full window, so short pages keep its aspect ratio (the themed
+    // background paints the rest) instead of coming out as a thin strip.
+    const capturedHeight =
+      input.thumbnail?.maxHeight ?? Math.max(1, Math.min(contentHeight, MAX_CAPTURE_HEIGHT));
+    const png = yield* page.screenshot(capturedHeight, input.thumbnail);
     return { png, contentHeight, capturedHeight, consoleMessages: page.consoleMessages() };
   },
   Effect.scoped,

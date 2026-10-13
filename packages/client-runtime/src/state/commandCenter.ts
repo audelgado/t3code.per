@@ -15,7 +15,7 @@ const SNAPSHOT_KEY = {
 } as const satisfies Record<CommandCenterEntity, keyof CommandCenterSnapshot>;
 
 // Runs on Hermes (mobile), which lacks the ES2023 copying array methods such as `with`.
-function upsertRow<T extends { readonly id: string }>(rows: ReadonlyArray<T>, row: T) {
+export function upsertRow<T extends { readonly id: string }>(rows: ReadonlyArray<T>, row: T) {
   const index = rows.findIndex((existing) => existing.id === row.id);
   if (index === -1) return [...rows, row];
   const next = rows.slice();

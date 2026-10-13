@@ -360,11 +360,68 @@ import {
   CommandCenterMemoryRecallInput,
   CommandCenterOnboardingTeam,
   CommandCenterRecord,
+  CommandCenterSection,
   CommandCenterSetMemoryDoneInput,
+  CommandCenterSetSectionPullRequestInput,
   CommandCenterStreamEvent,
   CommandCenterSubscribeInput,
   CommandCenterUpsertInput,
 } from "./commandCenter.ts";
+import {
+  CommandCenterArtifact,
+  CommandCenterArtifactDetail,
+  CommandCenterArtifactGetInput,
+  CommandCenterArtifactImportInput,
+  CommandCenterArtifactListInput,
+  CommandCenterArtifactListResult,
+  CommandCenterArtifactRestoreVersionInput,
+  CommandCenterArtifactSaveInput,
+  CommandCenterArtifactSaveResult,
+  CommandCenterArtifactSetArchivedInput,
+  CommandCenterArtifactSubscribeInput,
+  CommandCenterArtifactThumbnail,
+  CommandCenterArtifactThumbnailInput,
+  CommandCenterCanvas,
+  CommandCenterCanvasDeleteInput,
+  CommandCenterCanvasDeleteResult,
+  CommandCenterCanvasGetInput,
+  CommandCenterCanvasUpsertEdgesInput,
+  CommandCenterCanvasUpsertEdgesResult,
+  CommandCenterCanvasUpsertItemsInput,
+  CommandCenterCanvasUpsertItemsResult,
+} from "./commandCenterArtifacts.ts";
+import {
+  CommandCenterSkillListInput,
+  CommandCenterSkillListResult,
+  CommandCenterSkillRef,
+  CommandCenterSkillWriteInput,
+  CommandCenterSkillWriteResult,
+  CommandCenterSnippet,
+  CommandCenterSnippetListInput,
+  CommandCenterSnippetListResult,
+  CommandCenterSnippetRef,
+  CommandCenterSnippetSaveInput,
+  CommandCenterSnippetSummary,
+  CommandCenterTextRewriteInput,
+  CommandCenterTextRewriteResult,
+  CommandCenterWorkflowAnswerStepInput,
+  CommandCenterWorkflowDetail,
+  CommandCenterWorkflowListInput,
+  CommandCenterWorkflowListResult,
+  CommandCenterWorkflowRef,
+  CommandCenterWorkflowRetryStepInput,
+  CommandCenterWorkflowRun,
+  CommandCenterWorkflowRunDetail,
+  CommandCenterWorkflowRunListInput,
+  CommandCenterWorkflowRunListResult,
+  CommandCenterWorkflowRunRef,
+  CommandCenterWorkflowRunStartInput,
+  CommandCenterWorkflowRunStreamEvent,
+  CommandCenterWorkflowRunSubscribeInput,
+  CommandCenterWorkflowSaveInput,
+  CommandCenterWorkflowStarters,
+  CommandCenterWorkflowSummary,
+} from "./commandCenterWorkflows.ts";
 import { SecretRequestAnswerInput, SecretRequestError } from "./secretRequest.ts";
 import {
   ProjectCloneActionInput,
@@ -551,6 +608,45 @@ export const WS_METHODS = {
   commandCenterListSections: "commandCenter.listSections",
   commandCenterBuildRepoDigest: "commandCenter.buildRepoDigest",
   commandCenterEnsureOnboardingTeam: "commandCenter.ensureOnboardingTeam",
+  commandCenterSetSectionPullRequest: "commandCenter.setSectionPullRequest",
+  commandCenterSubscribeArtifacts: "commandCenter.subscribeArtifacts",
+  commandCenterListArtifacts: "commandCenter.listArtifacts",
+  commandCenterGetArtifact: "commandCenter.getArtifact",
+  commandCenterSaveArtifact: "commandCenter.saveArtifact",
+  commandCenterImportArtifact: "commandCenter.importArtifact",
+  commandCenterRestoreArtifactVersion: "commandCenter.restoreArtifactVersion",
+  commandCenterSetArtifactArchived: "commandCenter.setArtifactArchived",
+  commandCenterGetArtifactThumbnail: "commandCenter.getArtifactThumbnail",
+  commandCenterGetCanvas: "commandCenter.getCanvas",
+  commandCenterUpsertCanvasItems: "commandCenter.upsertCanvasItems",
+  commandCenterUpsertCanvasEdges: "commandCenter.upsertCanvasEdges",
+  commandCenterDeleteCanvasEntries: "commandCenter.deleteCanvasEntries",
+  commandCenterListWorkflows: "commandCenter.listWorkflows",
+  commandCenterSubscribeWorkflows: "commandCenter.subscribeWorkflows",
+  commandCenterGetWorkflow: "commandCenter.getWorkflow",
+  commandCenterSaveWorkflow: "commandCenter.saveWorkflow",
+  commandCenterDeleteWorkflow: "commandCenter.deleteWorkflow",
+  commandCenterRestoreWorkflow: "commandCenter.restoreWorkflow",
+  commandCenterListWorkflowStarters: "commandCenter.listWorkflowStarters",
+  commandCenterListSnippets: "commandCenter.listSnippets",
+  commandCenterGetSnippet: "commandCenter.getSnippet",
+  commandCenterSaveSnippet: "commandCenter.saveSnippet",
+  commandCenterDeleteSnippet: "commandCenter.deleteSnippet",
+  commandCenterRestoreSnippet: "commandCenter.restoreSnippet",
+  commandCenterListSkills: "commandCenter.listSkills",
+  commandCenterCreateSkill: "commandCenter.createSkill",
+  commandCenterUpdateSkill: "commandCenter.updateSkill",
+  commandCenterDeleteSkill: "commandCenter.deleteSkill",
+  commandCenterRestoreSkill: "commandCenter.restoreSkill",
+  commandCenterRewriteText: "commandCenter.rewriteText",
+  commandCenterStartWorkflowRun: "commandCenter.startWorkflowRun",
+  commandCenterStopWorkflowRun: "commandCenter.stopWorkflowRun",
+  commandCenterRetryWorkflowStep: "commandCenter.retryWorkflowStep",
+  commandCenterResumeWorkflowRun: "commandCenter.resumeWorkflowRun",
+  commandCenterAnswerWorkflowStep: "commandCenter.answerWorkflowStep",
+  commandCenterListWorkflowRuns: "commandCenter.listWorkflowRuns",
+  commandCenterGetWorkflowRun: "commandCenter.getWorkflowRun",
+  commandCenterSubscribeWorkflowRuns: "commandCenter.subscribeWorkflowRuns",
 
   // Cloud environment methods
   cloudGetRelayClientStatus: "cloud.getRelayClientStatus",
@@ -1935,6 +2031,276 @@ const WsCommandCenterEnsureOnboardingTeamRpc = Rpc.make(
   },
 );
 
+const CommandCenterRpcError = Schema.Union([CommandCenterError, EnvironmentAuthorizationError]);
+
+/** Links a section to its pull request, or clears the link; the section streams as an upsert. */
+const WsCommandCenterSetSectionPullRequestRpc = Rpc.make(
+  WS_METHODS.commandCenterSetSectionPullRequest,
+  {
+    payload: CommandCenterSetSectionPullRequestInput,
+    success: CommandCenterSection,
+    error: CommandCenterRpcError,
+  },
+);
+
+/** The newest page of artifacts on subscribe, then again after every artifact change. */
+const WsCommandCenterSubscribeArtifactsRpc = Rpc.make(WS_METHODS.commandCenterSubscribeArtifacts, {
+  payload: CommandCenterArtifactSubscribeInput,
+  success: CommandCenterArtifactListResult,
+  error: CommandCenterRpcError,
+  stream: true,
+});
+
+/** Older artifact pages (cursor `before`), most recently updated first. */
+const WsCommandCenterListArtifactsRpc = Rpc.make(WS_METHODS.commandCenterListArtifacts, {
+  payload: CommandCenterArtifactListInput,
+  success: CommandCenterArtifactListResult,
+  error: CommandCenterRpcError,
+});
+
+const WsCommandCenterGetArtifactRpc = Rpc.make(WS_METHODS.commandCenterGetArtifact, {
+  payload: CommandCenterArtifactGetInput,
+  success: CommandCenterArtifactDetail,
+  error: CommandCenterRpcError,
+});
+
+const WsCommandCenterSaveArtifactRpc = Rpc.make(WS_METHODS.commandCenterSaveArtifact, {
+  payload: CommandCenterArtifactSaveInput,
+  success: CommandCenterArtifactSaveResult,
+  error: CommandCenterRpcError,
+});
+
+const WsCommandCenterImportArtifactRpc = Rpc.make(WS_METHODS.commandCenterImportArtifact, {
+  payload: CommandCenterArtifactImportInput,
+  success: CommandCenterArtifactSaveResult,
+  error: CommandCenterRpcError,
+});
+
+const WsCommandCenterRestoreArtifactVersionRpc = Rpc.make(
+  WS_METHODS.commandCenterRestoreArtifactVersion,
+  {
+    payload: CommandCenterArtifactRestoreVersionInput,
+    success: CommandCenterArtifactSaveResult,
+    error: CommandCenterRpcError,
+  },
+);
+
+const WsCommandCenterSetArtifactArchivedRpc = Rpc.make(
+  WS_METHODS.commandCenterSetArtifactArchived,
+  {
+    payload: CommandCenterArtifactSetArchivedInput,
+    success: CommandCenterArtifact,
+    error: CommandCenterRpcError,
+  },
+);
+
+/** Captures the version once on first request, then serves the cached image. */
+const WsCommandCenterGetArtifactThumbnailRpc = Rpc.make(
+  WS_METHODS.commandCenterGetArtifactThumbnail,
+  {
+    payload: CommandCenterArtifactThumbnailInput,
+    success: CommandCenterArtifactThumbnail,
+    error: CommandCenterRpcError,
+  },
+);
+
+const WsCommandCenterGetCanvasRpc = Rpc.make(WS_METHODS.commandCenterGetCanvas, {
+  payload: CommandCenterCanvasGetInput,
+  success: CommandCenterCanvas,
+  error: CommandCenterRpcError,
+});
+
+const WsCommandCenterUpsertCanvasItemsRpc = Rpc.make(WS_METHODS.commandCenterUpsertCanvasItems, {
+  payload: CommandCenterCanvasUpsertItemsInput,
+  success: CommandCenterCanvasUpsertItemsResult,
+  error: CommandCenterRpcError,
+});
+
+const WsCommandCenterUpsertCanvasEdgesRpc = Rpc.make(WS_METHODS.commandCenterUpsertCanvasEdges, {
+  payload: CommandCenterCanvasUpsertEdgesInput,
+  success: CommandCenterCanvasUpsertEdgesResult,
+  error: CommandCenterRpcError,
+});
+
+const WsCommandCenterDeleteCanvasEntriesRpc = Rpc.make(
+  WS_METHODS.commandCenterDeleteCanvasEntries,
+  {
+    payload: CommandCenterCanvasDeleteInput,
+    success: CommandCenterCanvasDeleteResult,
+    error: CommandCenterRpcError,
+  },
+);
+
+// Wave 5 workflows. Files (workflows, snippets, skills) live in the project, so they are read
+// and written on the environment that owns it; runs live on the Command Center home.
+
+const WsCommandCenterListWorkflowsRpc = Rpc.make(WS_METHODS.commandCenterListWorkflows, {
+  payload: CommandCenterWorkflowListInput,
+  success: CommandCenterWorkflowListResult,
+  error: CommandCenterRpcError,
+});
+
+/** The workflow list on subscribe, then again whenever a workflow file changes (on disk too). */
+const WsCommandCenterSubscribeWorkflowsRpc = Rpc.make(WS_METHODS.commandCenterSubscribeWorkflows, {
+  payload: CommandCenterWorkflowListInput,
+  success: CommandCenterWorkflowListResult,
+  error: CommandCenterRpcError,
+  stream: true,
+});
+
+const WsCommandCenterGetWorkflowRpc = Rpc.make(WS_METHODS.commandCenterGetWorkflow, {
+  payload: CommandCenterWorkflowRef,
+  success: CommandCenterWorkflowDetail,
+  error: CommandCenterRpcError,
+});
+
+const WsCommandCenterSaveWorkflowRpc = Rpc.make(WS_METHODS.commandCenterSaveWorkflow, {
+  payload: CommandCenterWorkflowSaveInput,
+  success: CommandCenterWorkflowDetail,
+  error: CommandCenterRpcError,
+});
+
+/** Moves the file to `.t3/workflows/.trash`; `restoreWorkflow` brings it back. */
+const WsCommandCenterDeleteWorkflowRpc = Rpc.make(WS_METHODS.commandCenterDeleteWorkflow, {
+  payload: CommandCenterWorkflowRef,
+  error: CommandCenterRpcError,
+});
+
+const WsCommandCenterRestoreWorkflowRpc = Rpc.make(WS_METHODS.commandCenterRestoreWorkflow, {
+  payload: CommandCenterWorkflowRef,
+  success: CommandCenterWorkflowSummary,
+  error: CommandCenterRpcError,
+});
+
+const WsCommandCenterListWorkflowStartersRpc = Rpc.make(
+  WS_METHODS.commandCenterListWorkflowStarters,
+  {
+    payload: Schema.Struct({}),
+    success: CommandCenterWorkflowStarters,
+    error: CommandCenterRpcError,
+  },
+);
+
+const WsCommandCenterListSnippetsRpc = Rpc.make(WS_METHODS.commandCenterListSnippets, {
+  payload: CommandCenterSnippetListInput,
+  success: CommandCenterSnippetListResult,
+  error: CommandCenterRpcError,
+});
+
+const WsCommandCenterGetSnippetRpc = Rpc.make(WS_METHODS.commandCenterGetSnippet, {
+  payload: CommandCenterSnippetRef,
+  success: CommandCenterSnippet,
+  error: CommandCenterRpcError,
+});
+
+const WsCommandCenterSaveSnippetRpc = Rpc.make(WS_METHODS.commandCenterSaveSnippet, {
+  payload: CommandCenterSnippetSaveInput,
+  success: CommandCenterSnippetSummary,
+  error: CommandCenterRpcError,
+});
+
+/** Moves the file to `.t3/workflows/.trash/snippets`; `restoreSnippet` brings it back. */
+const WsCommandCenterDeleteSnippetRpc = Rpc.make(WS_METHODS.commandCenterDeleteSnippet, {
+  payload: CommandCenterSnippetRef,
+  error: CommandCenterRpcError,
+});
+
+const WsCommandCenterRestoreSnippetRpc = Rpc.make(WS_METHODS.commandCenterRestoreSnippet, {
+  payload: CommandCenterSnippetRef,
+  success: CommandCenterSnippetSummary,
+  error: CommandCenterRpcError,
+});
+
+const WsCommandCenterListSkillsRpc = Rpc.make(WS_METHODS.commandCenterListSkills, {
+  payload: CommandCenterSkillListInput,
+  success: CommandCenterSkillListResult,
+  error: CommandCenterRpcError,
+});
+
+const WsCommandCenterCreateSkillRpc = Rpc.make(WS_METHODS.commandCenterCreateSkill, {
+  payload: CommandCenterSkillWriteInput,
+  success: CommandCenterSkillWriteResult,
+  error: CommandCenterRpcError,
+});
+
+const WsCommandCenterUpdateSkillRpc = Rpc.make(WS_METHODS.commandCenterUpdateSkill, {
+  payload: CommandCenterSkillWriteInput,
+  success: CommandCenterSkillWriteResult,
+  error: CommandCenterRpcError,
+});
+
+/** Moves both copies to `.t3/workflows/.trash/skills`; `restoreSkill` brings them back. */
+const WsCommandCenterDeleteSkillRpc = Rpc.make(WS_METHODS.commandCenterDeleteSkill, {
+  payload: CommandCenterSkillRef,
+  error: CommandCenterRpcError,
+});
+
+const WsCommandCenterRestoreSkillRpc = Rpc.make(WS_METHODS.commandCenterRestoreSkill, {
+  payload: CommandCenterSkillRef,
+  success: CommandCenterSkillWriteResult,
+  error: CommandCenterRpcError,
+});
+
+/** "Rewrite shorter" on the project's text generation model; spends tokens, so it is guarded. */
+const WsCommandCenterRewriteTextRpc = Rpc.make(WS_METHODS.commandCenterRewriteText, {
+  payload: CommandCenterTextRewriteInput,
+  success: CommandCenterTextRewriteResult,
+  error: CommandCenterRpcError,
+});
+
+const WsCommandCenterStartWorkflowRunRpc = Rpc.make(WS_METHODS.commandCenterStartWorkflowRun, {
+  payload: CommandCenterWorkflowRunStartInput,
+  success: CommandCenterWorkflowRun,
+  error: CommandCenterRpcError,
+});
+
+const WsCommandCenterStopWorkflowRunRpc = Rpc.make(WS_METHODS.commandCenterStopWorkflowRun, {
+  payload: CommandCenterWorkflowRunRef,
+  success: CommandCenterWorkflowRun,
+  error: CommandCenterRpcError,
+});
+
+const WsCommandCenterRetryWorkflowStepRpc = Rpc.make(WS_METHODS.commandCenterRetryWorkflowStep, {
+  payload: CommandCenterWorkflowRetryStepInput,
+  success: CommandCenterWorkflowRun,
+  error: CommandCenterRpcError,
+});
+
+const WsCommandCenterResumeWorkflowRunRpc = Rpc.make(WS_METHODS.commandCenterResumeWorkflowRun, {
+  payload: CommandCenterWorkflowRunRef,
+  success: CommandCenterWorkflowRun,
+  error: CommandCenterRpcError,
+});
+
+const WsCommandCenterAnswerWorkflowStepRpc = Rpc.make(WS_METHODS.commandCenterAnswerWorkflowStep, {
+  payload: CommandCenterWorkflowAnswerStepInput,
+  success: CommandCenterWorkflowRun,
+  error: CommandCenterRpcError,
+});
+
+const WsCommandCenterListWorkflowRunsRpc = Rpc.make(WS_METHODS.commandCenterListWorkflowRuns, {
+  payload: CommandCenterWorkflowRunListInput,
+  success: CommandCenterWorkflowRunListResult,
+  error: CommandCenterRpcError,
+});
+
+const WsCommandCenterGetWorkflowRunRpc = Rpc.make(WS_METHODS.commandCenterGetWorkflowRun, {
+  payload: CommandCenterWorkflowRunRef,
+  success: CommandCenterWorkflowRunDetail,
+  error: CommandCenterRpcError,
+});
+
+/** The newest runs (and the steps of unfinished ones), then each run or step change. */
+const WsCommandCenterSubscribeWorkflowRunsRpc = Rpc.make(
+  WS_METHODS.commandCenterSubscribeWorkflowRuns,
+  {
+    payload: CommandCenterWorkflowRunSubscribeInput,
+    success: CommandCenterWorkflowRunStreamEvent,
+    error: CommandCenterRpcError,
+    stream: true,
+  },
+);
+
 const WsSubscribeAuthAccessRpc = Rpc.make(WS_METHODS.subscribeAuthAccess, {
   payload: Schema.Struct({}),
   success: AuthAccessStreamEvent,
@@ -1966,7 +2332,63 @@ export class RpcScopeAuthorization extends RpcMiddleware.Service<RpcScopeAuthori
   { error: EnvironmentAuthorizationError },
 ) {}
 
-export const WsRpcGroup = RpcGroup.make(
+/** Command Center's RPCs. The server implements them in their own handler layer. */
+export const CommandCenterRpcGroup = RpcGroup.make(
+  WsCommandCenterSubscribeRpc,
+  WsCommandCenterUpsertRpc,
+  WsCommandCenterDeleteRpc,
+  WsCommandCenterSetMemoryDoneRpc,
+  WsCommandCenterListMemoryRpc,
+  WsCommandCenterRecallMemoryRpc,
+  WsCommandCenterListSectionsRpc,
+  WsCommandCenterBuildRepoDigestRpc,
+  WsCommandCenterEnsureOnboardingTeamRpc,
+  WsCommandCenterSetSectionPullRequestRpc,
+  WsCommandCenterSubscribeArtifactsRpc,
+  WsCommandCenterListArtifactsRpc,
+  WsCommandCenterGetArtifactRpc,
+  WsCommandCenterSaveArtifactRpc,
+  WsCommandCenterImportArtifactRpc,
+  WsCommandCenterRestoreArtifactVersionRpc,
+  WsCommandCenterSetArtifactArchivedRpc,
+  WsCommandCenterGetArtifactThumbnailRpc,
+  WsCommandCenterGetCanvasRpc,
+  WsCommandCenterUpsertCanvasItemsRpc,
+  WsCommandCenterUpsertCanvasEdgesRpc,
+  WsCommandCenterDeleteCanvasEntriesRpc,
+  WsCommandCenterListWorkflowsRpc,
+  WsCommandCenterSubscribeWorkflowsRpc,
+  WsCommandCenterGetWorkflowRpc,
+  WsCommandCenterSaveWorkflowRpc,
+  WsCommandCenterDeleteWorkflowRpc,
+  WsCommandCenterRestoreWorkflowRpc,
+  WsCommandCenterListWorkflowStartersRpc,
+  WsCommandCenterListSnippetsRpc,
+  WsCommandCenterGetSnippetRpc,
+  WsCommandCenterSaveSnippetRpc,
+  WsCommandCenterDeleteSnippetRpc,
+  WsCommandCenterRestoreSnippetRpc,
+  WsCommandCenterListSkillsRpc,
+  WsCommandCenterCreateSkillRpc,
+  WsCommandCenterUpdateSkillRpc,
+  WsCommandCenterDeleteSkillRpc,
+  WsCommandCenterRestoreSkillRpc,
+  WsCommandCenterRewriteTextRpc,
+  WsCommandCenterStartWorkflowRunRpc,
+  WsCommandCenterStopWorkflowRunRpc,
+  WsCommandCenterRetryWorkflowStepRpc,
+  WsCommandCenterResumeWorkflowRunRpc,
+  WsCommandCenterAnswerWorkflowStepRpc,
+  WsCommandCenterListWorkflowRunsRpc,
+  WsCommandCenterGetWorkflowRunRpc,
+  WsCommandCenterSubscribeWorkflowRunsRpc,
+).middleware(RpcScopeAuthorization);
+
+/**
+ * Every WebSocket RPC except Command Center's. Two groups keep each server handler layer under
+ * the type checker's instantiation budget; clients use `WsRpcGroup`.
+ */
+export const WsCoreRpcGroup = RpcGroup.make(
   WsServerProbeRpc,
   WsServerGetConfigRpc,
   WsServerRefreshProvidersRpc,
@@ -2027,15 +2449,6 @@ export const WsRpcGroup = RpcGroup.make(
   WsSecretsAnswerRequestRpc,
   WsScheduledTasksListWebhookDeliveriesRpc,
   WsScheduledTasksGetWebhookDeliveryRpc,
-  WsCommandCenterSubscribeRpc,
-  WsCommandCenterUpsertRpc,
-  WsCommandCenterDeleteRpc,
-  WsCommandCenterSetMemoryDoneRpc,
-  WsCommandCenterListMemoryRpc,
-  WsCommandCenterRecallMemoryRpc,
-  WsCommandCenterListSectionsRpc,
-  WsCommandCenterBuildRepoDigestRpc,
-  WsCommandCenterEnsureOnboardingTeamRpc,
   WsServerReportClientActivityRpc,
   WsServerReportHostPowerStateRpc,
   WsServerGetBackgroundPolicyRpc,
@@ -2170,3 +2583,5 @@ export const WsRpcGroup = RpcGroup.make(
   WsOrchestrationV2SubscribeShellRpc,
   WsOrchestrationV2SubscribeThreadRpc,
 ).middleware(RpcScopeAuthorization);
+
+export const WsRpcGroup = WsCoreRpcGroup.merge(CommandCenterRpcGroup);

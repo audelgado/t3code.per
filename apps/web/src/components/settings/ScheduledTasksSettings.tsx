@@ -238,6 +238,8 @@ function statusVariant(status: ScheduledTask["lastRunStatus"]) {
 export function ScheduledTasksSettings(target: {
   readonly environmentId?: EnvironmentId;
   readonly taskId?: ScheduledTaskId | undefined;
+  /** Opens the editor for a new task on arrival. */
+  readonly newTask?: true | undefined;
 }) {
   const { scope, environments, connectedEnvironments, environment } = useSettingsScope();
   const [editor, setEditor] = useState<{
@@ -251,6 +253,13 @@ export function ScheduledTasksSettings(target: {
   const canCreate = useAtomValue(
     serverEnvironment.upsertScheduledTask.permissionAtom(defaultEnvironment?.environmentId ?? null),
   );
+  const newTaskEnvironmentId = target.environmentId ?? defaultEnvironment?.environmentId;
+  const openedNewTask = useRef(false);
+  useEffect(() => {
+    if (!target.newTask || openedNewTask.current || !newTaskEnvironmentId || !canCreate) return;
+    openedNewTask.current = true;
+    setEditor({ environmentId: newTaskEnvironmentId, task: null });
+  }, [canCreate, newTaskEnvironmentId, target.newTask]);
   return (
     <SettingsPageContainer>
       <SettingsSection

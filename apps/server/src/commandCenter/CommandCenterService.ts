@@ -1,4 +1,6 @@
 import {
+  CommandCenterAgentId,
+  CommandCenterAgentProfile,
   CommandCenterError,
   CommandCenterListMemoryResult,
   CommandCenterMemoryEntry,
@@ -14,6 +16,7 @@ import {
   type CommandCenterMemoryRecallInput,
   type CommandCenterListSectionsResult,
   type CommandCenterSetMemoryDoneInput,
+  type CommandCenterSetSectionPullRequestInput,
   type CommandCenterStreamEvent,
   type CommandCenterSubscribeInput,
   type CommandCenterUpsertInput,
@@ -44,6 +47,14 @@ import { ensureCommandCenterSchema } from "./schema.ts";
 
 type SectionValue = Extract<CommandCenterUpsertInput, { entity: "section" }>["value"];
 
+/**
+ * An agent profile to create (no `id`) or edit. Omitted fields keep their value, or on create
+ * take the server's default model and runtime mode.
+ */
+export type CommandCenterAgentProfilePatch = Partial<
+  Extract<CommandCenterUpsertInput, { entity: "agentProfile" }>["value"]
+>;
+
 /** Fields an agent may change on an existing section; omitted ones keep their value. */
 export type CommandCenterSectionPatch = Partial<
   Pick<
@@ -57,6 +68,8 @@ export type CommandCenterSectionPatch = Partial<
     | "blocker"
     | "missing"
     | "dependsOn"
+    | "prUrl"
+    | "prNumber"
   >
 >;
 
@@ -79,6 +92,8 @@ export class CommandCenterService extends Context.Service<
      * client reads.
      */
     readonly checkAgentAccess: () => Effect.Effect<void, CommandCenterError>;
+    /** Fails while Command Center is off; for tools that work on any machine with the project. */
+    readonly requireEnabled: () => Effect.Effect<void, CommandCenterError>;
     /**
      * Creates (no `id`) or replaces a row. Upserting an archived row restores it. Recording an
      * open assignment finishes the agent's other open ones: an agent works on one thing.
@@ -119,6 +134,10 @@ export class CommandCenterService extends Context.Service<
       id: CommandCenterSectionId,
       patch: CommandCenterSectionPatch,
     ) => Effect.Effect<CommandCenterSection, CommandCenterError>;
+    /** Links the section to its pull request, or clears the link when `prUrl` is null. */
+    readonly setSectionPullRequest: (
+      input: CommandCenterSetSectionPullRequestInput,
+    ) => Effect.Effect<CommandCenterSection, CommandCenterError>;
     /** Scans the project's repo without an LLM and saves it as its single digest `note`. */
     readonly buildRepoDigest: (
       projectId: ProjectId,
@@ -127,6 +146,10 @@ export class CommandCenterService extends Context.Service<
     readonly getRepoDigest: (
       projectId: ProjectId,
     ) => Effect.Effect<CommandCenterMemoryEntry, CommandCenterError>;
+    /** Creates or edits an agent profile field by field (agents); saving restores an archived one. */
+    readonly saveAgentProfile: (
+      patch: CommandCenterAgentProfilePatch,
+    ) => Effect.Effect<CommandCenterAgentProfile, CommandCenterError>;
     /** Creates the Onboarding team when missing, restores it when archived, keeps user edits. */
     readonly ensureOnboardingTeam: () => Effect.Effect<
       CommandCenterOnboardingTeam,
@@ -157,6 +180,9 @@ const JSON_COLUMNS: ReadonlySet<string> = new Set([
   "missing",
   "project_ids",
   "depends_on",
+  // cc_workflow_runs
+  "inputs",
+  "workflow",
 ]);
 const BOOLEAN_COLUMNS: ReadonlySet<string> = new Set(["done"]);
 
@@ -173,6 +199,7 @@ const RECALL_PROGRESS_LIMIT = 20;
 const RECALL_TEXT_LIMIT = 600;
 const FINISHED_ASSIGNMENT_RETENTION_DAYS = 90;
 const DONE_TODO_RETENTION_DAYS = 180;
+const FINISHED_WORKFLOW_RUN_RETENTION_DAYS = 90;
 const DAILY_DIGEST_PREFIX = "Daily digest";
 
 type Row = Record<string, unknown>;
@@ -182,7 +209,7 @@ const camelCase = (column: string) =>
   column.replace(/_([a-z])/g, (_, char: string) => char.toUpperCase());
 
 /** Entity fields to SQLite columns. Columns match the camelCase fields in snake_case. */
-function toRow(value: Row): Row {
+export function toRow(value: Row): Row {
   const row: Row = {};
   for (const [key, field] of Object.entries(value)) {
     if (field === undefined) continue;
@@ -197,7 +224,7 @@ function toRow(value: Row): Row {
 }
 
 /** SQLite row to undecoded entity fields; unknown columns are dropped by the decode. */
-function fromRow(row: Row): Row {
+export function fromRow(row: Row): Row {
   const value: Row = {};
   for (const [column, field] of Object.entries(row)) {
     value[camelCase(column)] =
@@ -217,13 +244,31 @@ const decodeMemoryPage = Schema.decodeUnknownEffect(CommandCenterListMemoryResul
 const decodeMemoryEntry = Schema.decodeUnknownEffect(CommandCenterMemoryEntry);
 const decodeSection = Schema.decodeUnknownEffect(CommandCenterSection);
 const decodeSections = Schema.decodeUnknownEffect(Schema.Array(CommandCenterSection));
+const decodeAgentProfile = Schema.decodeUnknownEffect(CommandCenterAgentProfile);
 const isCommandCenterError = Schema.is(CommandCenterError);
 
-const failWith = (message: string) => (cause: unknown) =>
+export const failWith = (message: string) => (cause: unknown) =>
   new CommandCenterError({ message, cause });
 
+/** Fails while `commandCenter.enabled` is off; Command Center writes and streams check it. */
+export const requireCommandCenterEnabled = (
+  serverSettings: ServerSettings.ServerSettingsService["Service"],
+) =>
+  serverSettings.getSettings.pipe(
+    Effect.mapError(failWith("Could not read the Command Center setting.")),
+    Effect.flatMap((settings) =>
+      settings.commandCenter.enabled
+        ? Effect.void
+        : Effect.fail(
+            new CommandCenterError({
+              message: "Command Center is turned off on this server (commandCenter.enabled).",
+            }),
+          ),
+    ),
+  );
+
 /** Parses JSON columns and decodes; a corrupt row is a visible error, not a silent drop. */
-const decodeRows = <A>(
+export const decodeRows = <A>(
   message: string,
   decode: (rows: unknown) => Effect.Effect<A, unknown>,
   build: () => unknown,
@@ -299,7 +344,7 @@ export const make = Effect.gen(function* () {
     if (!(yield* isHome)) {
       return yield* new CommandCenterError({
         message:
-          "Command Center is not set up on this machine; the user keeps its memory and sections on another one. Put what you would save in your final reply instead.",
+          "Command Center is not set up on this machine; the user keeps its memory, sections and artifacts on another one. Put what you would save in your final reply instead, and ask the user for any artifact you were pointed at.",
       });
     }
   });
@@ -644,6 +689,12 @@ export const make = Effect.gen(function* () {
     return yield* publishSection(row);
   });
 
+  const setSectionPullRequest = (input: CommandCenterSetSectionPullRequestInput) =>
+    patchSection(input.id, {
+      prUrl: input.prUrl,
+      prNumber: input.prUrl === null ? null : input.prNumber,
+    });
+
   const findRepoDigest = (projectId: ProjectId) =>
     sql<Row>`
       SELECT * FROM cc_memory
@@ -701,6 +752,56 @@ export const make = Effect.gen(function* () {
         ),
       ),
     );
+
+  const saveAgentProfile = Effect.fn("CommandCenterService.saveAgentProfile")(function* (
+    patch: CommandCenterAgentProfilePatch,
+  ) {
+    const fields = Object.fromEntries(
+      Object.entries(patch).filter(([, value]) => value !== undefined),
+    ) as CommandCenterAgentProfilePatch;
+    let base: Omit<CommandCenterAgentProfile, "createdAt" | "updatedAt" | "archivedAt">;
+    if (patch.id !== undefined) {
+      const [row] = yield* sql<Row>`SELECT * FROM cc_agent_profiles WHERE id = ${patch.id}`.pipe(
+        Effect.mapError(failWith("Could not read the agent profile.")),
+      );
+      if (row === undefined) {
+        return yield* new CommandCenterError({ message: "Agent profile not found." });
+      }
+      const {
+        createdAt: _created,
+        updatedAt: _updated,
+        archivedAt: _archived,
+        ...stored
+      } = yield* decodeRows("Could not read the agent profile.", decodeAgentProfile, () =>
+        fromRow(row),
+      );
+      base = stored;
+    } else {
+      if (patch.name === undefined) {
+        return yield* new CommandCenterError({ message: "A new agent profile needs a name." });
+      }
+      const settings = yield* serverSettings.getSettings.pipe(
+        Effect.mapError(failWith("Could not read the server settings.")),
+      );
+      base = {
+        id: yield* newId.pipe(Effect.map(CommandCenterAgentId.make)),
+        name: patch.name,
+        avatar: null,
+        role: "",
+        rolePrompt: "",
+        modelSelection: settings.defaultModelSelection ?? settings.textGenerationModelSelection,
+        runtimeMode: settings.defaultRuntimeMode,
+        interactionMode: "default",
+        teamId: null,
+        sortKey: 0,
+      };
+    }
+    const record = yield* upsert({ entity: "agentProfile", value: { ...base, ...fields } });
+    if (record.entity !== "agentProfile") {
+      return yield* new CommandCenterError({ message: "Could not save the agent profile." });
+    }
+    return record.value;
+  });
 
   const ensureOnboardingTeam = Effect.fn("CommandCenterService.ensureOnboardingTeam")(function* () {
     const settings = yield* serverSettings.getSettings.pipe(
@@ -764,6 +865,18 @@ export const make = Effect.gen(function* () {
       RETURNING id
     `.pipe(Effect.mapError(failWith(message)));
     yield* publishDeleted("memory", prunedTodos);
+    // Old runs page out of every view long before this, so nobody is told they went.
+    const prunedRuns = yield* sql<{ id: string }>`
+      DELETE FROM cc_workflow_runs
+      WHERE finished_at IS NOT NULL
+        AND finished_at < ${daysAgo(FINISHED_WORKFLOW_RUN_RETENTION_DAYS)}
+      RETURNING id
+    `.pipe(Effect.mapError(failWith(message)));
+    if (prunedRuns.length > 0) {
+      yield* sql`
+        DELETE FROM cc_workflow_steps WHERE run_id IN ${sql.in(prunedRuns.map((run) => run.id))}
+      `.pipe(Effect.mapError(failWith(message)));
+    }
 
     // Yesterday in UTC: a finished day, so the digest never changes after it is written.
     const today = DateTime.startOf(now, "day");
@@ -848,6 +961,7 @@ export const make = Effect.gen(function* () {
     getSnapshot: () => readSnapshot(undefined),
     subscribe,
     checkAgentAccess,
+    requireEnabled: () => requireCommandCenterEnabled(serverSettings),
     upsert,
     delete: deleteRow,
     setMemoryDone,
@@ -856,8 +970,10 @@ export const make = Effect.gen(function* () {
     listSections,
     createSection,
     patchSection,
+    setSectionPullRequest,
     buildRepoDigest,
     getRepoDigest,
+    saveAgentProfile,
     ensureOnboardingTeam,
     runDailyMaintenance,
   });

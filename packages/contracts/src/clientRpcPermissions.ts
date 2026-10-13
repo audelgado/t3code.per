@@ -1,6 +1,7 @@
 import * as Schema from "effect/Schema";
 import { GitPreparePullRequestThreadInput } from "./git.ts";
 import {
+  AuthFilesystemWriteScope,
   AuthOrchestrationOperateScope,
   AuthSettingsWriteScope,
   AuthSourceControlWriteScope,
@@ -51,6 +52,32 @@ export const CLIENT_GUARDED_RPC_SCOPES = {
   [WS_METHODS.commandCenterSetMemoryDone]: AuthOrchestrationOperateScope,
   [WS_METHODS.commandCenterBuildRepoDigest]: AuthOrchestrationOperateScope,
   [WS_METHODS.commandCenterEnsureOnboardingTeam]: AuthOrchestrationOperateScope,
+  [WS_METHODS.commandCenterSetSectionPullRequest]: AuthOrchestrationOperateScope,
+  [WS_METHODS.commandCenterSaveArtifact]: AuthOrchestrationOperateScope,
+  [WS_METHODS.commandCenterImportArtifact]: AuthOrchestrationOperateScope,
+  [WS_METHODS.commandCenterRestoreArtifactVersion]: AuthOrchestrationOperateScope,
+  [WS_METHODS.commandCenterSetArtifactArchived]: AuthOrchestrationOperateScope,
+  [WS_METHODS.commandCenterUpsertCanvasItems]: AuthOrchestrationOperateScope,
+  [WS_METHODS.commandCenterUpsertCanvasEdges]: AuthOrchestrationOperateScope,
+  [WS_METHODS.commandCenterDeleteCanvasEntries]: AuthOrchestrationOperateScope,
+  // Workflows, snippets and skills are files in the project, written like any project file.
+  [WS_METHODS.commandCenterSaveWorkflow]: AuthFilesystemWriteScope,
+  [WS_METHODS.commandCenterDeleteWorkflow]: AuthFilesystemWriteScope,
+  [WS_METHODS.commandCenterRestoreWorkflow]: AuthFilesystemWriteScope,
+  [WS_METHODS.commandCenterSaveSnippet]: AuthFilesystemWriteScope,
+  [WS_METHODS.commandCenterDeleteSnippet]: AuthFilesystemWriteScope,
+  [WS_METHODS.commandCenterRestoreSnippet]: AuthFilesystemWriteScope,
+  [WS_METHODS.commandCenterCreateSkill]: AuthFilesystemWriteScope,
+  [WS_METHODS.commandCenterUpdateSkill]: AuthFilesystemWriteScope,
+  [WS_METHODS.commandCenterDeleteSkill]: AuthFilesystemWriteScope,
+  [WS_METHODS.commandCenterRestoreSkill]: AuthFilesystemWriteScope,
+  // Spends model tokens, like starting a turn.
+  [WS_METHODS.commandCenterRewriteText]: AuthOrchestrationOperateScope,
+  [WS_METHODS.commandCenterStartWorkflowRun]: AuthOrchestrationOperateScope,
+  [WS_METHODS.commandCenterStopWorkflowRun]: AuthOrchestrationOperateScope,
+  [WS_METHODS.commandCenterRetryWorkflowStep]: AuthOrchestrationOperateScope,
+  [WS_METHODS.commandCenterResumeWorkflowRun]: AuthOrchestrationOperateScope,
+  [WS_METHODS.commandCenterAnswerWorkflowStep]: AuthOrchestrationOperateScope,
   [ORCHESTRATION_V2_WS_METHODS.stopWorkflow]: AuthOrchestrationOperateScope,
 } as const;
 export type ClientGuardedRpcTag = keyof typeof CLIENT_GUARDED_RPC_SCOPES;

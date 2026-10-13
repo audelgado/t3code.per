@@ -119,6 +119,24 @@ export const RPC_REQUIRED_SCOPES = {
   [WS_METHODS.commandCenterListMemory]: AuthOrchestrationReadScope,
   [WS_METHODS.commandCenterRecallMemory]: AuthOrchestrationReadScope,
   [WS_METHODS.commandCenterListSections]: AuthOrchestrationReadScope,
+  [WS_METHODS.commandCenterSubscribeArtifacts]: AuthOrchestrationReadScope,
+  [WS_METHODS.commandCenterListArtifacts]: AuthOrchestrationReadScope,
+  [WS_METHODS.commandCenterGetArtifact]: AuthOrchestrationReadScope,
+  // Capturing a missing thumbnail writes a cache file, but it only renders what reading shows.
+  [WS_METHODS.commandCenterGetArtifactThumbnail]: AuthOrchestrationReadScope,
+  [WS_METHODS.commandCenterGetCanvas]: AuthOrchestrationReadScope,
+  // Workflows, snippets and skills are project files, so reading them needs what reading any
+  // project file needs (writes are guarded the same way). Starters ship with the server.
+  [WS_METHODS.commandCenterListWorkflows]: AuthFilesystemReadScope,
+  [WS_METHODS.commandCenterSubscribeWorkflows]: AuthFilesystemReadScope,
+  [WS_METHODS.commandCenterGetWorkflow]: AuthFilesystemReadScope,
+  [WS_METHODS.commandCenterListWorkflowStarters]: AuthOrchestrationReadScope,
+  [WS_METHODS.commandCenterListSnippets]: AuthFilesystemReadScope,
+  [WS_METHODS.commandCenterGetSnippet]: AuthFilesystemReadScope,
+  [WS_METHODS.commandCenterListSkills]: AuthFilesystemReadScope,
+  [WS_METHODS.commandCenterListWorkflowRuns]: AuthOrchestrationReadScope,
+  [WS_METHODS.commandCenterGetWorkflowRun]: AuthOrchestrationReadScope,
+  [WS_METHODS.commandCenterSubscribeWorkflowRuns]: AuthOrchestrationReadScope,
   [WS_METHODS.secretsAnswerRequest]: AuthOrchestrationOperateScope,
   // Delivery logs hold request bodies, so they need the same scope as the URL.
   [WS_METHODS.scheduledTasksListWebhookDeliveries]: AuthOrchestrationOperateScope,
