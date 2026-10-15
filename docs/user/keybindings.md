@@ -130,6 +130,19 @@ update an older server to enable it. Select **Retry** if a search fails. It defa
 `mod+f` outside terminals and previews. Press **Enter** or **Shift+Enter** to move between matches,
 and **Escape** to close find.
 
+## Command Center
+
+`commandCenter.open` (`mod+alt+o` by default, outside terminals) opens
+[Command Center](./command-center.md) on its first visible tab. While Command Center is off it
+does nothing. Inside the page,
+outside text fields, `/` opens **Ask the team**, `H` hides or shows amounts, `M` opens
+Memory. On Home, `1` to `8` open pinned projects and `W` starts new work. Use `G` then
+`H/W/P/T/I/F/A/C/O` for Home, Work, Projects, Team, Infra, Finance, Artifacts, Canvas or
+Workflows. `[` and `]` open Work or rotate its focused item; Enter opens its thread and `W`
+starts a worktree. These page keys are not configurable. A workflow's
+`workflow.<slug>.run` command has no default; set one in the
+workflow editor or here.
+
 ## Precedence
 
 The last rule whose key and condition both match wins, even if it belongs to a

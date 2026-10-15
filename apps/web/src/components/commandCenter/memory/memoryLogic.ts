@@ -3,6 +3,7 @@ import type {
   CommandCenterMemoryKind,
   ProjectId,
 } from "@t3tools/contracts";
+import { paginateCollection } from "../collectionPaging";
 
 /** Project filter: everything, entries with no project, or one project. */
 export type MemoryProjectFilter = "all" | "none" | ProjectId;
@@ -17,6 +18,19 @@ export interface MemoryDay {
   /** Local calendar day, `YYYY-MM-DD`. */
   readonly day: string;
   readonly entries: ReadonlyArray<CommandCenterMemoryEntry>;
+}
+
+/** Bounds the rendered timeline, retaining chronological day labels across page boundaries. */
+export function selectMemoryPage(days: ReadonlyArray<MemoryDay>, page: number) {
+  const entries = days.flatMap((day) => day.entries.map((entry) => ({ day: day.day, entry })));
+  const directory = paginateCollection(entries, page, 25);
+  const visible: { day: string; entries: CommandCenterMemoryEntry[] }[] = [];
+  for (const item of directory.items) {
+    const last = visible.at(-1);
+    if (last?.day === item.day) last.entries.push(item.entry);
+    else visible.push({ day: item.day, entries: [item.entry] });
+  }
+  return { ...directory, days: visible };
 }
 
 function localDay(iso: string) {

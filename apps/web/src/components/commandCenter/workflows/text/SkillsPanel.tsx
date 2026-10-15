@@ -41,6 +41,9 @@ import { toastManager } from "../../../ui/toast";
 import { parseSkillFile } from "./textLogic";
 import { type TextRewrite, TextOptimizer } from "./TextOptimizer";
 import { useTextRewrite } from "./useTextRewrite";
+import { CollectionPager } from "../../CollectionPager";
+import { paginateCollection } from "../../collectionPaging";
+import { searchLibrary } from "../libraryLogic";
 
 const isSkillName = Schema.is(CommandCenterSkillName);
 
@@ -95,6 +98,8 @@ export function SkillsPanel({
   );
   const [draft, setDraft] = useState<SkillDraft | null>(null);
   const [opening, setOpening] = useState<string | null>(null);
+  const [search, setSearch] = useState("");
+  const [page, setPage] = useState(1);
 
   const edit = async (skill: CommandCenterSkillSummary) => {
     if (project === null) return;
@@ -154,6 +159,11 @@ export function SkillsPanel({
   };
 
   const list = skills.data?.skills ?? [];
+  const directory = paginateCollection(
+    searchLibrary(list, search, (skill) => [skill.name, skill.description]),
+    page,
+    15,
+  );
   return (
     <div className="space-y-3">
       <div className="flex flex-wrap items-center gap-2">
@@ -174,23 +184,34 @@ export function SkillsPanel({
           </div>
         ) : null}
       </div>
+      <Input
+        type="search"
+        aria-label="Search skills"
+        placeholder="Search name or description"
+        value={search}
+        onChange={(event) => {
+          setSearch(event.target.value);
+          setPage(1);
+        }}
+      />
       {skills.error !== null ? (
         <p className="text-sm text-destructive-foreground">{skills.error}</p>
       ) : skills.data === null ? (
         <Spinner size="sm" tone="muted" />
-      ) : list.length === 0 ? (
+      ) : directory.total === 0 ? (
         <Empty>
           <EmptyHeader>
-            <EmptyTitle>No skills yet</EmptyTitle>
+            <EmptyTitle>{search.trim() ? "No matching skills" : "No skills yet"}</EmptyTitle>
             <EmptyDescription>
-              A skill is a reusable instruction set an agent loads when it applies. Create one here
-              or ask an agent to save one.
+              {search.trim()
+                ? "Try another name or clear the search."
+                : "A skill is a reusable instruction set an agent loads when it applies. Create one here or ask an agent to save one."}
             </EmptyDescription>
           </EmptyHeader>
         </Empty>
       ) : (
         <ul className="divide-y rounded-md border">
-          {list.map((skill) => (
+          {directory.items.map((skill) => (
             <li key={skill.name} className="flex items-start gap-3 px-3 py-2">
               <div className="min-w-0 flex-1">
                 <div className="flex flex-wrap items-center gap-1.5">
@@ -230,6 +251,9 @@ export function SkillsPanel({
           ))}
         </ul>
       )}
+      {skills.data !== null ? (
+        <CollectionPager {...directory} label="skills" onPageChange={setPage} />
+      ) : null}
       {draft !== null ? (
         <SkillEditorDialog
           key={`${draft.mode}:${draft.name}`}

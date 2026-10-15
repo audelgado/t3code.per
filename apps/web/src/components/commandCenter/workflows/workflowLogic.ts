@@ -449,6 +449,46 @@ export function lastRunBySlug(runs: ReadonlyArray<CommandCenterWorkflowRun>) {
   return result;
 }
 
+const runRank = (run: CommandCenterWorkflowRun) =>
+  run.status === "waiting" ? 0 : run.status === "queued" || run.status === "running" ? 1 : 2;
+/** Server order (`listWorkflowRuns`): newest start first, id breaking ties. */
+const newerFirst = (left: CommandCenterWorkflowRun, right: CommandCenterWorkflowRun) =>
+  right.startedAt.localeCompare(left.startedAt) || right.id.localeCompare(left.id);
+
+/**
+ * Runs for a list: waiting for you, then queued or running, then finished, newest first in each.
+ * Older pages join after the live feed, which wins for a run in both.
+ */
+export function orderWorkflowRuns(
+  live: ReadonlyArray<CommandCenterWorkflowRun>,
+  older: ReadonlyArray<CommandCenterWorkflowRun> = [],
+) {
+  const seen = new Set(live.map((run) => run.id));
+  return [...live, ...older.filter((run) => !seen.has(run.id))].toSorted(
+    (left, right) => runRank(left) - runRank(right) || newerFirst(left, right),
+  );
+}
+
+/** The last loaded run in server order: `before` for the next `listWorkflowRuns` page. */
+export function oldestWorkflowRun(runs: ReadonlyArray<CommandCenterWorkflowRun>) {
+  return runs.toSorted(newerFirst).at(-1);
+}
+
+/**
+ * The older rows after the live feed moved: runs that left it (newer runs pushed them out of its
+ * window) go first, as they are newer than any older page. The feed and the older rows so stay
+ * one unbroken list, and `older.at(-1)` stays the cursor for the next page.
+ */
+export function keepRunsLeavingFeed(
+  previous: ReadonlyArray<CommandCenterWorkflowRun>,
+  next: ReadonlyArray<CommandCenterWorkflowRun>,
+  older: ReadonlyArray<CommandCenterWorkflowRun>,
+) {
+  const kept = new Set([...next, ...older].map((run) => run.id));
+  const left = previous.filter((run) => !kept.has(run.id));
+  return left.length === 0 ? older : [...left.toSorted(newerFirst), ...older];
+}
+
 /** What a run starts with (blank fields take the default) and which required inputs are empty. */
 export function runInputs(
   declared: ReadonlyArray<CommandCenterWorkflowInput>,

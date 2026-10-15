@@ -742,7 +742,7 @@ const layerMakeRoutes = Layer.mergeAll(
   // Workflow files and skills are per project; the runner reads them and starts step threads.
   Layer.provide(
     WorkflowRunner.layer.pipe(
-      Layer.provide(WorkflowThreads.layer),
+      Layer.provideMerge(WorkflowThreads.layer),
       Layer.provide(ScheduledTaskPromptRoutes.layer),
       Layer.provideMerge(
         Layer.mergeAll(WorkflowStore.layer, SkillWriter.layer, TextRewriter.layer),

@@ -58,6 +58,7 @@ const layerService = (options: TestOptions) =>
     WorkflowRunner.layer.pipe(
       Layer.provide(
         Layer.mock(WorkflowThreads)({
+          readDigests: () => Effect.succeed({ digests: [] }),
           launch: (input) => Effect.succeed(ThreadId.make(`thread:${input.key}`)),
           awaitSettled: () => Effect.never,
           stop: () => Effect.void,

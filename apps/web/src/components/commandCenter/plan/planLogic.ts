@@ -2,6 +2,7 @@ import {
   COMMAND_CENTER_ONBOARDING_TEAM_ID,
   isProviderAvailable,
   type CommandCenterAgentProfile,
+  type CommandCenterAssignment,
   type CommandCenterTeam,
   type CommandCenterTeamId,
   type EnvironmentId,
@@ -91,6 +92,80 @@ export function resolveStepMachine(
 ): EnvironmentId {
   if (machine !== "auto") return machine;
   return team?.environmentId ?? primaryEnvironmentId;
+}
+
+export interface AutoMachineCandidate {
+  readonly environmentId: EnvironmentId;
+  readonly connected: boolean;
+  /** An explicit association with this project; never inferred from a remote or title. */
+  readonly hasProject: boolean;
+  readonly providerOk: boolean;
+  readonly activeAssignments: number;
+}
+
+/** Resolves a route from the same candidates used for previews and starting work. */
+export function resolveAutoMachine({
+  explicit,
+  candidates,
+  teamMachine,
+  primary,
+}: {
+  readonly explicit: EnvironmentId | "auto" | null;
+  readonly candidates: ReadonlyArray<AutoMachineCandidate>;
+  readonly teamMachine: EnvironmentId | null;
+  readonly primary: EnvironmentId;
+}):
+  | {
+      readonly environmentId: EnvironmentId;
+      readonly reason: "explicit" | "only" | "team" | "least-busy";
+    }
+  | { readonly error: string } {
+  const eligible = candidates.filter(
+    (candidate) => candidate.connected && candidate.hasProject && candidate.providerOk,
+  );
+  if (explicit !== null && explicit !== "auto") {
+    const picked = candidates.find((candidate) => candidate.environmentId === explicit);
+    if (!picked?.connected) return { error: "The selected machine is offline." };
+    if (!picked.hasProject)
+      return { error: "This project is not associated with the selected machine." };
+    if (!picked.providerOk)
+      return { error: "The agent's provider is not available on the selected machine." };
+    return { environmentId: explicit, reason: "explicit" };
+  }
+  if (eligible.length === 0) {
+    if (!candidates.some((candidate) => candidate.connected))
+      return { error: "No machines are connected." };
+    if (!candidates.some((candidate) => candidate.connected && candidate.hasProject))
+      return { error: "This project has no associated copy on a connected machine." };
+    return {
+      error: "The agent's provider is not available on a connected machine with this project.",
+    };
+  }
+  if (eligible.length === 1) return { environmentId: eligible[0]!.environmentId, reason: "only" };
+  if (teamMachine !== null && eligible.some((candidate) => candidate.environmentId === teamMachine))
+    return { environmentId: teamMachine, reason: "team" };
+  const picked = eligible.reduce((best, candidate) =>
+    candidate.activeAssignments < best.activeAssignments ||
+    (candidate.activeAssignments === best.activeAssignments && candidate.environmentId === primary)
+      ? candidate
+      : best,
+  );
+  return { environmentId: picked.environmentId, reason: "least-busy" };
+}
+
+/** Counts only unfinished assignments whose streamed agent state is working. */
+export function activeAssignmentsByMachine(
+  states: Iterable<{
+    readonly status: string;
+    readonly assignment: Pick<CommandCenterAssignment, "environmentId" | "finishedAt"> | null;
+  }>,
+): ReadonlyMap<EnvironmentId, number> {
+  const counts = new Map<EnvironmentId, number>();
+  for (const { status, assignment } of states) {
+    if (status !== "working" || assignment === null || assignment.finishedAt !== null) continue;
+    counts.set(assignment.environmentId, (counts.get(assignment.environmentId) ?? 0) + 1);
+  }
+  return counts;
 }
 
 export interface ProviderIssue {

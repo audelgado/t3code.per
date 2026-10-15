@@ -8,31 +8,28 @@ import {
 export const ARTIFACT_PAGE_SIZE = 30;
 
 /**
- * The live newest page, then older pages minus anything the live page now holds (an artifact
- * updated meanwhile moved up into it). Both are newest-updated first.
+ * The live newest page, then the loaded rows that still sort after it (server order: updatedAt,
+ * then id, both descending). `loaded` holds every row shown when the last older page was fetched,
+ * live rows included, so a row a new artifact pushes out of the live page stays. A loaded row the
+ * live page now holds (updated meanwhile) or should hold but does not (archived, renamed out of
+ * the search) is dropped.
  */
 export function mergeArtifactPages(
   live: ReadonlyArray<CommandCenterArtifact>,
-  older: ReadonlyArray<CommandCenterArtifact>,
+  loaded: ReadonlyArray<CommandCenterArtifact>,
 ): ReadonlyArray<CommandCenterArtifact> {
-  if (older.length === 0) return live;
+  const last = live.at(-1);
+  if (loaded.length === 0 || last === undefined) return live;
   const seen = new Set(live.map((artifact) => artifact.id));
-  return [...live, ...older.filter((artifact) => !seen.has(artifact.id))];
+  const afterLive = (row: CommandCenterArtifact) =>
+    row.updatedAt < last.updatedAt || (row.updatedAt === last.updatedAt && row.id < last.id);
+  return [...live, ...loaded.filter((row) => !seen.has(row.id) && afterLive(row))];
 }
 
 /** Value cursor for the page after `rows`; undefined when there is nothing to page from. */
 export function nextArtifactCursor(rows: ReadonlyArray<CommandCenterArtifact>) {
   const last = rows.at(-1);
   return last === undefined ? undefined : { before: last.id, beforeUpdatedAt: last.updatedAt };
-}
-
-/**
- * Identity of the live page's oldest row. Older pages were fetched after it, so once it changes
- * (a new artifact pushed rows out of the live page) they may have a gap and are dropped.
- */
-export function livePageBoundary(live: ReadonlyArray<CommandCenterArtifact>): string {
-  const last = live.at(-1);
-  return last === undefined ? "" : `${last.id}@${last.updatedAt}`;
 }
 
 /** The version just before `version` in a newest-first history, to diff against. */

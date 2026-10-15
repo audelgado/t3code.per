@@ -2,6 +2,7 @@ import type {
   CommandCenterSkillName,
   CommandCenterWorkflow,
   CommandCenterWorkflowNodeId,
+  CommandCenterWorkflowRun,
   CommandCenterWorkflowStep,
 } from "@t3tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
@@ -10,10 +11,13 @@ import {
   addNode,
   checkDraft,
   connectNodes,
+  keepRunsLeavingFeed,
   lastRunBySlug,
   mergeRunSteps,
   nodePositions,
   nodeRunStates,
+  oldestWorkflowRun,
+  orderWorkflowRuns,
   removeNode,
   renameNode,
   restoreNode,
@@ -242,5 +246,61 @@ describe("runs", () => {
       item: 2,
     });
     expect(retryTarget(base(), step({ nodeId: id("build") }))).toEqual({ nodeId: "build" });
+  });
+});
+
+describe("workflow run lists", () => {
+  const run = (id: string, status: string, startedAt: string) =>
+    ({ id, status, startedAt }) as unknown as CommandCenterWorkflowRun;
+
+  it("puts waiting runs first, then active ones, newest first, with older pages after", () => {
+    const live = [
+      run("done-new", "succeeded", "2026-10-05T00:00:00Z"),
+      run("wait-old", "waiting", "2026-10-01T00:00:00Z"),
+      run("running", "running", "2026-10-03T00:00:00Z"),
+      run("wait-new", "waiting", "2026-10-04T00:00:00Z"),
+      run("queued", "queued", "2026-10-02T00:00:00Z"),
+    ];
+    const older = [
+      run("wait-old", "succeeded", "2026-10-01T00:00:00Z"),
+      run("done-old", "failed", "2026-09-01T00:00:00Z"),
+    ];
+    expect(orderWorkflowRuns(live, older).map((item) => item.id)).toEqual([
+      "wait-new",
+      "wait-old",
+      "running",
+      "queued",
+      "done-new",
+      "done-old",
+    ]);
+    // The live row wins over its stale copy from an older page.
+    expect(orderWorkflowRuns(live, older).find((item) => item.id === "wait-old")?.status).toBe(
+      "waiting",
+    );
+  });
+
+  it("pages older runs from the oldest one loaded", () => {
+    expect(
+      oldestWorkflowRun([
+        run("b", "succeeded", "2026-10-01T00:00:00Z"),
+        run("a", "succeeded", "2026-10-01T00:00:00Z"),
+        run("c", "waiting", "2026-10-03T00:00:00Z"),
+      ])?.id,
+    ).toBe("a");
+    expect(oldestWorkflowRun([])).toBeUndefined();
+  });
+
+  it("keeps a run pushed out of the feed ahead of the older pages", () => {
+    const day = (n: number) => `2026-10-${String(n).padStart(2, "0")}T00:00:00Z`;
+    // The feed held #3-#5 and Load older fetched #1-#2; then #6 started and pushed #3 out.
+    const previous = [run("r5", "succeeded", day(5)), run("r4", "succeeded", day(4))];
+    const before = [...previous, run("r3", "succeeded", day(3))];
+    const next = [run("r6", "running", day(6)), ...previous];
+    const older = [run("r2", "succeeded", day(2)), run("r1", "succeeded", day(1))];
+    const kept = keepRunsLeavingFeed(before, next, older);
+    expect(kept.map((item) => item.id)).toEqual(["r3", "r2", "r1"]);
+    expect(oldestWorkflowRun(orderWorkflowRuns(next, kept))?.id).toBe("r1");
+    // Nothing left the feed: the same array back.
+    expect(keepRunsLeavingFeed(next, next, older)).toBe(older);
   });
 });

@@ -1485,6 +1485,14 @@ export function createServerEnvironmentAtoms<R, E>(
       scheduler: configScheduler,
       concurrency: configConcurrency,
     }),
+    commandCenterThreadDigests: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:server:command-center:thread-digests",
+      tag: WS_METHODS.commandCenterThreadDigests,
+      concurrency: {
+        mode: "singleFlight",
+        key: ({ environmentId, input }) => JSON.stringify([environmentId, input.threadIds]),
+      },
+    }),
     upsertCommandCenter: createEnvironmentRpcCommand(runtime, {
       label: "environment-data:server:command-center:upsert",
       tag: WS_METHODS.commandCenterUpsert,

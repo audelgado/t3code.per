@@ -1,6 +1,8 @@
 import {
   CommandCenterError,
   CommandId,
+  CommandCenterThreadDigestsInput,
+  type CommandCenterThreadDigestsResult,
   MessageId,
   type ModelSelection,
   type OrchestrationV2DomainEvent,
@@ -22,7 +24,9 @@ import * as Stream from "effect/Stream";
 
 import * as ThreadLaunchService from "../orchestration-v2/ThreadLaunchService.ts";
 import * as ThreadManagementService from "../orchestration-v2/ThreadManagementService.ts";
+import { ProjectionStoreThreadNotFoundError } from "../orchestration-v2/ProjectionStore.ts";
 import { failWith } from "./CommandCenterService.ts";
+import { digestFromRecords, latestFinishedRun } from "./threadDigest.ts";
 
 /** How a workflow step's thread ended: whether its turn completed, and its final reply or error. */
 export interface WorkflowThreadResult {
@@ -50,6 +54,9 @@ export interface WorkflowThreadLaunch {
 export class WorkflowThreads extends Context.Service<
   WorkflowThreads,
   {
+    readonly readDigests: (
+      threadIds: ReadonlyArray<ThreadId>,
+    ) => Effect.Effect<CommandCenterThreadDigestsResult, CommandCenterError>;
     readonly launch: (input: WorkflowThreadLaunch) => Effect.Effect<ThreadId, CommandCenterError>;
     /** Resolves when the thread's work is done: its turns ended and nothing it started still runs. */
     readonly awaitSettled: (
@@ -75,10 +82,42 @@ type Done = { readonly state: "done"; readonly result: WorkflowThreadResult };
 type Progress = { readonly state: "working" | "waiting_for_children" } | Done;
 const isDone = (progress: Progress): progress is Done => progress.state === "done";
 const isCommandCenterError = Schema.is(CommandCenterError);
+const isMissingProjection = Schema.is(ProjectionStoreThreadNotFoundError);
+const decodeDigestsInput = Schema.decodeUnknownEffect(CommandCenterThreadDigestsInput);
 
 export const make = Effect.gen(function* () {
   const threadLaunch = yield* ThreadLaunchService.ThreadLaunchService;
   const threads = yield* ThreadManagementService.ThreadManagementService;
+
+  const readDigest = Effect.fn("WorkflowThreads.readDigest")(
+    function* (threadId: ThreadId) {
+      const controls = yield* threads.getThreadRecords(threadId, ["runs", "checkpoints"]);
+      const run = latestFinishedRun(controls.runs);
+      if (run === undefined) return null;
+      const records = yield* threads.getThreadRecords(threadId, ["messages", "turnItems"], {
+        messageRoles: ["assistant"],
+        messageRunIds: [run.id],
+        turnItemRunIds: [run.id],
+        turnItemTypes: ["assistant_message", "error"],
+      });
+      return digestFromRecords(threadId, run, { ...records, checkpoints: controls.checkpoints });
+    },
+    Effect.catchTags({
+      OrchestratorProjectionError: (error) =>
+        isMissingProjection(error.cause) ? Effect.succeed(null) : Effect.fail(error),
+    }),
+  );
+
+  const readDigests = Effect.fn("WorkflowThreads.readDigests")(
+    function* (threadIds: ReadonlyArray<ThreadId>) {
+      const input = yield* decodeDigestsInput({ threadIds });
+      const digests = yield* Effect.forEach([...new Set(input.threadIds)], readDigest, {
+        concurrency: 4,
+      });
+      return { digests: digests.filter((digest) => digest !== null) };
+    },
+    Effect.mapError(failWith("Could not read thread digests.")),
+  );
 
   const launch = (input: WorkflowThreadLaunch) =>
     threadLaunch
@@ -193,7 +232,7 @@ export const make = Effect.gen(function* () {
       Effect.orElseSucceed(() => null),
     );
 
-  return WorkflowThreads.of({ launch, awaitSettled, stop, worktree });
+  return WorkflowThreads.of({ readDigests, launch, awaitSettled, stop, worktree });
 });
 
 export const layer = Layer.effect(WorkflowThreads, make);

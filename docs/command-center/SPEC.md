@@ -27,17 +27,103 @@ template `_chat.pull-requests.tsx`), sidebar entry next to Pull requests
 (`components/sidebar/SidebarChrome.tsx`). Tab in `?tab=`. Components under
 `apps/web/src/components/commandCenter/`.
 
-Shared header:
+Desktop uses one shared header row. Below `sm`, Home and Work use Today, Done, Work,
+Route and More with a separate scroll area above the Ask bar and safe-area-aware navigation.
 
-- Tabs: **Team**, **Projects**, **Infra**, **Finance**.
-- Project filter chips (dims everything not on that project).
-- **Hide amounts** toggle (eye button, key `H`), blurs every money value,
-  persisted per viewer in localStorage.
-- **Memory** button opening the memory drawer.
-- **Orchestrator bar**: one input + project select + target machine
-  (`Auto` or an environment). Submit opens the plan drawer (see Delegation).
-  `/` focuses it. Text starting with `remember:` / `recordá:` / `guardá:` is
-  saved straight to memory without any agent.
+- Nine tabs (`commandCenter/tabs.ts`): **Home** (default), **Work**, **Team**, **Projects**, **Infra**,
+  **Finance**, **Artifacts**, **Canvas**, **Workflows**. Work and the last three load lazily. Each tab
+  is an icon with its label from `lg`; below `lg` only the open tab keeps its label, since
+  tooltips are mouse-only. The description is the tooltip. The strip scrolls
+  sideways at every width instead of turning into a select. The first visible tab opens when
+  the URL names none.
+- **Project focus**: `?project=<projectId>` on every tab, so a reload or a shared link keeps it;
+  a searchable picker (icon only below `sm`) with a clear button sets it; the clear button also
+  shows when no project is loaded, so a link to a missing project can be cleared. It filters
+  and never dims: Team lists the agents working on it, Infra the machines that host or build
+  it, Finance its costs and ranking row, Artifacts its artifacts. In Projects it is the open detail. Canvas
+  and Workflows open that project; without one, Canvas shows a picker and Workflows lists every
+  project's runs. Ask the team, `onboard` and Home's "Add todo" use it.
+- **Launch**: a menu with every quick action and a link to edit them; Home's "More" opens it.
+- **Ask the team** (the orchestrator, the one delegation verb in the UI): folded so it does
+  not push the tab down; `/` opens and focuses it, and the draft survives navigation. One
+  input + target machine (`Auto` or an environment); work goes to the project focus, which the
+  bar names. `?ask=<text>` (a prompt quick action from the command palette) is appended to the
+  draft once and dropped from the URL. Submit opens the plan drawer (see Delegation). Text starting with `remember:` / `recordá:` / `guardá:` is saved
+  straight to memory without any agent.
+- The page's top bar keeps **Hide amounts** (eye button, key `H`, blurs every money value,
+  persisted per viewer in localStorage), **Memory** (the memory drawer) and **Customize**.
+- **Customize** opens Settings → Command Center. It renames, reorders and hides tabs, and
+  edits up to 20 quick actions (open a tab, open an http(s) link or an app path such as
+  `/usage` with one leading slash, or prepare an instruction you review before submitting). Both live in the primary server's settings
+  (`commandCenter.sections`, `commandCenter.quickActions`), so every web and desktop client
+  sees the same panel; mobile keeps its fixed summary. A tab missing from saved settings (Home
+  for layouts saved before it existed) is inserted after its canonical predecessor. A hidden
+  tab keeps its data and still opens from a link or quick action; at least one tab stays
+  visible.
+- Keys, outside text fields: `/` Ask the team, `H` Hide amounts, `M` Memory, `1`–`8` pinned
+  projects on Home. `g` then `h/w/p/t/i/f/a/c/o` selects a tab; brackets rotate Work.
+  `commandCenter.open` defaults to `mod+alt+o` (`!terminalFocus`) and does
+  nothing while Command Center is off.
+- Command palette: one entry per visible tab (the first carries `commandCenter.open`), per valid
+  quick action and per pinned project (at most 8, pin order). Groups are not listed. Nothing is
+  listed while Command Center is off. On `/command`, tab, section and prompt entries keep the
+  project focus (a prompt also keeps the tab), like the in-page controls. The palette hook
+  imports only pure modules (`customization.ts`, `paletteItems.ts`, `tabs.ts`), since the
+  palette ships in the startup bundle.
+
+Lists: no unbounded list. Every collection is paged (`paginateCollection` with
+`CollectionPager`) or capped as "N + view all". A list fed by server pages (Memory,
+Artifacts) offers **Load older** only on its last loaded page; Artifacts pages the client at
+the server's page size, so each loaded page is one full client page. Loaded older pages keep
+the rows shown when they were fetched, so a new artifact does not reset the page or drop them.
+Workflow runs show 10 per page, waiting first, then queued or running, then the rest, newest
+first; the live feed holds the newest 50 (a run outside a full feed is not added, so it stays the
+newest 50 with no gap) and **Load older runs** pages the rest with `before`. A run a newer one
+pushes out of the feed stays listed ahead of the older pages.
+
+### Home
+
+The default tab. It reads the Command Center snapshot, the thread shells the client already
+streams and the primary server's run feed for every project (`commandCenterWorkflowRunsLive`,
+open only while Home or Team is mounted), and a block with nothing to show is not rendered.
+
+- **Now**: Working, Needs you, Active work and Owed (`financeSummary`, masked by Hide amounts).
+  Static charts derive from already streamed shells; completion buckets count each thread's
+  latest visible finished run, without fetching full histories or VCS status.
+- **Needs you**: `deriveAttention` (`client-runtime/state/commandCenterDerive.ts`), 5 per page.
+  Threads on any machine with an approval, a question or a ready plan, not archived, and
+  snoozed ones only once they raise their hand (`effectiveSnoozed`), in the inbox's return
+  order (`sortInboxThreadsByReturn`). Then workflow runs waiting for an answer, newest first
+  (**Open run** focuses the run's project in Workflows; a waiting run older than the feed's
+  newest 50 is not listed). Then alerts (offline host, working agent silent 30 min,
+  delivery due within 2 days under 70%), then interview questions, blocked sections and
+  overdue income, newest first. Idle agents and unmet dependencies are not listed (project
+  health shows dependencies). Approvals and questions are answered inline, one at a time, and
+  the open answer stays on its page; blocked sections have **Resolved**.
+- **Pinned**: up to 8 pinned projects in manual order, opened with `1`–`8` or their cards.
+- **Todos**: the 5 newest open todos across every project (interview questions excluded; the
+  block title counts them) with a check, "Add todo" and "Open in Memory", which opens Memory
+  on todos from every project, done ones included.
+- **Launch**: four built-in actions and up to four custom quick actions, with More for the rest.
+- With no projects, attention, todos or quick actions: "Import projects" (`/welcome`) and "Add
+  quick action".
+
+### Work and phone
+
+Work groups thread shells by environment, project and checkout. Four project lanes per page
+share at most 20 checkout subscriptions, with remote status on the focused checkout only.
+Unknown or mismatched checkout status never authorizes Push, Update or Close. Close/Reopen
+and Tidy's Remove/Restore retain partial progress for repair during the session. Branch deletion
+and new core Git APIs remain out of scope; hygiene shows facts available through existing calls.
+
+Phone Done fetches summaries for visible rows only, at most 20 per environment request,
+from stored final replies and checkpoint statistics. It never starts an agent or subscribes to
+whole thread projections. Inline answers reuse the normal pending-request flow.
+
+Auto routes only to an explicitly selected project's environment with a working provider;
+sharing a remote is not project identity. Manual project order is server-shared, while sort,
+collapse and density stay local. Browser dictation is capability-gated and stops when hidden
+or unmounted; Electron uses system dictation instead.
 
 ### Team
 
@@ -48,22 +134,50 @@ Shared header:
   `pendingRuntimeRequest`, `lastError`, `usageLimitResetAt`): working, waiting
   on you, blocked/failed, limited, idle.
 - Static SVG wires: orchestrator to each team, team to team handoffs (dashed,
-  labeled). No continuous animation. Hidden below 640px; the handoff list
-  stays.
-- **What's missing** list: agent questions (answer inline or open thread),
-  blocked sections with "resolved", deliveries due in 7 days, idle agents with
-  "give work".
+  labeled). No continuous animation. Drawn only at `xl` width and up, with at
+  most 3 machine columns; team-to-team wires also need one page of teams, no
+  search and All machines. The Handoffs list always stays.
+- Attention is listed on Home only; Team shows how many items need you, with a link to
+  Home.
+- With a project focus, only agents working on it now; teams without one drop out and the
+  wires are not drawn.
 - Agent drawer: open thread, stop, release, move to another machine.
 
 ### Projects
 
+The launcher for every T3 project: a paged directory beside one detail card.
+
+- One row per T3 project (`<environmentId>:<projectId>`). Clones of one repository are never
+  merged: they can differ in machine, branch and state, and merging hid that.
+- Pins, user-defined groups and a site link live in the primary settings
+  (`commandCenter.projects`, at most 200 customized projects, and
+  `commandCenter.projectGroups`, at most 50). An entry back at its defaults is dropped, and each
+  write drops entries of projects gone from a machine whose project list is live, so removed
+  projects never hold the cap. Every way in has a way out: Pin/Unpin, Move to group/Remove from
+  group, Link site/Clear link, and deleting a group only ungroups its projects and offers Undo.
+  The whole array is replaced on write, so two devices changing pins at the same moment can
+  overwrite each other (accepted).
+- Order: pinned first, then the chosen sort; the default is recent activity (the latest thread
+  the sidebar lists, unarchived and not a subagent child, by its "updated" order). Group chips
+  with counts filter the directory; checkboxes and **Select page** feed the bulk group actions.
+  Every project picker in the panel, the plan drawer included, lists pinned projects first.
+- **Add project** opens the core add-project palette; **Import from Claude Code / Codex** opens
+  `/welcome`. Both also show in the empty state.
+- The open detail is the project focus (`?tab=projects&project=<projectId>`), so a reload keeps
+  it and other tabs follow it. The directory itself is not narrowed by the focus. A link to a
+  project that is not loaded shows "not available" with Close details; it is never cleared on its
+  own, since the machine may still be connecting. With no detail open, a filter that leaves one
+  row opens it once.
 - KPIs: sections in progress, to review, blocked, next delivery. **No money.**
-- Delivery strip for the next 5 weeks, one row per project, today marker.
-- One card per T3 project: progress, active agents, **"Where we left off"**
-  (latest memory progress entry + open todos), sections. Each section:
-  status (`todo | in_progress | review | blocked | done`), what is being
-  tried, what is missing, tasks done/total, due date, blocker text.
-- "Delegate what's missing" pre-fills the orchestrator with the open items.
+- Delivery strip for the next 5 weeks, one row per project on the current page, today marker.
+- Detail card: progress, active agents (6 badges + "+N"), **"Where we left off"** (latest
+  memory progress entry + open todos, 5 per page), recurring scheduled tasks (5 per page),
+  sections. Each section: status (`todo | in_progress | review | blocked | done`), what is
+  being tried, what is missing, tasks done/total, due date, blocker text. Launch actions: Open
+  latest thread, New thread, Open site, Pull requests (scoped to the project), Project
+  settings.
+- "Ask the team" on a project opens the plan drawer with its open missing items and todos as
+  steps.
 
 ### Infra
 
@@ -227,7 +341,7 @@ rules table); token usage per project is **dropped** (needs new per-agent
 instrumentation, too heavy for now).
 
 1. Cross-project dependencies: a section can wait on a section of another
-   project; shown on the map and in What's missing.
+   project; shown on the map and in project health.
 2. Handoffs as data: a finished step writes a `handoff` memory entry that the
    next thread started on that project gets in its prompt.
 3. Project health light from due date vs progress, blockers and idle time.
@@ -251,7 +365,7 @@ read-only summary screen (Team status, What's missing, deliveries) in
 
 A built-in preset team that maps any repo, old or new, into Command Center so
 you can delegate "onboard this project" in one click ("Onboard" on a project
-card, or `onboard` in the orchestrator bar).
+card, or `onboard` in **Ask the team**).
 
 1. **Pre-scan, 0 tokens.** `CommandCenterService.buildRepoDigest(projectId)`
    collects, without an LLM: file tree (depth-limited, ignored dirs skipped),
@@ -266,7 +380,7 @@ card, or `onboard` in the orchestrator bar).
    against what already exists.
 4. **Interviewer**: lists the gaps the system needs (client, deliveries and
    dates, priorities, which machine, billing client) and asks you through the
-   normal T3 "awaiting input" flow, so the questions appear in What's missing.
+   normal T3 "awaiting input" flow, so the questions appear in Home's Needs you.
    Answers are saved to memory and sections.
 
 New repo (empty or near-empty): order is Interviewer, then Organizer, Scout
@@ -289,7 +403,7 @@ constraint; the token budget that matters is the user's at runtime.
   PR.
 - Restore archived teams, agents and costs from the UI.
 - Infra: disk fields in host resources and connection round-trip time.
-- What's missing: answer agent questions inline (the existing pending-input
+- Needs you: answer agent questions inline (the existing pending-input
   response path), not only "open thread".
 - Adversarial review per area, then fixes, then one real web client pass
   (`test-t3-app`) by the primary agent.
@@ -347,6 +461,9 @@ Design and behavior: [WORKFLOWS.md](WORKFLOWS.md). Services in
   `agent_profile_save`. Saving workflows and skills needs a default
   (full-access) caller; runs and profiles never go broader than the caller's
   modes.
+- **Runs list:** a project's library lists its runs; without a project focus the tab lists every
+  project's runs on the primary server only (`commandCenterWorkflowRunsLive` with no project,
+  paused while the window is hidden). Remote machines' runs show in their project's library.
 - **Scheduled tasks:** a `/wf <slug> ...` prompt runs the workflow through
   `ScheduledTaskPromptRoutes`, within the task's modes.
 - **CLI:** `t3 wf list`, `t3 wf run <slug> --input name=value`,

@@ -6,10 +6,11 @@ import {
 } from "@t3tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
 
+import { paginateCollection, showLoadOlder } from "../collectionPaging";
 import {
+  ARTIFACT_PAGE_SIZE,
   artifactImportFileError,
   artifactImportTextError,
-  livePageBoundary,
   mergeArtifactPages,
   nextArtifactCursor,
   previousArtifactVersion,
@@ -58,6 +59,49 @@ describe("mergeArtifactPages", () => {
       ["d", "2026-10-11T00:00:00.000Z"],
     ]);
   });
+
+  it("keeps a row a new artifact pushed out of the live page, so page 2 holds", () => {
+    const a = artifact("a", "2026-10-13T03:00:00.000Z");
+    const b = artifact("b", "2026-10-13T02:00:00.000Z");
+    const c = artifact("c", "2026-10-13T01:00:00.000Z");
+    // The live page [a, b] was shown when the older page [c] was fetched.
+    const loaded = [a, b, c];
+    const fresh = artifact("n", "2026-10-13T04:00:00.000Z");
+    const ids = mergeArtifactPages([fresh, a], loaded).map((row) => row.id);
+    expect(ids).toEqual(["n", "a", "b", "c"]);
+    expect(paginateCollection(ids, 2, 2).items).toEqual(["b", "c"]);
+  });
+
+  it("drops a loaded row that left the live range, by updatedAt then id", () => {
+    const loaded = [
+      artifact("b", "2026-10-13T02:00:00.000Z"),
+      artifact("x", "2026-10-13T01:00:00.000Z"),
+      artifact("c", "2026-10-13T01:00:00.000Z"),
+      artifact("d", "2026-10-12T00:00:00.000Z"),
+    ];
+    // "b" was archived, so the live page refilled with "x" from below.
+    const live = [artifact("a", "2026-10-13T03:00:00.000Z"), loaded[1]!];
+    expect(mergeArtifactPages(live, loaded).map((row) => row.id)).toEqual(["a", "x", "c", "d"]);
+  });
+
+  it("shows each loaded server page as one full client page before Load older", () => {
+    const rows = (prefix: string, updatedAt: string) =>
+      Array.from({ length: ARTIFACT_PAGE_SIZE }, (_, index) =>
+        artifact(`${prefix}${index}`, updatedAt),
+      );
+    const loaded = mergeArtifactPages(
+      rows("live", "2026-10-13T00:00:00.000Z"),
+      rows("older", "2026-10-12T00:00:00.000Z"),
+    );
+    const first = paginateCollection(loaded, 1, ARTIFACT_PAGE_SIZE);
+    const last = paginateCollection(loaded, 2, ARTIFACT_PAGE_SIZE);
+    expect([first.items.length, last.items.length, last.pageCount]).toEqual([
+      ARTIFACT_PAGE_SIZE,
+      ARTIFACT_PAGE_SIZE,
+      2,
+    ]);
+    expect([showLoadOlder(first, true), showLoadOlder(last, true)]).toEqual([false, true]);
+  });
 });
 
 describe("nextArtifactCursor", () => {
@@ -69,20 +113,6 @@ describe("nextArtifactCursor", () => {
         artifact("b", "2026-10-12T00:00:00.000Z"),
       ]),
     ).toEqual({ before: "b", beforeUpdatedAt: "2026-10-12T00:00:00.000Z" });
-  });
-});
-
-describe("livePageBoundary", () => {
-  it("changes only when the oldest live row does", () => {
-    const tail = artifact("z", "2026-10-01T00:00:00.000Z");
-    const before = livePageBoundary([artifact("a", "2026-10-12T00:00:00.000Z"), tail]);
-    expect(livePageBoundary([artifact("a", "2026-10-13T00:00:00.000Z"), tail])).toBe(before);
-    expect(
-      livePageBoundary([
-        artifact("n", "2026-10-13T00:00:00.000Z"),
-        artifact("a", "2026-10-12T00:00:00.000Z"),
-      ]),
-    ).not.toBe(before);
   });
 });
 

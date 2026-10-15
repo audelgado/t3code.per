@@ -71,6 +71,7 @@ describe("RPC authorization scopes", () => {
   it("lets read-only clients watch the Command Center but not change it", () => {
     for (const method of [
       WS_METHODS.commandCenterSubscribe,
+      WS_METHODS.commandCenterThreadDigests,
       WS_METHODS.commandCenterListMemory,
       WS_METHODS.commandCenterRecallMemory,
       WS_METHODS.commandCenterListSections,

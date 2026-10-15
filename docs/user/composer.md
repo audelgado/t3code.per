@@ -167,6 +167,17 @@ Stashes containing uploaded files must be restored in their original environment
 Those files are retained for 24 hours. After an upload expires, restore the prompt
 and use **Attach again** or remove the missing file before sending.
 
+## Voice input in the browser
+
+Use the microphone in Ask the team or the thread composer to dictate where your
+browser supports speech recognition. The text lands at the cursor for you to review
+before sending. Your browser may send audio to its recognition service; Chrome uses
+Google's speech service. Listening stops when you leave the page or switch windows.
+
+The microphone is hidden in the desktop app and browsers without speech recognition.
+On Windows, use **Win+H** for system dictation; on a phone, the keyboard microphone
+is another option.
+
 ## Voice input on iPhone
 
 On supported iPhones with iOS 26 or later, use the composer's microphone to record,

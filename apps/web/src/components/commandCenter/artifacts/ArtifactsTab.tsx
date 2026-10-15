@@ -19,21 +19,23 @@ import { InputGroup, InputGroupAddon, InputGroupInput } from "../../ui/input-gro
 import { toastManager } from "../../ui/toast";
 import { Toggle, ToggleGroup } from "../../ui/toggle-group";
 import { useCommandCenter } from "../shared";
+import { CollectionPager } from "../CollectionPager";
+import { paginateCollection, showLoadOlder } from "../collectionPaging";
 import { ArtifactImportDialog } from "./ArtifactImportDialog";
 import { ArtifactThumbnail } from "./ArtifactThumbnail";
 import { ArtifactViewer } from "./ArtifactViewer";
 import {
   ARTIFACT_PAGE_SIZE,
   artifactImportFileError,
-  livePageBoundary,
   mergeArtifactPages,
   nextArtifactCursor,
 } from "./artifactLogic";
 import { useArtifactCommands } from "./useArtifactCommands";
 
 interface OlderPages {
-  /** Filter and live-page boundary these pages were fetched against; any change drops them. */
+  /** Filter these pages were fetched with; a new filter drops them. */
   readonly key: string;
+  /** Every row shown at fetch time plus the fetched page (see `mergeArtifactPages`). */
   readonly rows: ReadonlyArray<CommandCenterArtifact>;
   readonly hasMore: boolean;
 }
@@ -59,6 +61,7 @@ export function ArtifactsTab({
   const commands = useArtifactCommands();
   const [archived, setArchived] = useState(false);
   const [search, setSearch] = useState("");
+  const [paging, setPaging] = useState({ key: "", page: 1 });
   const query = useDebouncedValue(search.trim(), 250);
   const filter = useMemo(
     () => ({
@@ -76,11 +79,19 @@ export function ArtifactsTab({
     }),
   );
   const liveRows = live.data?.artifacts ?? [];
-  const pageKey = `${JSON.stringify(filter)}|${livePageBoundary(liveRows)}`;
+  // A new filter starts at page 1 and drops older pages. A new artifact keeps both: loaded rows
+  // outlive live-page changes, so the page and the history stay put.
+  const filterKey = JSON.stringify(filter);
   const [older, setOlder] = useState<OlderPages>(NO_OLDER);
-  const olderRows = older.key === pageKey ? older.rows : [];
-  const artifacts = mergeArtifactPages(liveRows, olderRows);
-  const hasMore = older.key === pageKey ? older.hasMore : (live.data?.hasMore ?? false);
+  // A live page without more rows holds everything, so loaded rows past it no longer exist.
+  const loaded = older.key === filterKey && live.data?.hasMore === true ? older : null;
+  const artifacts = mergeArtifactPages(liveRows, loaded?.rows ?? []);
+  const directory = paginateCollection(
+    artifacts,
+    paging.key === filterKey ? paging.page : 1,
+    ARTIFACT_PAGE_SIZE,
+  );
+  const hasMore = loaded?.hasMore ?? live.data?.hasMore ?? false;
   const [loadingOlder, setLoadingOlder] = useState(false);
   const openId = openParam === null ? null : CommandCenterArtifactId.make(openParam);
   const setOpenId = onOpenChange;
@@ -103,8 +114,8 @@ export function ArtifactsTab({
     setLoadingOlder(false);
     if (result._tag !== "Success") return;
     setOlder({
-      key: pageKey,
-      rows: [...olderRows, ...result.value.artifacts],
+      key: filterKey,
+      rows: [...artifacts, ...result.value.artifacts],
       hasMore: result.value.hasMore,
     });
   };
@@ -192,7 +203,7 @@ export function ArtifactsTab({
         dragging && "outline-dashed outline-primary",
       )}
     >
-      <div className="flex flex-wrap items-center gap-2">
+      <div className="flex flex-wrap items-center gap-2 rounded-xl border bg-card p-3">
         <div className="w-64 max-sm:w-full">
           <InputGroup>
             <InputGroupAddon>
@@ -244,9 +255,9 @@ export function ArtifactsTab({
         <>
           <ul
             aria-label="Artifacts"
-            className="grid grid-cols-[repeat(auto-fill,minmax(13rem,1fr))] gap-3"
+            className="grid grid-cols-[repeat(auto-fill,minmax(min(100%,15rem),1fr))] gap-3"
           >
-            {artifacts.map((artifact) => (
+            {directory.items.map((artifact) => (
               <li key={artifact.id}>
                 <button
                   type="button"
@@ -272,7 +283,12 @@ export function ArtifactsTab({
               </li>
             ))}
           </ul>
-          {hasMore ? (
+          <CollectionPager
+            {...directory}
+            label="loaded artifacts"
+            onPageChange={(page) => setPaging({ key: filterKey, page })}
+          />
+          {showLoadOlder(directory, hasMore) ? (
             <div className="flex justify-center">
               <Button
                 size="sm"
@@ -280,7 +296,7 @@ export function ArtifactsTab({
                 disabled={loadingOlder}
                 onClick={() => void loadOlder()}
               >
-                {loadingOlder ? "Loading…" : "Load more"}
+                {loadingOlder ? "Loading…" : "Load older artifacts"}
               </Button>
             </div>
           ) : null}

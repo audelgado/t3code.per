@@ -115,6 +115,7 @@ export const RPC_REQUIRED_SCOPES = {
   [WS_METHODS.serverGetBackgroundPolicy]: AuthOrchestrationReadScope,
   [WS_METHODS.scheduledTasksList]: AuthOrchestrationReadScope,
   [WS_METHODS.scheduledTasksSubscribe]: AuthOrchestrationReadScope,
+  [WS_METHODS.commandCenterThreadDigests]: AuthOrchestrationReadScope,
   [WS_METHODS.commandCenterSubscribe]: AuthOrchestrationReadScope,
   [WS_METHODS.commandCenterListMemory]: AuthOrchestrationReadScope,
   [WS_METHODS.commandCenterRecallMemory]: AuthOrchestrationReadScope,

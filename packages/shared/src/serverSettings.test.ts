@@ -26,6 +26,69 @@ import {
 /** Settings after the server has folded legacy per-project fields into `projectSettingsOverrides`. */
 const FOLDED_SERVER_SETTINGS = { ...DEFAULT_SERVER_SETTINGS, projectSettingsFolded: true };
 
+describe("Command Center customization patches", () => {
+  it("keeps layout when toggling the panel and allows removing all quick actions", () => {
+    const configured = applyServerSettingsPatch(DEFAULT_SERVER_SETTINGS, {
+      commandCenter: {
+        sections: [
+          { id: "home", label: "Today", visible: true },
+          { id: "finance", label: "Costs", visible: true },
+        ],
+        quickActions: [
+          { id: "plan", label: "Plan", kind: "prompt", target: "Plan the next delivery" },
+        ],
+      },
+    });
+    const disabled = applyServerSettingsPatch(configured, { commandCenter: { enabled: false } });
+    expect(disabled.commandCenter.sections).toEqual(configured.commandCenter.sections);
+    expect(disabled.commandCenter.quickActions).toEqual(configured.commandCenter.quickActions);
+    const cleared = applyServerSettingsPatch(disabled, {
+      commandCenter: { quickActions: [], sections: [] },
+    });
+    expect(cleared.commandCenter).toEqual({
+      enabled: false,
+      sections: [],
+      quickActions: [],
+      projectGroups: [],
+      projects: [],
+      projectOrder: [],
+    });
+  });
+
+  it("replaces project pins and groups as whole lists so removals stick", () => {
+    const grouped = applyServerSettingsPatch(DEFAULT_SERVER_SETTINGS, {
+      commandCenter: {
+        projectGroups: [{ id: "clients", name: "Clients" }],
+        projects: [
+          { key: "local:a", pinned: true, groupId: "clients", url: null },
+          { key: "local:b", pinned: false, groupId: "clients", url: "https://b.example" },
+        ],
+      },
+    });
+    const ungrouped = applyServerSettingsPatch(grouped, {
+      commandCenter: {
+        projectGroups: [],
+        projects: [{ key: "local:a", pinned: true, groupId: null, url: null }],
+      },
+    });
+    expect(ungrouped.commandCenter.projectGroups).toEqual([]);
+    expect(ungrouped.commandCenter.projects).toEqual([
+      { key: "local:a", pinned: true, groupId: null, url: null },
+    ]);
+    expect(ungrouped.commandCenter.quickActions).toEqual([]);
+  });
+
+  it("replaces the manual project order as one list", () => {
+    const ordered = applyServerSettingsPatch(DEFAULT_SERVER_SETTINGS, {
+      commandCenter: { projectOrder: ["local:a", "local:b", "vps:c"] },
+    });
+    const reordered = applyServerSettingsPatch(ordered, {
+      commandCenter: { projectOrder: ["vps:c", "local:a"] },
+    });
+    expect(reordered.commandCenter.projectOrder).toEqual(["vps:c", "local:a"]);
+  });
+});
+
 describe("fallbackTextGenerationModelSelection", () => {
   it("ignores a configured non-default instance at machine scope, matching no fallback", () => {
     const configured = ProviderInstanceId.make("codex_work");

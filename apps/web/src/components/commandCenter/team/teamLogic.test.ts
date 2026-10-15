@@ -1,5 +1,4 @@
 import type {
-  CommandCenterAgentId,
   CommandCenterAgentProfile,
   CommandCenterAssignment,
   CommandCenterMemoryEntry,
@@ -7,16 +6,70 @@ import type {
   CommandCenterTeam,
 } from "@t3tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
+import { CommandCenterAgentId as AgentId, EnvironmentId } from "@t3tools/contracts";
 
-import type { CommandCenterAgentState } from "../logic";
 import { unmetDependencies } from "../projects/logic";
 import {
-  commandCenterAlerts,
-  daysUntil,
+  agentMachineKey,
   resolveDependencyWires,
   resolveHandoffs,
-  STUCK_AFTER_MINUTES,
+  selectTeamMemberPage,
 } from "./teamLogic";
+
+describe("team member directory", () => {
+  const members = Array.from({ length: 26 }, (_, index) => ({
+    id: AgentId.make(`agent-${index}`),
+    name: `Agent ${index}`,
+    role: index === 24 ? "Release engineer" : "Developer",
+  }));
+  const taskOf = (agent: (typeof members)[number]) =>
+    agent.id === members[25]!.id ? "Verify staging" : null;
+
+  it("keeps the lead pinned and makes every other member reachable once across pages", () => {
+    const first = selectTeamMemberPage(members, members[15]!.id, "", 1, taskOf);
+    expect(first.lead).toEqual(members[15]);
+    expect(first.items).toHaveLength(10);
+    expect(first.total).toBe(25);
+    const paged = [1, 2, 3].flatMap(
+      (page) => selectTeamMemberPage(members, members[15]!.id, "", page, taskOf).items,
+    );
+    expect(paged).toEqual(members.filter((agent) => agent.id !== members[15]!.id));
+  });
+
+  it("finds members beyond the first page by role or task, while retaining the lead", () => {
+    const result = selectTeamMemberPage(members, members[0]!.id, " RELEASE ", 3, taskOf);
+    expect(result.items).toEqual([members[24]]);
+    expect(result.lead).toEqual(members[0]);
+    expect(result.page).toBe(1);
+    expect(selectTeamMemberPage(members, members[0]!.id, "staging", 1, taskOf).items).toEqual([
+      members[25],
+    ]);
+    expect(selectTeamMemberPage(members, members[0]!.id, "Agent 0", 1, taskOf).items).toEqual([]);
+  });
+
+  it("retains the roster when a team name matched instead of a member", () => {
+    expect(selectTeamMemberPage(members, null, "Platform team", 1, taskOf).total).toBe(26);
+  });
+});
+
+describe("agentMachineKey", () => {
+  const known = new Set(["local", "vps"]);
+
+  it("places an agent without a team where its latest assignment ran, else on the primary", () => {
+    const unassigned = [
+      { name: "Last on vps", assignment: { environmentId: EnvironmentId.make("vps") } },
+      { name: "Never assigned", assignment: null },
+      { name: "Gone machine", assignment: { environmentId: EnvironmentId.make("old") } },
+    ];
+    const on = (machine: string) =>
+      unassigned
+        .filter((agent) => agentMachineKey(agent.assignment, "local", known) === machine)
+        .map((agent) => agent.name);
+    expect(on("vps")).toEqual(["Last on vps"]);
+    expect(on("local")).toEqual(["Never assigned"]);
+    expect(on("unknown")).toEqual(["Gone machine"]);
+  });
+});
 
 describe("resolveHandoffs", () => {
   it("resolves the sender from the thread and the receiver from the text, newest first", () => {
@@ -37,67 +90,6 @@ describe("resolveHandoffs", () => {
       [null, null],
       ["back", "front"],
     ]);
-  });
-});
-
-describe("daysUntil", () => {
-  it("counts calendar days from today", () => {
-    const now = new Date(2026, 9, 13, 23, 30).getTime();
-    expect(daysUntil("2026-10-13", now)).toBe(0);
-    expect(daysUntil("2026-10-20", now)).toBe(7);
-    expect(daysUntil("2026-10-12", now)).toBe(-1);
-  });
-});
-
-describe("commandCenterAlerts", () => {
-  const now = new Date(2026, 9, 13, 12, 0).getTime();
-  const minutesAgo = (minutes: number) => new Date(now - minutes * 60_000).toISOString();
-  const working = (updatedAt: string) =>
-    ({
-      status: "working",
-      shell: { updatedAt, runtime: { updatedAt } },
-    }) as unknown as CommandCenterAgentState;
-  const section = (patch: Partial<CommandCenterSection>) =>
-    ({
-      status: "in_progress",
-      tasksDone: 0,
-      tasksTotal: 10,
-      dueDate: null,
-      ...patch,
-    }) as unknown as CommandCenterSection;
-
-  it("flags offline hosts, silent working agents and at-risk deliveries only", () => {
-    const alerts = commandCenterAlerts({
-      environments: [
-        { environmentId: "vps", label: "VPS", connected: false },
-        { environmentId: "spare", label: "Spare", connected: false },
-        { environmentId: "local", label: "Local", connected: true },
-      ],
-      hostEnvironmentIds: new Set(["vps", "local"]),
-      agents: [
-        {
-          agentId: "quiet" as CommandCenterAgentId,
-          state: working(minutesAgo(STUCK_AFTER_MINUTES)),
-        },
-        { agentId: "busy" as CommandCenterAgentId, state: working(minutesAgo(5)) },
-      ],
-      sections: [
-        section({ name: "risky", dueDate: "2026-10-15", tasksDone: 6 }),
-        section({ name: "fine", dueDate: "2026-10-15", tasksDone: 7 }),
-        section({ name: "later", dueDate: "2026-10-16", tasksDone: 0 }),
-        section({ name: "review", dueDate: "2026-10-14", status: "review" }),
-      ],
-      now,
-    });
-    expect(
-      alerts.map((alert) =>
-        alert.kind === "offline"
-          ? alert.label
-          : alert.kind === "stuck"
-            ? alert.agentId
-            : alert.section.name,
-      ),
-    ).toEqual(["VPS", "quiet", "risky"]);
   });
 });
 

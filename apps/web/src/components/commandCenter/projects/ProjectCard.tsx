@@ -1,3 +1,5 @@
+import { scopeProjectRef, scopeThreadRef } from "@t3tools/client-runtime/environment";
+import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/models";
 import type { EnvironmentProject } from "@t3tools/client-runtime/state/shell";
 import type {
   CommandCenterAgentId,
@@ -5,11 +7,33 @@ import type {
   CommandCenterSectionStatus,
   ProjectId,
 } from "@t3tools/contracts";
-import { PencilIcon, PlusIcon, SendHorizontalIcon, SparklesIcon } from "lucide-react";
+import { useNavigate } from "@tanstack/react-router";
+import {
+  ExternalLinkIcon,
+  LinkIcon,
+  MessageSquareIcon,
+  MessageSquarePlusIcon,
+  PencilIcon,
+  PinIcon,
+  PinOffIcon,
+  PlusIcon,
+  SendHorizontalIcon,
+  SettingsIcon,
+  SparklesIcon,
+} from "lucide-react";
 import { useState } from "react";
 
+import { useNewThreadHandler } from "~/hooks/useHandleNewThread";
+import { useClientSettings } from "~/hooks/useSettings";
 import { cn } from "~/lib/utils";
+import {
+  deriveLogicalProjectKeyFromSettings,
+  selectProjectGroupingSettings,
+} from "~/logicalProject";
+import { buildThreadRouteParams } from "~/threadRoutes";
 import { formatRelativeTimeLabel } from "~/timestampFormat";
+import { PullRequestGlyph } from "../../pullRequest/pullRequestIcons";
+import { readPullRequestListPreferences } from "../../pullRequest/pullRequestListPreferences";
 import { RunWorkflowMenu } from "../../RunWorkflowDialog";
 import { Badge } from "../../ui/badge";
 import { Button } from "../../ui/button";
@@ -18,6 +42,9 @@ import { Input } from "../../ui/input";
 import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../../ui/select";
 import { Textarea } from "../../ui/textarea";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../../ui/tooltip";
+import { CollectionPager } from "../CollectionPager";
+import { paginateCollection } from "../collectionPaging";
+import { isHttpUrl } from "../customization";
 import type { CommandCenterAgentState } from "../logic";
 import { useCommandCenter, useCommandCenterCommands } from "../shared";
 import {
@@ -31,9 +58,13 @@ import {
   SECTION_STATUS_LABEL,
   whereWeLeftOff,
 } from "./logic";
+import type { ProjectEntry } from "./projectDirectory";
 import { ProjectPreviewButton } from "./ProjectPreview";
 import { ProjectSchedules } from "./ProjectSchedules";
+import { ProjectInstructions } from "./ProjectInstructions";
+import { AddProjectOnMachine } from "./AddProjectOnMachine";
 import { SectionPullRequest } from "./SectionPullRequest";
+import { selectSectionPage } from "./sectionDirectory";
 
 export const STATUS_BADGE = {
   todo: "outline",
@@ -57,14 +88,16 @@ const HEALTH_LABEL = {
   red: "Needs attention",
 } as const satisfies Record<ProjectHealthLevel, string>;
 
+/** Detail lists show this many rows per page; agent badges show this many plus "+N". */
+const DETAIL_PAGE_SIZE = 5;
+const MAX_AGENT_BADGES = 6;
+
 type UnmetDependencies = ReadonlyMap<
   CommandCenterSection["id"],
   ReadonlyArray<CommandCenterSection>
 >;
 
-export const projectAnchorId = (project: EnvironmentProject) => `cc-project-${project.id}`;
-
-function ProgressBar({ percent, danger = false }: { percent: number; danger?: boolean }) {
+export function ProgressBar({ percent, danger = false }: { percent: number; danger?: boolean }) {
   return (
     <div className="h-1.5 w-full overflow-hidden rounded-full bg-muted">
       <div
@@ -81,24 +114,43 @@ export function ProjectCard({
   agents,
   agentNames,
   today,
-  dimmed,
   unmet,
   onOnboard,
+  editing,
+  onEditingChange,
+  entry,
+  groupName,
+  latestThread,
+  canEdit,
+  onEntryChange,
 }: {
   readonly project: EnvironmentProject;
   readonly sections: ReadonlyArray<CommandCenterSection>;
   readonly agents: ReadonlyArray<CommandCenterAgentState & { agentId: CommandCenterAgentId }>;
   readonly agentNames: ReadonlyMap<CommandCenterAgentId, string>;
   readonly today: string;
-  readonly dimmed: boolean;
   /** Unmet dependencies of every section (all projects). */
   readonly unmet: UnmetDependencies;
   /** Starts the Onboarding team on this project; resolves when the Lead thread exists or failed. */
   readonly onOnboard: (projectId: ProjectId) => Promise<boolean>;
+  readonly editing: CommandCenterSection["id"] | "new" | null;
+  readonly onEditingChange: (editing: CommandCenterSection["id"] | "new" | null) => void;
+  /** Pin, group and link saved in the primary settings; null when never customized. */
+  readonly entry: ProjectEntry | null;
+  readonly groupName: string | null;
+  readonly latestThread: EnvironmentThreadShell | null;
+  /** Whether this client may change the primary settings. */
+  readonly canEdit: boolean;
+  /** Saves the patch; false when it was refused (the customized-projects cap). */
+  readonly onEntryChange: (patch: Partial<Omit<ProjectEntry, "key">>) => boolean;
 }) {
   const { snapshot, projects, canOperate, openPlan } = useCommandCenter();
+  const navigate = useNavigate();
+  const newThread = useNewThreadHandler();
+  const groupingSettings = useClientSettings(selectProjectGroupingSettings);
+  const [todoPage, setTodoPage] = useState(1);
   const { setMemoryDone } = useCommandCenterCommands();
-  const [editing, setEditing] = useState<CommandCenterSection["id"] | "new" | null>(null);
+  const changeEditing = onEditingChange;
   const progress = projectProgress(sections);
   const leftOff = whereWeLeftOff(snapshot.memory, project.id);
   const delegation = delegationSteps(sections, leftOff.todos);
@@ -112,16 +164,25 @@ export function ProjectCard({
   const projectTitle = (id: CommandCenterSection["projectId"]) =>
     projects.find((candidate) => candidate.id === id)?.title ?? "Unknown project";
   const [onboarding, setOnboarding] = useState(false);
+  const [sectionSearch, setSectionSearch] = useState("");
+  const [sectionStatus, setSectionStatus] = useState<CommandCenterSectionStatus | "all">("all");
+  const [sectionPage, setSectionPage] = useState(1);
+  const directory = selectSectionPage({
+    sections,
+    search: sectionSearch,
+    status: sectionStatus,
+    page: sectionPage,
+    editing,
+  });
+  const todos = paginateCollection(leftOff.todos, todoPage, DETAIL_PAGE_SIZE);
+  const pinned = entry?.pinned === true;
   const onboard = () => {
     setOnboarding(true);
     void onOnboard(project.id).finally(() => setOnboarding(false));
   };
 
   return (
-    <section
-      id={projectAnchorId(project)}
-      className={cn("flex flex-col gap-3 rounded-xl border bg-card p-4", dimmed && "opacity-50")}
-    >
+    <section className="flex flex-col gap-3 rounded-xl border bg-card p-4">
       <div className="flex flex-wrap items-center gap-2">
         <Tooltip>
           <TooltipTrigger
@@ -139,14 +200,18 @@ export function ProjectCard({
           />
           <TooltipPopup>
             <p className="font-medium">{HEALTH_LABEL[health.level]}</p>
-            {health.reasons.map((reason) => (
-              <p key={reason}>{reason}</p>
+            {health.reasons.slice(0, 3).map((reason, index) => (
+              // oxlint-disable-next-line no-array-index-key -- two sections can share a reason
+              <p key={index}>{reason}</p>
             ))}
+            {health.reasons.length > 3 ? <p>+{health.reasons.length - 3} more</p> : null}
           </TooltipPopup>
         </Tooltip>
-        <h2 className="min-w-0 truncate font-medium">{project.title}</h2>
+        <h2 className="min-w-0 truncate text-lg font-semibold tracking-tight">{project.title}</h2>
+        {pinned ? <PinIcon aria-label="Pinned" className="size-3.5 text-muted-foreground" /> : null}
+        {groupName ? <Badge variant="outline">{groupName}</Badge> : null}
         <div className="flex min-w-0 flex-1 flex-wrap gap-1">
-          {agents.map((agent) => (
+          {agents.slice(0, MAX_AGENT_BADGES).map((agent) => (
             <Badge
               key={agent.agentId}
               variant={
@@ -160,6 +225,9 @@ export function ProjectCard({
               {agentNames.get(agent.agentId) ?? "Agent"} · {agent.status}
             </Badge>
           ))}
+          {agents.length > MAX_AGENT_BADGES ? (
+            <Badge variant="outline">+{agents.length - MAX_AGENT_BADGES}</Badge>
+          ) : null}
         </div>
         <Button
           size="xs"
@@ -168,7 +236,7 @@ export function ProjectCard({
           onClick={() => openPlan({ projectId: project.id, steps: delegation })}
         >
           <SendHorizontalIcon />
-          Delegate what's missing
+          Ask the team
         </Button>
         <Button size="xs" variant="outline" disabled={!canOperate || onboarding} onClick={onboard}>
           <SparklesIcon />
@@ -176,6 +244,86 @@ export function ProjectCard({
         </Button>
         <RunWorkflowMenu environmentId={project.environmentId} projectId={project.id} />
         <ProjectPreviewButton project={project} />
+      </div>
+
+      <div className="flex flex-wrap items-center gap-2">
+        <Button
+          size="xs"
+          variant="outline"
+          disabled={latestThread === null}
+          onClick={() => {
+            if (latestThread === null) return;
+            void navigate({
+              to: "/$environmentId/$threadId",
+              params: buildThreadRouteParams(
+                scopeThreadRef(latestThread.environmentId, latestThread.id),
+              ),
+            });
+          }}
+        >
+          <MessageSquareIcon />
+          Open latest thread
+        </Button>
+        <Button
+          size="xs"
+          variant="outline"
+          onClick={() => void newThread(scopeProjectRef(project.environmentId, project.id))}
+        >
+          <MessageSquarePlusIcon />
+          New thread
+        </Button>
+        {entry?.url ? (
+          <Button
+            size="xs"
+            variant="outline"
+            render={<a href={entry.url} target="_blank" rel="noopener noreferrer" />}
+          >
+            <ExternalLinkIcon />
+            Open site
+          </Button>
+        ) : null}
+        <Button
+          size="xs"
+          variant="ghost"
+          onClick={() =>
+            void navigate({
+              to: "/pull-requests",
+              search: {
+                ...readPullRequestListPreferences(),
+                projectId: project.id,
+                environmentId: project.environmentId,
+              },
+            })
+          }
+        >
+          <PullRequestGlyph.pullRequest />
+          Pull requests
+        </Button>
+        <Button
+          size="xs"
+          variant="ghost"
+          onClick={() =>
+            void navigate({
+              to: "/settings/projects",
+              search: {
+                project: deriveLogicalProjectKeyFromSettings(project, groupingSettings),
+                machine: project.environmentId,
+              },
+            })
+          }
+        >
+          <SettingsIcon />
+          Project settings
+        </Button>
+        {canEdit ? (
+          <Button size="xs" variant="ghost" onClick={() => onEntryChange({ pinned: !pinned })}>
+            {pinned ? <PinOffIcon /> : <PinIcon />}
+            {pinned ? "Unpin" : "Pin"}
+          </Button>
+        ) : null}
+        {canEdit ? (
+          <ProjectLinkEditor url={entry?.url ?? null} onChange={(url) => onEntryChange({ url })} />
+        ) : null}
       </div>
 
       <div className="flex flex-col gap-1.5">
@@ -208,7 +356,7 @@ export function ProjectCard({
             {leftOff.digest.text} {formatRelativeTimeLabel(leftOff.digest.createdAt)}
           </p>
         ) : null}
-        {leftOff.todos.map((todo) => (
+        {todos.items.map((todo) => (
           <label key={todo.id} className="flex items-start gap-2">
             <Checkbox
               checked={false}
@@ -221,19 +369,73 @@ export function ProjectCard({
             <span className="min-w-0">{todo.text}</span>
           </label>
         ))}
+        {todos.pageCount > 1 ? (
+          <CollectionPager {...todos} label="open todos" onPageChange={setTodoPage} />
+        ) : null}
       </div>
 
       <ProjectSchedules project={project} />
+      <ProjectInstructions key={`${project.environmentId}:${project.id}`} project={project} />
+      <AddProjectOnMachine project={project} />
 
+      <div className="flex flex-wrap items-center justify-between gap-2 border-t pt-3">
+        <h3 className="text-sm font-medium">
+          Sections <span className="text-muted-foreground">({sections.length})</span>
+        </h3>
+        {canOperate && editing !== "new" ? (
+          <Button size="xs" variant="outline" onClick={() => changeEditing("new")}>
+            <PlusIcon />
+            Add section
+          </Button>
+        ) : null}
+      </div>
+      {sections.length > 0 ? (
+        <div className="flex flex-wrap gap-2">
+          <div className="min-w-40 flex-1">
+            <Input
+              size="sm"
+              type="search"
+              aria-label="Search project sections"
+              placeholder="Search sections, blockers or pending work…"
+              value={sectionSearch}
+              onChange={(event) => {
+                setSectionSearch(event.target.value);
+                setSectionPage(1);
+              }}
+            />
+          </div>
+          <Select
+            value={sectionStatus}
+            onValueChange={(value) => {
+              setSectionStatus(STATUSES.find((item) => item === value) ?? "all");
+              setSectionPage(1);
+            }}
+          >
+            <SelectTrigger size="sm" aria-label="Filter section status">
+              <SelectValue>
+                {sectionStatus === "all" ? "All statuses" : SECTION_STATUS_LABEL[sectionStatus]}
+              </SelectValue>
+            </SelectTrigger>
+            <SelectPopup>
+              <SelectItem value="all">All statuses</SelectItem>
+              {STATUSES.map((status) => (
+                <SelectItem key={status} value={status}>
+                  {SECTION_STATUS_LABEL[status]}
+                </SelectItem>
+              ))}
+            </SelectPopup>
+          </Select>
+        </div>
+      ) : null}
       <div className="flex flex-col divide-y">
-        {sections.map((section) =>
+        {directory.visible.map((section) =>
           editing === section.id ? (
             <SectionForm
               key={section.id}
               project={project}
               section={section}
               sortKey={section.sortKey}
-              onDone={() => setEditing(null)}
+              onDone={() => changeEditing(null)}
             />
           ) : (
             <SectionRow
@@ -246,14 +448,40 @@ export function ProjectCard({
                   : `${projectTitle(dependency.projectId)} · ${dependency.name}`,
               )}
               today={today}
-              onEdit={canOperate ? () => setEditing(section.id) : undefined}
+              onEdit={canOperate ? () => changeEditing(section.id) : undefined}
             />
           ),
         )}
         {editing === "new" ? (
-          <SectionForm project={project} sortKey={nextSortKey} onDone={() => setEditing(null)} />
+          <SectionForm project={project} sortKey={nextSortKey} onDone={() => changeEditing(null)} />
         ) : null}
       </div>
+      {sections.length > 0 && directory.total === 0 ? (
+        <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg bg-muted/40 p-3 text-sm text-muted-foreground">
+          <p>No sections match your filters.</p>
+          <Button
+            size="xs"
+            variant="ghost"
+            onClick={() => {
+              setSectionSearch("");
+              setSectionStatus("all");
+              setSectionPage(1);
+            }}
+          >
+            Clear filters
+          </Button>
+        </div>
+      ) : null}
+      {directory.total > 0 ? (
+        <div className="border-t">
+          <CollectionPager
+            {...directory}
+            label="matching sections"
+            disabled={editing !== null}
+            onPageChange={setSectionPage}
+          />
+        </div>
+      ) : null}
       {sections.length === 0 && editing !== "new" ? (
         <div className="flex flex-wrap items-center gap-2 rounded-lg border border-dashed p-3 text-sm text-muted-foreground">
           <span className="min-w-0 flex-1">
@@ -265,15 +493,69 @@ export function ProjectCard({
           </Button>
         </div>
       ) : null}
-      {canOperate && editing !== "new" ? (
-        <div>
-          <Button size="xs" variant="ghost-muted" onClick={() => setEditing("new")}>
-            <PlusIcon />
-            Add section
-          </Button>
-        </div>
-      ) : null}
     </section>
+  );
+}
+
+/** "Link site" opens an inline editor; a saved link can be edited or cleared. */
+function ProjectLinkEditor({
+  url,
+  onChange,
+}: {
+  readonly url: string | null;
+  /** False when the save was refused; the editor then keeps the draft. */
+  readonly onChange: (url: string | null) => boolean;
+}) {
+  const [draft, setDraft] = useState<string | null>(null);
+  if (draft === null) {
+    return (
+      <>
+        <Button size="xs" variant="ghost" onClick={() => setDraft(url ?? "")}>
+          <LinkIcon />
+          {url ? "Edit link" : "Link site"}
+        </Button>
+        {url ? (
+          <Button size="xs" variant="ghost-destructive" onClick={() => onChange(null)}>
+            Clear link
+          </Button>
+        ) : null}
+      </>
+    );
+  }
+  const invalid = draft.trim() !== "" && !isHttpUrl(draft);
+  return (
+    <form
+      className="flex w-full flex-wrap items-center gap-2"
+      onSubmit={(event) => {
+        event.preventDefault();
+        if (isHttpUrl(draft) && onChange(draft.trim())) setDraft(null);
+      }}
+    >
+      <div className="min-w-48 flex-1">
+        <Input
+          size="sm"
+          type="url"
+          autoFocus
+          aria-label="Site or admin link"
+          aria-invalid={invalid || undefined}
+          placeholder="https://admin.example.com"
+          maxLength={2_000}
+          value={draft}
+          onChange={(event) => setDraft(event.target.value)}
+        />
+      </div>
+      <Button type="submit" size="xs" disabled={!isHttpUrl(draft)}>
+        Save link
+      </Button>
+      <Button type="button" size="xs" variant="ghost" onClick={() => setDraft(null)}>
+        Cancel
+      </Button>
+      {invalid ? (
+        <p className="w-full text-xs text-destructive-foreground">
+          Enter a complete http:// or https:// link.
+        </p>
+      ) : null}
+    </form>
   );
 }
 

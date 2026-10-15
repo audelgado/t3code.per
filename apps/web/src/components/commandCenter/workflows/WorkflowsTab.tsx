@@ -11,17 +11,18 @@ import { useEnvironmentQuery } from "~/state/query";
 import { serverEnvironment } from "~/state/server";
 import { toastManager } from "../../ui/toast";
 import { useDocumentVisible } from "../infra/useDocumentVisible";
+import { FocusPrompt, ProjectPicker } from "../ProjectPicker";
 import { useCommandCenter } from "../shared";
 import { RunWorkflowDialog } from "./RunWorkflowDialog";
 import { useWorkflowCommands } from "./useWorkflowCommands";
 import { WorkflowEditor } from "./WorkflowEditor";
 import { WorkflowLibrary } from "./WorkflowLibrary";
+import { WorkflowRunList } from "./WorkflowRunList";
 import { WorkflowRunView } from "./WorkflowRunView";
 
 type View =
   | { readonly type: "library" }
-  | { readonly type: "editor"; readonly slug: CommandCenterWorkflowSlug }
-  | { readonly type: "run"; readonly runId: CommandCenterWorkflowRunId };
+  | { readonly type: "editor"; readonly slug: CommandCenterWorkflowSlug };
 
 type RunTarget = Pick<CommandCenterWorkflow, "slug" | "title" | "inputs">;
 
@@ -34,51 +35,144 @@ function useKept<T>(value: T | null): T | null {
 
 /**
  * Workflows (docs/command-center/WORKFLOWS.md): each project's `.t3/workflows` files, edited on a
- * canvas and run as agent threads. One project at a time, picked with the page's project filter.
+ * canvas and run as agent threads. With a project focus, that project's library; without one,
+ * the runs of every project on the primary server, so a waiting run is never out of sight.
  */
 export function WorkflowsTab({
-  runLink,
+  runId,
+  onOpenRun,
+  onCloseRun,
 }: {
-  /** A run to open first (a link from a Started toast), when it is in the picked project. */
-  readonly runLink: {
-    readonly projectId: ProjectId;
-    readonly runId: CommandCenterWorkflowRunId;
-  } | null;
+  /** The open run of the focused project (`?run=`), so it survives reloads and links. */
+  readonly runId: CommandCenterWorkflowRunId | null;
+  /** Focuses a run's project and opens the run. */
+  readonly onOpenRun: (projectId: ProjectId, runId: CommandCenterWorkflowRunId) => void;
+  readonly onCloseRun: () => void;
 }) {
   const { projectId, projects } = useCommandCenter();
   const project = projects.find((candidate) => candidate.id === projectId);
-  if (projectId === null || !project) {
+  if (projectId === null) return <AllRuns onOpenRun={onOpenRun} />;
+  if (!project) {
+    if (runId !== null) return <UnlistedProjectRun projectId={projectId} runId={runId} />;
     return (
-      <p className="py-12 text-center text-sm text-muted-foreground">
-        Pick a project above to see its workflows. They are saved in the project under
-        .t3/workflows.
-      </p>
+      <FocusPrompt text="This project is not available. It was removed or its machine is offline." />
     );
   }
-  const linkedRunId = runLink?.projectId === project.id ? runLink.runId : null;
-  // Keyed so an open editor or run never carries over to another project, and a new link opens.
+  // Keyed so an open editor never carries over to another project.
   return (
     <ProjectWorkflows
-      key={`${project.environmentId}:${project.id}:${linkedRunId ?? ""}`}
+      key={`${project.environmentId}:${project.id}`}
       project={project}
-      initialRunId={linkedRunId}
+      runId={runId}
+      onOpenRun={(id) => onOpenRun(project.id, id)}
+      onCloseRun={onCloseRun}
     />
   );
 }
 
+/**
+ * A run whose project is not listed here (removed, or kept from a machine that is offline). The
+ * runs on Home and in every project's runs come from the primary server, so the run opens there
+ * by id, without a library to go back to: Back clears the focus, landing on every project's runs.
+ */
+function UnlistedProjectRun({
+  projectId,
+  runId,
+}: {
+  readonly projectId: ProjectId;
+  readonly runId: CommandCenterWorkflowRunId;
+}) {
+  const { primaryEnvironmentId, setProjectFocus } = useCommandCenter();
+  const commands = useWorkflowCommands(primaryEnvironmentId, projectId);
+  const visible = useDocumentVisible();
+  const runs = useKept(
+    useEnvironmentQuery(
+      visible
+        ? serverEnvironment.commandCenterWorkflowRunsLive({
+            environmentId: primaryEnvironmentId,
+            input: { projectId },
+          })
+        : null,
+    ).data,
+  );
+  return (
+    <WorkflowRunView
+      key={runId}
+      environmentId={primaryEnvironmentId}
+      runId={runId}
+      live={runs}
+      commands={commands}
+      isSaved={() => false}
+      onBack={() => setProjectFocus(null)}
+      onEdit={() => undefined}
+    />
+  );
+}
+
+/** Every project's runs from the primary server's feed, which ends while the window is hidden. */
+function AllRuns({
+  onOpenRun,
+}: {
+  readonly onOpenRun: (projectId: ProjectId, runId: CommandCenterWorkflowRunId) => void;
+}) {
+  const { primaryEnvironmentId, projects, setProjectFocus } = useCommandCenter();
+  const visible = useDocumentVisible();
+  const runs = useKept(
+    useEnvironmentQuery(
+      visible
+        ? serverEnvironment.commandCenterWorkflowRunsLive({
+            environmentId: primaryEnvironmentId,
+            input: {},
+          })
+        : null,
+    ).data,
+  );
+  return (
+    <div className="flex flex-col gap-4">
+      <div className="flex flex-wrap items-center gap-3 rounded-xl border bg-card p-3">
+        <p className="min-w-0 flex-1 text-sm text-muted-foreground">
+          Runs in every project. Choose a project to open its workflow library.
+        </p>
+        <ProjectPicker
+          projects={projects}
+          value={null}
+          onValueChange={setProjectFocus}
+          allowEmpty={false}
+          placeholder="Choose a project"
+          ariaLabel="Project focus"
+        />
+      </div>
+      <section className="flex flex-col gap-2" aria-label="Runs in every project">
+        <h2 className="text-sm font-medium">Runs</h2>
+        <WorkflowRunList
+          environmentId={primaryEnvironmentId}
+          live={runs}
+          projectTitle={(id) =>
+            projects.find((project) => project.id === id)?.title ?? "Unknown project"
+          }
+          onOpenRun={(run) => onOpenRun(run.projectId, run.id)}
+        />
+      </section>
+    </div>
+  );
+}
+
+/** One project's library and editor (local state) and its open run (from the URL). */
 function ProjectWorkflows({
   project,
-  initialRunId,
+  runId,
+  onOpenRun,
+  onCloseRun,
 }: {
   readonly project: EnvironmentProject;
-  readonly initialRunId: CommandCenterWorkflowRunId | null;
+  readonly runId: CommandCenterWorkflowRunId | null;
+  readonly onOpenRun: (runId: CommandCenterWorkflowRunId) => void;
+  readonly onCloseRun: () => void;
 }) {
   const environmentId = project.environmentId;
   const projectId = project.id;
   const commands = useWorkflowCommands(environmentId, projectId);
-  const [view, setView] = useState<View>(
-    initialRunId === null ? { type: "library" } : { type: "run", runId: initialRunId },
-  );
+  const [view, setView] = useState<View>({ type: "library" });
   const [running, setRunning] = useState<RunTarget | null>(null);
   // Both feeds end while the window is hidden (the server stops watching the folder), and
   // resubscribe with a fresh snapshot when it shows again.
@@ -99,15 +193,30 @@ function ProjectWorkflows({
   const start = async (target: RunTarget, inputs: Record<string, string>) => {
     const result = await commands.start(target.slug, inputs);
     if (result._tag !== "Success") return false;
-    const run = result.value;
-    setView({ type: "run", runId: run.id });
+    onOpenRun(result.value.id);
     toastManager.add({ type: "success", title: `Started ${target.title}` });
     return true;
   };
 
   return (
     <>
-      {view.type === "editor" ? (
+      {runId !== null ? (
+        <WorkflowRunView
+          key={runId}
+          environmentId={environmentId}
+          runId={runId}
+          live={runs}
+          commands={commands}
+          isSaved={(slug) =>
+            list === null || list.workflows.some((workflow) => workflow.slug === slug)
+          }
+          onBack={onCloseRun}
+          onEdit={(slug) => {
+            setView({ type: "editor", slug });
+            onCloseRun();
+          }}
+        />
+      ) : view.type === "editor" ? (
         <WorkflowEditor
           key={view.slug}
           environmentId={environmentId}
@@ -122,19 +231,6 @@ function ProjectWorkflows({
           onBack={() => setView({ type: "library" })}
           onRun={setRunning}
         />
-      ) : view.type === "run" ? (
-        <WorkflowRunView
-          key={view.runId}
-          environmentId={environmentId}
-          runId={view.runId}
-          live={runs}
-          commands={commands}
-          isSaved={(slug) =>
-            list === null || list.workflows.some((workflow) => workflow.slug === slug)
-          }
-          onBack={() => setView({ type: "library" })}
-          onEdit={(slug) => setView({ type: "editor", slug })}
-        />
       ) : (
         <WorkflowLibrary
           environmentId={environmentId}
@@ -145,7 +241,7 @@ function ProjectWorkflows({
           commands={commands}
           onOpen={(slug) => setView({ type: "editor", slug })}
           onRun={setRunning}
-          onOpenRun={(runId) => setView({ type: "run", runId })}
+          onOpenRun={onOpenRun}
         />
       )}
       {running ? (

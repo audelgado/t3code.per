@@ -6,6 +6,7 @@ import {
 } from "@t3tools/client-runtime/state/runtime";
 import type { CommandCenterSnippetName, EnvironmentId, ProjectId } from "@t3tools/contracts";
 import { Trash2Icon } from "lucide-react";
+import { useState } from "react";
 
 import { useEnvironmentQuery } from "~/state/query";
 import { serverEnvironment } from "~/state/server";
@@ -14,6 +15,10 @@ import { formatRelativeTimeLabel } from "~/timestampFormat";
 import { Button } from "../../../ui/button";
 import { Spinner } from "../../../ui/spinner";
 import { toastManager } from "../../../ui/toast";
+import { Input } from "../../../ui/input";
+import { CollectionPager } from "../../CollectionPager";
+import { paginateCollection } from "../../collectionPaging";
+import { searchLibrary } from "../libraryLogic";
 
 const reportFailure =
   (title: string) =>
@@ -42,6 +47,8 @@ export function SnippetsPanel({
   const snippets = useEnvironmentQuery(
     serverEnvironment.commandCenterSnippets({ environmentId, input: { projectId } }),
   );
+  const [search, setSearch] = useState("");
+  const [page, setPage] = useState(1);
   const canWrite = useAtomValue(
     serverEnvironment.deleteCommandCenterSnippet.permissionAtom(environmentId),
   );
@@ -78,6 +85,11 @@ export function SnippetsPanel({
   };
 
   const list = snippets.data?.snippets ?? [];
+  const directory = paginateCollection(
+    searchLibrary(list, search, (snippet) => [snippet.name]),
+    page,
+    15,
+  );
   return (
     <div className="space-y-3">
       <div className="flex flex-wrap items-center gap-2">
@@ -86,17 +98,29 @@ export function SnippetsPanel({
           Shared text for prompts, used as {"{{snippet:name}}"}.
         </span>
       </div>
+      <Input
+        type="search"
+        aria-label="Search snippets"
+        placeholder="Search snippet name"
+        value={search}
+        onChange={(event) => {
+          setSearch(event.target.value);
+          setPage(1);
+        }}
+      />
       {snippets.error !== null ? (
         <p className="text-sm text-destructive-foreground">{snippets.error}</p>
       ) : snippets.data === null ? (
         <Spinner size="sm" tone="muted" />
-      ) : list.length === 0 ? (
+      ) : directory.total === 0 ? (
         <p className="rounded-xl border border-dashed py-8 text-center text-sm text-muted-foreground">
-          No snippets yet. When several prompts share a paragraph, the editor offers to make it one.
+          {search.trim()
+            ? "No snippets match your search. Try another name or clear the search."
+            : "No snippets yet. When several prompts share a paragraph, the editor offers to make it one."}
         </p>
       ) : (
         <ul className="divide-y rounded-md border">
-          {list.map((snippet) => (
+          {directory.items.map((snippet) => (
             <li key={snippet.name} className="flex items-center gap-3 px-3 py-2">
               <span className="min-w-0 flex-1 truncate font-mono text-sm">{snippet.name}</span>
               <span className="text-xs text-muted-foreground">
@@ -116,6 +140,9 @@ export function SnippetsPanel({
           ))}
         </ul>
       )}
+      {snippets.data !== null ? (
+        <CollectionPager {...directory} label="snippets" onPageChange={setPage} />
+      ) : null}
     </div>
   );
 }

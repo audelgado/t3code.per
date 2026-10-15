@@ -16,6 +16,7 @@ import {
 export type SettingsPath =
   | "/settings/projects"
   | "/settings/general"
+  | "/settings/command-center"
   | "/settings/diagnostics"
   | "/settings/appearance"
   | "/settings/keybindings"
@@ -96,6 +97,7 @@ export const SETTINGS_SECTION_LABELS: Readonly<Record<SettingsPath, string>> = {
   "/settings/diagnostics": "Diagnostics",
   "/settings/projects": "Project",
   "/settings/general": "General",
+  "/settings/command-center": "Command Center",
   "/settings/appearance": "Appearance",
   "/settings/keybindings": "Keybindings",
   "/settings/snap-shot": "SnapShots",
@@ -365,7 +367,19 @@ export const SETTINGS_SEARCH_ITEMS = [
     id: "command-center",
     title: "Command Center",
     to: "/settings/general",
-    searchTerms: ["team agents memory finance infra dashboard sidebar"],
+    searchTerms: ["enable disable turn off team agents memory finance infra dashboard sidebar"],
+  },
+  {
+    id: "command-center-tabs",
+    title: "Command Center tabs",
+    to: "/settings/command-center",
+    searchTerms: ["customize hide show rename reorder sections panel"],
+  },
+  {
+    id: "command-center-actions",
+    title: "Command Center quick actions",
+    to: "/settings/command-center",
+    searchTerms: ["shortcuts links instructions add edit remove"],
   },
   {
     id: "auto-settle-inactive-threads",
@@ -1024,6 +1038,7 @@ const SETTINGS_CATEGORY_SCOPES: Readonly<Record<SettingsPath, SettingsSearchScop
   "/settings/diagnostics": "environment",
   "/settings/projects": "project",
   "/settings/general": null,
+  "/settings/command-center": null,
   "/settings/appearance": null,
   "/settings/snap-shot": null,
   // Keybindings fan out to the selection; Providers shows the representative

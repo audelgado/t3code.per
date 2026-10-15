@@ -16,6 +16,106 @@ import {
 } from "./settings.ts";
 
 const decodeClientSettings = Schema.decodeUnknownSync(ClientSettingsSchema);
+
+describe("Command Center customization settings", () => {
+  it("loads old configurations with defaults and round-trips custom options", () => {
+    const decode = decodeServerSettings;
+    expect(decode({ commandCenter: { enabled: false } }).commandCenter).toEqual({
+      enabled: false,
+      sections: [],
+      quickActions: [],
+      projectGroups: [],
+      projects: [],
+      projectOrder: [],
+    });
+    const commandCenter = {
+      enabled: true,
+      sections: [{ id: "team", label: "My team", visible: true }],
+      quickActions: [
+        { id: "plan", label: "Plan", kind: "prompt", target: "Plan the next delivery" },
+      ],
+      projectGroups: [{ id: "clients", name: "Clients" }],
+      projects: [
+        { key: "local:app", pinned: true, groupId: "clients", url: "https://admin.example.com" },
+        { key: "vps:api", pinned: false, groupId: null, url: null },
+      ],
+      projectOrder: ["vps:api", "local:app"],
+    };
+    const decoded = decode({ commandCenter });
+    expect(decode(encodeServerSettings(decoded)).commandCenter).toEqual(commandCenter);
+    expect(decodeServerSettingsPatch({ commandCenter: { quickActions: [] } })).toEqual({
+      commandCenter: { quickActions: [] },
+    });
+    expect(decodeServerSettingsPatch({ commandCenter: { projects: [] } })).toEqual({
+      commandCenter: { projects: [] },
+    });
+  });
+
+  it("accepts every tab, caps the list and drops unknown section ids", () => {
+    const ids = [
+      "home",
+      "work",
+      "team",
+      "projects",
+      "infra",
+      "finance",
+      "artifacts",
+      "canvas",
+      "workflows",
+    ];
+    const sections = ids.map((id) => ({ id, label: "", visible: true }));
+    expect(decodeServerSettingsPatch({ commandCenter: { sections } })).toEqual({
+      commandCenter: { sections },
+    });
+    expect(() =>
+      decodeServerSettingsPatch({ commandCenter: { sections: [...sections, sections[0]] } }),
+    ).toThrow();
+    const today = { id: "today", label: "", visible: true };
+    expect(
+      decodeServerSettings({ commandCenter: { sections: [today, sections[1]] } }).commandCenter
+        .sections,
+    ).toEqual([sections[1]]);
+    expect(() => decodeServerSettingsPatch({ commandCenter: { sections: "home" } })).toThrow();
+  });
+
+  it("caps the manual project order", () => {
+    const order = Array.from({ length: 201 }, (_, index) => `local:${index}`);
+    expect(() => decodeServerSettingsPatch({ commandCenter: { projectOrder: order } })).toThrow();
+    expect(
+      decodeServerSettingsPatch({ commandCenter: { projectOrder: order.slice(0, 200) } }),
+    ).toEqual({ commandCenter: { projectOrder: order.slice(0, 200) } });
+  });
+
+  it("accepts only http(s) project links and caps projects and groups", () => {
+    const project = (url: string | null, key = "local:app") => ({
+      commandCenter: { projects: [{ key, pinned: false, groupId: null, url }] },
+    });
+    expect(() => decodeServerSettingsPatch(project("http://localhost:3000/admin"))).not.toThrow();
+    for (const url of ["javascript:alert(1)", "//evil.example", "https://", "ftp://host"]) {
+      expect(() => decodeServerSettingsPatch(project(url))).toThrow();
+    }
+    const projects = Array.from({ length: 201 }, (_, index) => ({
+      key: `local:${index}`,
+      pinned: true,
+      groupId: null,
+      url: null,
+    }));
+    expect(() => decodeServerSettingsPatch({ commandCenter: { projects } })).toThrow();
+    expect(() =>
+      decodeServerSettingsPatch({ commandCenter: { projects: projects.slice(0, 200) } }),
+    ).not.toThrow();
+    const projectGroups = Array.from({ length: 51 }, (_, index) => ({
+      id: `g${index}`,
+      name: `Group ${index}`,
+    }));
+    expect(() => decodeServerSettingsPatch({ commandCenter: { projectGroups } })).toThrow();
+    expect(() =>
+      decodeServerSettingsPatch({
+        commandCenter: { projectGroups: [{ id: "g", name: "x".repeat(41) }] },
+      }),
+    ).toThrow();
+  });
+});
 const decodeClientSettingsPatch = Schema.decodeUnknownSync(ClientSettingsPatch);
 const encodeClientSettings = Schema.encodeSync(ClientSettingsSchema);
 const decodeServerSettings = Schema.decodeUnknownSync(ServerSettings);

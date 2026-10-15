@@ -410,6 +410,37 @@ export type CommandCenterListSectionsResult = typeof CommandCenterListSectionsRe
 export const CommandCenterBuildRepoDigestInput = Schema.Struct({ projectId: ProjectId });
 export type CommandCenterBuildRepoDigestInput = typeof CommandCenterBuildRepoDigestInput.Type;
 
+export const COMMAND_CENTER_THREAD_DIGEST_MAX_THREADS = 20;
+export const COMMAND_CENTER_THREAD_DIGEST_MAX_TEXT = 1_200;
+
+/** Threads on the environment that answers; a thread it does not have is left out. */
+export const CommandCenterThreadDigestsInput = Schema.Struct({
+  threadIds: Schema.Array(ThreadId).check(
+    Schema.isMinLength(1),
+    Schema.isMaxLength(COMMAND_CENTER_THREAD_DIGEST_MAX_THREADS),
+  ),
+});
+export type CommandCenterThreadDigestsInput = typeof CommandCenterThreadDigestsInput.Type;
+
+/** A thread's latest finished run, read from stored records; it never runs a model. */
+export const CommandCenterThreadDigest = Schema.Struct({
+  threadId: ThreadId,
+  /** The run's final reply or error, cut to the max text length. */
+  text: Schema.String.check(Schema.isMaxLength(COMMAND_CENTER_THREAD_DIGEST_MAX_TEXT)),
+  runStatus: Schema.Literals(["completed", "failed"]),
+  completedAt: Schema.NullOr(IsoDateTime),
+  /** From the thread's latest checkpoint; zero when it has none. */
+  files: NonNegativeInt,
+  additions: NonNegativeInt,
+  deletions: NonNegativeInt,
+});
+export type CommandCenterThreadDigest = typeof CommandCenterThreadDigest.Type;
+
+export const CommandCenterThreadDigestsResult = Schema.Struct({
+  digests: Schema.Array(CommandCenterThreadDigest),
+});
+export type CommandCenterThreadDigestsResult = typeof CommandCenterThreadDigestsResult.Type;
+
 /** The built-in Onboarding team (Lead, Scout, Organizer); ordinary, editable rows. */
 export const CommandCenterOnboardingTeam = Schema.Struct({
   team: CommandCenterTeam,

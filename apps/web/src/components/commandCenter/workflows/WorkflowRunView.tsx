@@ -129,10 +129,14 @@ export function WorkflowRunView({
     );
   }
   const selected = workflow.nodes.find((node) => node.id === selectedId) ?? null;
-  const act = async (action: () => Promise<{ readonly _tag: string }>) => {
+  // The live feed holds only the newest runs, so an older one gets no updates from it: re-read
+  // the run after acting on it. ponytail: its later progress shows on reopen, not live.
+  const act = async <A extends { readonly _tag: string }>(action: () => Promise<A>) => {
     setBusy(true);
-    await action();
+    const result = await action();
     setBusy(false);
+    if (liveRun === null) refresh();
+    return result;
   };
   const inputs = Object.entries(run.inputs);
 
@@ -217,11 +221,12 @@ export function WorkflowRunView({
               steps={states.get(selected.id)?.steps ?? []}
               environmentId={run.environmentId}
               canRun={commands.canRun}
-              onRetry={(step) =>
-                act(() => commands.retry({ runId: run.id, ...retryTarget(workflow, step) }))
-              }
+              onRetry={async (step) => {
+                await act(() => commands.retry({ runId: run.id, ...retryTarget(workflow, step) }));
+              }}
               onAnswer={async (nodeId, answer) =>
-                (await commands.answer({ runId: run.id, nodeId, ...answer }))._tag === "Success"
+                (await act(() => commands.answer({ runId: run.id, nodeId, ...answer })))._tag ===
+                "Success"
               }
             />
           ) : (

@@ -53,7 +53,6 @@ export function AgentRow({
   agent,
   state,
   projectTitle,
-  dimmed,
   isLead,
   now,
   onOpen,
@@ -61,7 +60,6 @@ export function AgentRow({
   readonly agent: CommandCenterAgentProfile;
   readonly state: CommandCenterAgentState;
   readonly projectTitle: string | null;
-  readonly dimmed: boolean;
   readonly isLead: boolean;
   readonly now: number;
   readonly onOpen: () => void;
@@ -72,10 +70,7 @@ export function AgentRow({
     <button
       type="button"
       onClick={onOpen}
-      className={cn(
-        "flex w-full items-start gap-3 rounded-lg p-2 text-start hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset focus-visible:outline-none",
-        dimmed && "opacity-40",
-      )}
+      className="flex w-full items-start gap-3 rounded-lg p-2 text-start hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset focus-visible:outline-none"
     >
       <AgentAvatar agent={agent} status={state.status} />
       <span className="min-w-0 flex-1 space-y-0.5">

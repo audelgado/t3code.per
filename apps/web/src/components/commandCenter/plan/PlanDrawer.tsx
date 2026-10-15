@@ -12,33 +12,25 @@ import {
   type EnvironmentId,
   type ProjectId,
 } from "@t3tools/contracts";
-import { useAtomValue } from "@effect/atom-react";
-import { Atom } from "effect/reactivity";
 import { PlusIcon, Trash2Icon } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useState } from "react";
 
-import { readProject, useProjects } from "~/state/entities";
-import { serverEnvironment } from "~/state/server";
+import { readProject } from "~/state/entities";
 import { Button } from "../../ui/button";
 import { Input } from "../../ui/input";
 import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../../ui/select";
 import { Sheet, SheetDescription, SheetHeader, SheetPopup, SheetTitle } from "../../ui/sheet";
 import { Switch } from "../../ui/switch";
 import { toastManager } from "../../ui/toast";
+import { ProjectPicker } from "../ProjectPicker";
 import {
   type CommandCenterPlanSeed,
   type CommandCenterTarget,
-  useAgentStates,
   useCommandCenter,
   useCommandCenterCommands,
-  useCommandCenterEnvironments,
 } from "../shared";
-import {
-  checkAgentProvider,
-  guessTeamForStep,
-  resolveStepMachine,
-  splitRequestIntoSteps,
-} from "./planLogic";
+import { checkAgentProvider, guessTeamForStep, splitRequestIntoSteps } from "./planLogic";
+import { useAutoRouting } from "./useAutoRouting";
 import { useStartAgentThread } from "./useStartAgentThread";
 
 export interface PlanDrawerProps {
@@ -91,7 +83,7 @@ interface PlanStep {
   readonly key: number;
   readonly text: string;
   readonly teamId: CommandCenterTeamId | null;
-  /** `auto` follows the team's machine. */
+  /** `auto` selects an eligible project machine. */
   readonly machine: CommandCenterTarget;
   readonly sectionId: CommandCenterSectionId | null;
   /** Own worktree off the project checkout, so steps on one machine never share files. */
@@ -124,58 +116,48 @@ function PlanBody({
 }) {
   const { snapshot, primaryEnvironmentId, projects, canOperate } = useCommandCenter();
   const commands = useCommandCenterCommands();
-  const environments = useCommandCenterEnvironments();
-  const states = useAgentStates();
-  const allProjects = useProjects();
+  const routing = useAutoRouting();
+  const environments = routing.environments;
+  const states = routing.states;
   const startAgentThread = useStartAgentThread();
-  // Provider lists every known machine already streams in its server config; null until loaded.
-  const providersAtom = useMemo(
-    () =>
-      Atom.make(
-        (get) =>
-          new Map(
-            environments.map(
-              ({ environmentId }) =>
-                [environmentId, get(serverEnvironment.providersValueAtom(environmentId))] as const,
-            ),
-          ),
-      ),
-    [environments],
-  );
-  const providersByMachine = useAtomValue(providersAtom);
+  const providersByMachine = routing.providers;
   const teams = snapshot.teams.filter((team) => team.archivedAt === null);
   const agents = snapshot.agentProfiles.filter((agent) => agent.archivedAt === null);
 
   const [projectId, setProjectId] = useState(initialProjectId);
   const [steps, setSteps] = useState<PlanStep[]>(() => {
-    const worktree = defaultWorktree(
-      initialProjectId,
-      target === AUTO ? primaryEnvironmentId : target,
-    );
     const seeded: CommandCenterPlanSeed["steps"] =
       seed?.steps ?? splitRequestIntoSteps(request).map((text) => ({ text }));
-    return seeded.map((step) => ({
-      key: nextStepKey++,
-      text: step.text,
-      teamId: seed?.teamId ?? guessTeamForStep(step.text, teams, agents),
-      machine: target,
-      sectionId: step.sectionId ?? null,
-      worktree,
-    }));
+    return seeded.map((step) => {
+      const teamId = seed?.teamId ?? guessTeamForStep(step.text, teams, agents);
+      const team = teams.find((entry) => entry.id === teamId);
+      const agent =
+        agents.find(
+          (entry) => entry.teamId === teamId && (states.get(entry.id)?.status ?? "idle") === "idle",
+        ) ?? null;
+      const route = routing.resolve(
+        initialProjectId,
+        agent,
+        target,
+        team?.environmentId ?? primaryEnvironmentId,
+      );
+      return {
+        key: nextStepKey++,
+        text: step.text,
+        teamId,
+        machine: target,
+        sectionId: step.sectionId ?? null,
+        worktree: defaultWorktree(
+          initialProjectId,
+          "environmentId" in route ? route.environmentId : primaryEnvironmentId,
+        ),
+      };
+    });
   });
   const [running, setRunning] = useState(false);
 
   const sections = snapshot.sections.filter((section) => section.projectId === projectId);
-  const machineOf = (step: PlanStep): EnvironmentId =>
-    resolveStepMachine(
-      step.machine,
-      teams.find((team) => team.id === step.teamId),
-      primaryEnvironmentId,
-    );
-  const machineLabel = (environmentId: EnvironmentId) =>
-    environments.find((environment) => environment.environmentId === environmentId)?.label ??
-    "Unknown machine";
-
+  const machineLabel = routing.label;
   // Each step takes its own idle agent: one agent works one thread at a time, and starting a
   // second would silently end the first one's assignment.
   const pickAgents = () => {
@@ -193,10 +175,20 @@ function PlanBody({
     });
   };
   const picked = pickAgents();
-  const providerIssues = steps.map((step, index) => {
+  const routes = steps.map((step, index) =>
+    routing.resolve(
+      projectId,
+      picked[index] ?? null,
+      step.machine,
+      teams.find((team) => team.id === step.teamId)?.environmentId ?? primaryEnvironmentId,
+    ),
+  );
+  const providerIssues = steps.map((_step, index) => {
     const agent = picked[index];
     if (!agent) return null;
-    const environmentId = machineOf(step);
+    const route = routes[index];
+    if (!route || "error" in route) return null;
+    const environmentId = route.environmentId;
     return checkAgentProvider(
       agent.modelSelection,
       providersByMachine.get(environmentId) ?? null,
@@ -212,20 +204,11 @@ function PlanBody({
         : "This team has no agents.";
     }
     if (projectId === null) return null;
-    const environmentId = machineOf(step);
-    if (!environments.some((env) => env.environmentId === environmentId && env.connected)) {
-      return `${machineLabel(environmentId)} is offline.`;
-    }
+    const route = routes[index];
+    if (!route) return "Choose a machine.";
+    if ("error" in route) return route.error;
     const issue = providerIssues[index];
-    if (issue?.level === "error") return issue.message;
-    if (
-      !allProjects.some(
-        (project) => project.environmentId === environmentId && project.id === projectId,
-      )
-    ) {
-      return `This project is not on ${machineLabel(environmentId)}.`;
-    }
-    return null;
+    return issue?.level === "error" ? issue.message : null;
   };
   const problems = steps.map(problemOf);
   const ready =
@@ -266,7 +249,9 @@ function PlanBody({
       const agent = picked[index];
       if (!agent) break;
       const text = step.text.trim();
-      const environmentId = machineOf(step);
+      const route = routes[index];
+      if (!route || "error" in route) break;
+      const environmentId = route.environmentId;
       const memoryReachable = environmentId === primaryEnvironmentId;
       const artifacts = memoryReachable ? [] : await referencedArtifacts(text);
       const threadId = await startAgentThread({
@@ -293,7 +278,7 @@ function PlanBody({
     if (started === steps.length) {
       toastManager.add({
         type: "success",
-        title: started === 1 ? "Delegated 1 step" : `Delegated ${started} steps`,
+        title: started === 1 ? "Started 1 thread" : `Started ${started} threads`,
       });
       onDone();
     }
@@ -302,25 +287,14 @@ function PlanBody({
   return (
     <>
       <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-6 pb-4">
-        <Select
-          value={projectId ?? NONE}
-          onValueChange={(value) =>
-            setProjectId(projects.find((project) => project.id === value)?.id ?? null)
-          }
-        >
-          <SelectTrigger aria-label="Project">
-            <SelectValue>
-              {projects.find((project) => project.id === projectId)?.title ?? "Pick a project"}
-            </SelectValue>
-          </SelectTrigger>
-          <SelectPopup>
-            {projects.map((project) => (
-              <SelectItem key={project.id} value={project.id}>
-                {project.title}
-              </SelectItem>
-            ))}
-          </SelectPopup>
-        </Select>
+        <ProjectPicker
+          projects={projects}
+          value={projectId}
+          onValueChange={setProjectId}
+          allowEmpty={false}
+          placeholder="Pick a project"
+          ariaLabel="Project"
+        />
         {teams.length === 0 ? (
           <p className="text-sm text-muted-foreground">
             Create a team with at least one agent in the Team tab first.
@@ -392,12 +366,12 @@ function PlanBody({
                     <SelectTrigger aria-label="Machine" size="sm">
                       <SelectValue>
                         {step.machine === AUTO
-                          ? `Auto · ${machineLabel(machineOf(step))}`
+                          ? `Auto · ${routes[index] && "environmentId" in routes[index] ? machineLabel(routes[index].environmentId) : "unavailable"}`
                           : machineLabel(step.machine)}
                       </SelectValue>
                     </SelectTrigger>
                     <SelectPopup>
-                      <SelectItem value={AUTO}>Auto (team's machine)</SelectItem>
+                      <SelectItem value={AUTO}>Auto (available project machine)</SelectItem>
                       {environments.map((environment) => (
                         <SelectItem
                           key={environment.environmentId}
@@ -478,7 +452,9 @@ function PlanBody({
       </div>
       <div className="flex items-center justify-end gap-2 border-t px-6 py-4">
         {projectId === null ? (
-          <span className="me-auto text-xs text-muted-foreground">Pick a project to delegate.</span>
+          <span className="me-auto text-xs text-muted-foreground">
+            Pick a project to ask the team.
+          </span>
         ) : null}
         <Button size="sm" variant="outline" onClick={onDone} disabled={running}>
           Cancel

@@ -6,6 +6,7 @@ import {
   type HostDiskVolume,
   type ProjectId,
 } from "@t3tools/contracts";
+import { Link } from "@tanstack/react-router";
 import * as DateTime from "effect/DateTime";
 import { type ReactNode, useEffect, useMemo, useState } from "react";
 
@@ -22,6 +23,12 @@ import { useEnvironmentQuery } from "~/state/query";
 import { serverEnvironment } from "~/state/server";
 import { useEnvironmentScope } from "~/state/session";
 import { Badge } from "../../ui/badge";
+import { Button } from "../../ui/button";
+import { Collapsible, CollapsiblePanel, CollapsibleTrigger } from "../../ui/collapsible";
+import { Input } from "../../ui/input";
+import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../../ui/select";
+import { CollectionPager } from "../CollectionPager";
+import { paginateCollection } from "../collectionPaging";
 import type { CommandCenterAgentState, CommandCenterAgentStatus } from "../logic";
 import { useAgentStates, useCommandCenter } from "../shared";
 import {
@@ -34,7 +41,8 @@ import {
 import { ProjectPreviewButton } from "../projects/ProjectPreview";
 import { useDocumentVisible } from "./useDocumentVisible";
 
-const HOST_REFRESH_MS = 5_000;
+/** Host resources and round trip refresh this often while the window is visible. */
+const HOST_REFRESH_MS = 15_000;
 const SPARKLINE_SAMPLES = 40;
 /** Processes doing agent work, as opposed to T3's own server and desktop shell. */
 const WORK_PROCESS_CATEGORIES = new Set(["server-child", "provider-root", "terminal-root"]);
@@ -77,6 +85,10 @@ export function InfraTab() {
   const primaryEnvironmentId = usePrimaryEnvironmentId();
   const allProjects = useProjects();
   const agentStates = useAgentStates();
+  const [query, setQuery] = useState("");
+  const [machineKey, setMachineKey] = useState("all");
+  const [page, setPage] = useState(1);
+  const [topologyPage, setTopologyPage] = useState(1);
 
   const machines = useMemo(
     (): ReadonlyArray<InfraMachine> =>
@@ -131,6 +143,34 @@ export function InfraTab() {
     }
     return result;
   }, [agentStates, snapshot.agentProfiles]);
+  // The project focus filters to that project and the machines that host or build it.
+  const focused = projectId === null ? null : projects.find((project) => project.id === projectId);
+  const machinePage = paginateCollection(
+    machines.filter(
+      (machine) =>
+        (machineKey === "all" || machine.environmentId === machineKey) &&
+        (projectId === null ||
+          focused?.hosts.has(machine.environmentId) === true ||
+          focused?.builders.has(machine.environmentId) === true),
+    ),
+    page,
+    6,
+  );
+  const visibleProjects = projects.filter(
+    (project) =>
+      (projectId === null || project.id === projectId) &&
+      project.title.toLocaleLowerCase().includes(query.trim().toLocaleLowerCase()),
+  );
+  const topologyProjects = paginateCollection(
+    visibleProjects.filter((project) =>
+      machinePage.items.some(
+        (machine) =>
+          project.hosts.has(machine.environmentId) || project.builders.has(machine.environmentId),
+      ),
+    ),
+    topologyPage,
+    8,
+  );
 
   if (machines.length === 0) {
     return <p className="text-sm text-muted-foreground">No environments are connected yet.</p>;
@@ -138,22 +178,87 @@ export function InfraTab() {
 
   return (
     <div className="flex flex-col gap-4">
-      <Topology machines={machines} projects={projects} projectId={projectId} />
+      <div className="flex flex-wrap items-center gap-3 rounded-xl border bg-card p-3">
+        <div className="min-w-48 flex-1">
+          <Input
+            size="sm"
+            aria-label="Search infrastructure projects"
+            placeholder="Find a project on your machines"
+            value={query}
+            onChange={(event) => {
+              setQuery(event.target.value);
+              setTopologyPage(1);
+            }}
+          />
+        </div>
+        <div className="min-w-40">
+          <Select
+            value={machineKey}
+            onValueChange={(value) => {
+              setMachineKey(value ?? "all");
+              setPage(1);
+              setTopologyPage(1);
+            }}
+          >
+            <SelectTrigger size="sm" aria-label="Infrastructure machine">
+              <SelectValue>
+                {machineKey === "all"
+                  ? "All machines"
+                  : machines.find((machine) => machine.environmentId === machineKey)?.label}
+              </SelectValue>
+            </SelectTrigger>
+            <SelectPopup>
+              <SelectItem value="all">All machines</SelectItem>
+              {machines.map((machine) => (
+                <SelectItem key={machine.environmentId} value={machine.environmentId}>
+                  {machine.label}
+                </SelectItem>
+              ))}
+            </SelectPopup>
+          </Select>
+        </div>
+        <span className="text-xs text-muted-foreground tabular-nums">
+          {machines.filter((machine) => machine.connected).length} connected / {machines.length}{" "}
+          machines
+        </span>
+      </div>
+      <Collapsible defaultOpen={projects.length <= 6 && machines.length <= 3}>
+        <CollapsibleTrigger render={<Button size="sm" variant="outline" />}>
+          Connection map · {topologyProjects.total} projects on this page of machines
+        </CollapsibleTrigger>
+        <CollapsiblePanel>
+          <div className="mt-3 max-h-96 overflow-auto rounded-xl">
+            <Topology machines={machinePage.items} projects={topologyProjects.items} />
+          </div>
+          <CollectionPager
+            {...topologyProjects}
+            label="map projects"
+            onPageChange={setTopologyPage}
+          />
+        </CollapsiblePanel>
+      </Collapsible>
       <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-        {machines.map((machine) => (
+        {machinePage.items.map((machine) => (
           <MachineCard
             key={machine.environmentId}
             machine={machine}
-            agents={agentsByMachine.get(machine.environmentId) ?? []}
-            projects={projects.filter(
+            agents={(agentsByMachine.get(machine.environmentId) ?? []).filter(
+              (agent) => projectId === null || agent.state.assignment?.projectId === projectId,
+            )}
+            projects={visibleProjects.filter(
               (project) =>
                 project.hosts.has(machine.environmentId) ||
                 project.builders.has(machine.environmentId),
             )}
-            projectId={projectId}
           />
         ))}
       </div>
+      {machinePage.total === 0 && projectId !== null ? (
+        <p className="py-6 text-center text-sm text-muted-foreground">
+          No machine hosts or builds the focused project.
+        </p>
+      ) : null}
+      <CollectionPager {...machinePage} label="machines" onPageChange={setPage} />
     </div>
   );
 }
@@ -176,11 +281,9 @@ function linkTone(machine: InfraMachine) {
 function Topology({
   machines,
   projects,
-  projectId,
 }: {
   readonly machines: ReadonlyArray<InfraMachine>;
   readonly projects: ReadonlyArray<InfraProject>;
-  readonly projectId: ProjectId | null;
 }) {
   const rows = Math.max(machines.length, projects.length, 1);
   const height = rows * ROW + 8;
@@ -196,8 +299,8 @@ function Topology({
       <h2 className="mb-2 text-sm font-medium">Topology</h2>
       <svg
         viewBox={`0 0 ${VIEW_W} ${height}`}
-        className="w-full"
-        style={{ maxHeight: Math.max(160, height) }}
+        className="min-w-160 w-full"
+        style={{ height: Math.max(160, height) }}
         role="img"
         aria-label="Machines and the projects that live on them"
       >
@@ -223,9 +326,8 @@ function Topology({
         })}
         {projects.map((project, index) => {
           const y = rowY(index, projects.length) + NODE_H / 2;
-          const dimmed = projectId !== null && project.id !== projectId;
           return (
-            <g key={project.id} className={cn(dimmed && "opacity-30")}>
+            <g key={project.id}>
               {machines.map((machine) => {
                 const hosts = project.hosts.has(machine.environmentId);
                 if (!hosts && !project.builders.has(machine.environmentId)) return null;
@@ -341,12 +443,10 @@ function MachineCard({
   machine,
   agents,
   projects,
-  projectId,
 }: {
   readonly machine: InfraMachine;
   readonly agents: ReadonlyArray<InfraAgent>;
   readonly projects: ReadonlyArray<InfraProject>;
-  readonly projectId: ProjectId | null;
 }) {
   const { environmentId, connected } = machine;
   const canReadDiagnostics = useEnvironmentScope(environmentId, AuthDiagnosticsReadScope);
@@ -406,12 +506,8 @@ function MachineCard({
         .slice(0, 5),
     [sample],
   );
-  const dimmed = projectId !== null && !projects.some((project) => project.id === projectId);
-
   return (
-    <section
-      className={cn("flex flex-col gap-3 rounded-xl border bg-card p-3", dimmed && "opacity-50")}
-    >
+    <section className="flex flex-col gap-3 rounded-xl border bg-card p-3">
       <header className="flex items-center gap-2">
         <h3 className="min-w-0 flex-1 truncate text-sm font-medium">{machine.label}</h3>
         <Badge variant="outline" size="sm">
@@ -533,20 +629,19 @@ function MachineCard({
           ) : null}
         </>
       ) : (
-        <p className="text-xs text-muted-foreground">Not connected, so no live resource data.</p>
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <p className="text-xs text-muted-foreground">Not connected, so no live resource data.</p>
+          <Button render={<Link to="/settings/connections" />} size="xs" variant="outline">
+            Reconnect
+          </Button>
+        </div>
       )}
 
       <CardList title="Projects" empty="No projects on this machine.">
         {projects.map((project) => {
           const checkout = connected ? project.hosts.get(environmentId) : undefined;
           return (
-            <li
-              key={project.id}
-              className={cn(
-                "flex items-center gap-2 text-xs",
-                projectId !== null && project.id !== projectId && "opacity-40",
-              )}
-            >
+            <li key={project.id} className="flex items-center gap-2 text-xs">
               <span className="min-w-0 flex-1 truncate">{project.title}</span>
               {project.builders.has(environmentId) ? (
                 <Badge variant="info" size="sm">
@@ -620,14 +715,19 @@ function CardList({
   readonly empty: string;
   readonly children: ReadonlyArray<ReactNode>;
 }) {
+  const [page, setPage] = useState(1);
+  const rows = paginateCollection(children, page, 8);
   return (
     <div>
       <h4 className="mb-1 text-xs font-medium text-muted-foreground">{title}</h4>
       {children.length > 0 ? (
-        <ul className="flex flex-col gap-1">{children}</ul>
+        <ul className="flex flex-col gap-2">{rows.items}</ul>
       ) : (
         <p className="text-xs text-muted-foreground">{empty}</p>
       )}
+      {rows.pageCount > 1 ? (
+        <CollectionPager {...rows} label={title.toLocaleLowerCase()} onPageChange={setPage} />
+      ) : null}
     </div>
   );
 }

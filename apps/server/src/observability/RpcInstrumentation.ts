@@ -93,6 +93,7 @@ const RPC_AGGREGATES = {
   [WS_METHODS.scheduledTasksRotateWebhookToken]: "scheduledTasks",
   [WS_METHODS.scheduledTasksListWebhookDeliveries]: "scheduledTasks",
   [WS_METHODS.scheduledTasksGetWebhookDelivery]: "scheduledTasks",
+  [WS_METHODS.commandCenterThreadDigests]: "commandCenter",
   [WS_METHODS.commandCenterSubscribe]: "commandCenter",
   [WS_METHODS.commandCenterUpsert]: "commandCenter",
   [WS_METHODS.commandCenterDelete]: "commandCenter",

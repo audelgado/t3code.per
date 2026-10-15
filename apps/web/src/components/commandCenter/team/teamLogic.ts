@@ -8,10 +8,54 @@ import type {
   CommandCenterTeamId,
 } from "@t3tools/contracts";
 
-import { daysUntil } from "@t3tools/client-runtime/state/commandCenterDerive";
+import { paginateCollection } from "../collectionPaging";
 
-import type { CommandCenterAgentState } from "../logic";
-import { AT_RISK_PERCENT, sectionPercent } from "../projects/logic";
+/**
+ * Machine column of an agent without a team: where its latest assignment ran, else the primary
+ * environment (as for a team without a machine). Machines no client knows share "unknown".
+ */
+export function agentMachineKey(
+  assignment: Pick<CommandCenterAssignment, "environmentId"> | null,
+  primaryEnvironmentId: string,
+  knownMachineIds: ReadonlySet<string>,
+) {
+  const key = assignment?.environmentId ?? primaryEnvironmentId;
+  return knownMachineIds.has(key) ? key : "unknown";
+}
+
+export function matchesAgentSearch(
+  agent: Pick<CommandCenterAgentProfile, "name" | "role">,
+  task: string | null | undefined,
+  query: string,
+) {
+  return `${agent.name} ${agent.role} ${task ?? ""}`
+    .toLocaleLowerCase()
+    .includes(query.trim().toLocaleLowerCase());
+}
+
+/** Keep the lead in view while finding and paging the rest of a team's members. */
+export function selectTeamMemberPage<
+  T extends Pick<CommandCenterAgentProfile, "id" | "name" | "role">,
+>(
+  members: ReadonlyArray<T>,
+  leadAgentId: CommandCenterAgentId | null,
+  query: string,
+  page: number,
+  taskOf: (agent: T) => string | null | undefined,
+) {
+  const matching = members.filter((agent) => matchesAgentSearch(agent, taskOf(agent), query));
+  // A team or machine name can match without any member matching. Retain that team's roster.
+  const visible = query.trim() !== "" && matching.length > 0 ? matching : members;
+  const lead = members.find((agent) => agent.id === leadAgentId) ?? null;
+  return {
+    ...paginateCollection(
+      visible.filter((agent) => agent.id !== leadAgentId),
+      page,
+      10,
+    ),
+    lead,
+  };
+}
 
 export interface CommandCenterHandoff {
   readonly entry: CommandCenterMemoryEntry;
@@ -51,84 +95,6 @@ export function resolveHandoffs(
         null;
       return { entry, from, to };
     });
-}
-
-export { daysUntil };
-
-/**
- * Minutes a working agent may go without any new thread activity before it reads as stuck.
- * Activity is the newer of the thread shell's and its runtime's `updatedAt`.
- */
-export const STUCK_AFTER_MINUTES = 30;
-/** Deliveries this close (in days) under `AT_RISK_PERCENT` done raise an alert. */
-export const DELIVERY_ALERT_DAYS = 2;
-
-export type CommandCenterAlert =
-  | { readonly kind: "offline"; readonly environmentId: string; readonly label: string }
-  | { readonly kind: "stuck"; readonly agentId: CommandCenterAgentId; readonly minutes: number }
-  | {
-      readonly kind: "delivery";
-      readonly section: CommandCenterSection;
-      readonly days: number;
-      readonly percent: number;
-    };
-
-/**
- * Client-side alerts, computed from data the page already has (no polling, no server work):
- * a machine that hosts teams or open work is disconnected, a working agent has shown no
- * activity for `STUCK_AFTER_MINUTES`, or a delivery is due within 48 hours under 70% done.
- */
-export function commandCenterAlerts({
-  environments,
-  hostEnvironmentIds,
-  agents,
-  sections,
-  now,
-}: {
-  readonly environments: ReadonlyArray<{
-    readonly environmentId: string;
-    readonly label: string;
-    readonly connected: boolean;
-  }>;
-  /** Machines that host a team or an unfinished assignment. */
-  readonly hostEnvironmentIds: ReadonlySet<string>;
-  readonly agents: ReadonlyArray<{
-    readonly agentId: CommandCenterAgentId;
-    readonly state: CommandCenterAgentState;
-  }>;
-  readonly sections: ReadonlyArray<CommandCenterSection>;
-  readonly now: number;
-}): CommandCenterAlert[] {
-  const alerts: CommandCenterAlert[] = [];
-  for (const environment of environments) {
-    if (!environment.connected && hostEnvironmentIds.has(environment.environmentId)) {
-      alerts.push({
-        kind: "offline",
-        environmentId: environment.environmentId,
-        label: environment.label,
-      });
-    }
-  }
-  for (const { agentId, state } of agents) {
-    if (state.status !== "working" || state.shell === null) continue;
-    const last = Math.max(
-      Date.parse(state.shell.updatedAt),
-      state.shell.runtime ? Date.parse(state.shell.runtime.updatedAt) : 0,
-    );
-    const minutes = Math.floor((now - last) / 60_000);
-    if (minutes >= STUCK_AFTER_MINUTES) alerts.push({ kind: "stuck", agentId, minutes });
-  }
-  for (const section of sections) {
-    if (section.status === "done" || section.status === "review" || section.dueDate === null) {
-      continue;
-    }
-    const days = daysUntil(section.dueDate, now);
-    const percent = sectionPercent(section);
-    if (days >= 0 && days <= DELIVERY_ALERT_DAYS && percent < AT_RISK_PERCENT) {
-      alerts.push({ kind: "delivery", section, days, percent });
-    }
-  }
-  return alerts;
 }
 
 export interface CommandCenterDependencyWire {

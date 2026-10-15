@@ -8,6 +8,7 @@ import {
   type ScheduledTask,
   type ThreadId,
 } from "@t3tools/contracts";
+import { AT_RISK_PERCENT, sectionPercent } from "@t3tools/client-runtime/state/commandCenterDerive";
 
 /** Days shown on the delivery strip. */
 export const STRIP_DAYS = 35;
@@ -136,7 +137,7 @@ export function whereWeLeftOff(
 }
 
 /**
- * Plan steps for "Delegate what's missing": each missing item of an open section (tied to that
+ * Plan steps for a project's "Ask the team": each missing item of an open section (tied to that
  * section), then each open todo. Handed to the plan drawer as steps, so text with commas or
  * "and" stays one step. Interview questions ("Question: " todos) are for the user, not agents.
  */
@@ -167,13 +168,6 @@ export function parseMissing(text: string) {
     .filter((line) => line.length > 0);
 }
 
-/** Percent of a section's tasks done (0 when it tracks no tasks). */
-export function sectionPercent(section: CommandCenterSection) {
-  return section.tasksTotal === 0
-    ? 0
-    : Math.round((Math.min(section.tasksDone, section.tasksTotal) / section.tasksTotal) * 100);
-}
-
 /**
  * Unmet dependencies per open section, across projects: the sections it waits on that are not
  * done yet. Dependencies pointing at a deleted section are ignored.
@@ -197,9 +191,6 @@ export function unmetDependencies(
 }
 
 export type ProjectHealthLevel = "green" | "amber" | "red";
-
-/** Done share below which a near delivery counts as at risk. */
-export const AT_RISK_PERCENT = 70;
 
 /**
  * Health light for one project. Red: something overdue, blocked, or due within 2 days under

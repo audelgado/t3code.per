@@ -5,7 +5,12 @@ import {
 } from "@t3tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
 
-import { groupMemoryByDay, mergeMemoryPages, nextMemoryCursor } from "./memoryLogic";
+import {
+  groupMemoryByDay,
+  mergeMemoryPages,
+  nextMemoryCursor,
+  selectMemoryPage,
+} from "./memoryLogic";
 
 function entry(id: string, createdAt: string, extra: Partial<CommandCenterMemoryEntry> = {}) {
   return {
@@ -58,6 +63,34 @@ describe("groupMemoryByDay", () => {
 
 describe("memory paging", () => {
   const iso = (day: number) => new Date(2026, 9, day, 9).toISOString();
+
+  it("bounds large timelines without losing chronology or splitting day labels incorrectly", () => {
+    const entries = Array.from({ length: 107 }, (_, index) =>
+      entry(`n${index}`, new Date(2026, 9, 1, 0, index).toISOString()),
+    );
+    const days = groupMemoryByDay(entries, all);
+    const pages = Array.from({ length: 5 }, (_, index) => selectMemoryPage(days, index + 1));
+    expect(pages.flatMap((page) => page.days.flatMap((day) => day.entries))).toEqual(
+      entries.toReversed(),
+    );
+    expect(pages.every((page) => page.days.flatMap((day) => day.entries).length <= 25)).toBe(true);
+    expect(pages[1]?.days[0]?.day).toBe("2026-10-01");
+  });
+
+  it("returns a usable page after narrowing search or deleting the last entry", () => {
+    const days = groupMemoryByDay([entry("a", iso(5)), entry("b", iso(4))], {
+      ...all,
+      search: "entry a",
+    });
+    expect(selectMemoryPage(days, 8)).toMatchObject({ page: 1, total: 1, start: 1, end: 1 });
+    expect(selectMemoryPage([], 8)).toMatchObject({
+      page: 1,
+      total: 0,
+      start: 0,
+      end: 0,
+      days: [],
+    });
+  });
 
   it("merges older pages without duplicating live entries", () => {
     const live = entry("a", iso(5), { text: "live" });

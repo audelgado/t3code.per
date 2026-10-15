@@ -1936,8 +1936,9 @@ function windowsVswherePrerequisiteScript(arch: typeof BuildArch.Type): string {
     "if (!(Test-Path $vswhere)) { exit 1 }",
     `$install = & $vswhere -latest -products * -requires ${toolComponents.join(" ")} -property installationPath`,
     "if (!$install) { exit 1 }",
-    "$kitsRoot = Get-ItemPropertyValue 'HKLM:\\SOFTWARE\\Microsoft\\Windows Kits\\Installed Roots' -Name KitsRoot10 -ErrorAction SilentlyContinue",
-    "if (!$kitsRoot -or !(Test-Path (Join-Path $kitsRoot 'Lib'))) { exit 1 }",
+    // The SDK installer usually registers under WOW6432Node; the native key can be stale.
+    "$kitsRoot = 'HKLM:\\SOFTWARE\\Microsoft\\Windows Kits\\Installed Roots', 'HKLM:\\SOFTWARE\\WOW6432Node\\Microsoft\\Windows Kits\\Installed Roots' | ForEach-Object { Get-ItemPropertyValue $_ -Name KitsRoot10 -ErrorAction SilentlyContinue } | Where-Object { $_ -and (Test-Path (Join-Path $_ 'Lib')) } | Select-Object -First 1",
+    "if (!$kitsRoot) { exit 1 }",
     "$msvcToolset = Get-ChildItem (Join-Path $install 'VC\\Tools\\MSVC') -Directory | Sort-Object { [version]$_.Name } -Descending | Select-Object -First 1",
     "if (!$msvcToolset) { exit 1 }",
     `if (!(Test-Path (Join-Path $msvcToolset.FullName 'lib\\spectre\\${spectreArch}'))) { exit 1 }`,

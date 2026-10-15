@@ -6,7 +6,7 @@ import type {
 } from "@t3tools/contracts";
 import { Link } from "@tanstack/react-router";
 import { MessageSquareIcon, Trash2Icon } from "lucide-react";
-import { useMemo, useState, type FormEvent } from "react";
+import { useMemo, useRef, useState, type FormEvent } from "react";
 
 import { useThreadShells } from "~/state/entities";
 import { Badge } from "../../ui/badge";
@@ -17,17 +17,25 @@ import { ScrollArea } from "../../ui/scroll-area";
 import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../../ui/select";
 import { Sheet, SheetDescription, SheetHeader, SheetPopup, SheetTitle } from "../../ui/sheet";
 import { Textarea } from "../../ui/textarea";
+import { CollectionPager } from "../CollectionPager";
+import { showLoadOlder } from "../collectionPaging";
+import { ProjectPicker } from "../ProjectPicker";
 import { useCommandCenter, useCommandCenterCommands } from "../shared";
 import {
   groupMemoryByDay,
   mergeMemoryPages,
   nextMemoryCursor,
+  selectMemoryPage,
   type MemoryProjectFilter,
 } from "./memoryLogic";
 
 export interface MemoryDrawerProps {
   readonly open: boolean;
   readonly onOpenChange: (open: boolean) => void;
+  /** Kind filter the drawer opens with, such as `todo` from Home's Todos. */
+  readonly initialKind?: CommandCenterMemoryKind | "all";
+  /** Project filter the drawer opens with; the focused project when left out. */
+  readonly initialProject?: MemoryProjectFilter;
 }
 
 const KINDS = [
@@ -55,7 +63,12 @@ function formatDay(day: string) {
 }
 
 /** Memory timeline: filter by project and kind, search, mark todos done, add entries. */
-export function MemoryDrawer({ open, onOpenChange }: MemoryDrawerProps) {
+export function MemoryDrawer({
+  open,
+  onOpenChange,
+  initialKind = "all",
+  initialProject,
+}: MemoryDrawerProps) {
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetPopup side="right">
@@ -64,13 +77,19 @@ export function MemoryDrawer({ open, onOpenChange }: MemoryDrawerProps) {
           <SheetDescription>Where things stand, newest first.</SheetDescription>
         </SheetHeader>
         {/* Mounted only while open, so the thread shell subscription stays off when closed. */}
-        <MemoryBody />
+        <MemoryBody initialKind={initialKind} {...(initialProject ? { initialProject } : {})} />
       </SheetPopup>
     </Sheet>
   );
 }
 
-function MemoryBody() {
+function MemoryBody({
+  initialKind,
+  initialProject,
+}: {
+  readonly initialKind: CommandCenterMemoryKind | "all";
+  readonly initialProject?: MemoryProjectFilter;
+}) {
   const { snapshot, projects, projectId, canOperate, primaryEnvironmentId } = useCommandCenter();
   const shells = useThreadShells();
   // Delegated threads can live on any machine; links fall back to the primary environment.
@@ -78,9 +97,14 @@ function MemoryBody() {
     () => new Map(shells.map((shell) => [shell.id, shell.environmentId] as const)),
     [shells],
   );
-  const [project, setProjectFilter] = useState<MemoryProjectFilter>(projectId ?? "all");
-  const [kind, setKindFilter] = useState<CommandCenterMemoryKind | "all">("all");
+  const [project, setProjectFilter] = useState<MemoryProjectFilter>(
+    initialProject ?? projectId ?? "all",
+  );
+  const [kind, setKindFilter] = useState(initialKind);
   const [search, setSearch] = useState("");
+  const [page, setPage] = useState(1);
+  const [composing, setComposing] = useState(false);
+  const filterVersion = useRef(0);
   const { listMemory } = useCommandCenterCommands();
   // Pages older than the snapshot's newest-100 window; live only for done/upsert (snapshot wins).
   const [older, setOlder] = useState<ReadonlyArray<CommandCenterMemoryEntry>>([]);
@@ -91,6 +115,7 @@ function MemoryBody() {
   const loadOlder = async () => {
     if (loadingOlder || cursor === undefined) return;
     setLoadingOlder(true);
+    const requestVersion = filterVersion.current;
     const result = await listMemory({
       ...cursor,
       limit: 50,
@@ -99,14 +124,17 @@ function MemoryBody() {
       ...(kind !== "all" ? { kind } : {}),
     });
     setLoadingOlder(false);
+    if (requestVersion !== filterVersion.current) return;
     if (result._tag !== "Success") return;
     setOlder((current) => [...current, ...result.value.entries]);
     setHasMore(result.value.hasMore);
   };
   // Older pages were fetched for the previous filter, so a new filter pages from scratch.
   const resetOlder = () => {
+    filterVersion.current += 1;
     setOlder([]);
     setHasMore(true);
+    setPage(1);
   };
   const setProject = (next: MemoryProjectFilter) => {
     setProjectFilter(next);
@@ -122,46 +150,49 @@ function MemoryBody() {
     () => groupMemoryByDay(memory, { project, kind, search }),
     [kind, memory, project, search],
   );
+  const directory = useMemo(() => selectMemoryPage(days, page), [days, page]);
   const projectTitle = useMemo(
     () => new Map(projects.map((item) => [item.id, item.title] as const)),
     [projects],
   );
-  const projectFilterLabel =
-    project === "all"
-      ? "All projects"
-      : project === NO_PROJECT
-        ? "No project"
-        : projectTitle.get(project);
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-3 px-6 pb-6">
-      {canOperate ? <AddMemoryForm defaultProjectId={projectId} /> : null}
-      <div className="flex flex-wrap gap-2">
-        <div className="min-w-0 flex-1">
-          <Select<string>
-            value={project}
-            onValueChange={(value) =>
-              setProject(
-                value === NO_PROJECT
-                  ? NO_PROJECT
-                  : (projects.find((item) => item.id === value)?.id ?? "all"),
-              )
-            }
+      {canOperate ? (
+        <div className="space-y-2">
+          <Button
+            size="sm"
+            variant="outline"
+            aria-expanded={composing}
+            aria-controls="memory-composer"
+            onClick={() => setComposing(!composing)}
           >
-            <SelectTrigger aria-label="Filter by project" size="sm">
-              <SelectValue>{projectFilterLabel ?? "Unknown project"}</SelectValue>
-            </SelectTrigger>
-            <SelectPopup>
-              <SelectItem value="all">All projects</SelectItem>
-              <SelectItem value={NO_PROJECT}>No project</SelectItem>
-              {projects.map((item) => (
-                <SelectItem key={item.id} value={item.id}>
-                  {item.title}
-                </SelectItem>
-              ))}
-            </SelectPopup>
-          </Select>
+            {composing ? "Hide entry form" : "Add memory entry"}
+          </Button>
+          <div id="memory-composer" hidden={!composing}>
+            <AddMemoryForm defaultProjectId={projectId} />
+          </div>
         </div>
+      ) : null}
+      <div className="flex flex-wrap gap-2">
+        <ProjectPicker
+          projects={projects}
+          value={project === "all" || project === NO_PROJECT ? null : project}
+          // The empty option reads "No project" while that filter is on, so picking it keeps it.
+          onValueChange={(value) =>
+            setProject(value ?? (project === NO_PROJECT ? NO_PROJECT : "all"))
+          }
+          ariaLabel="Filter memory by project"
+          nullableLabel={project === NO_PROJECT ? "No project" : "All projects"}
+        />
+        <Button
+          size="sm"
+          variant={project === NO_PROJECT ? "secondary" : "ghost"}
+          aria-pressed={project === NO_PROJECT}
+          onClick={() => setProject(project === NO_PROJECT ? "all" : NO_PROJECT)}
+        >
+          No project
+        </Button>
         <div className="w-32">
           <Select
             value={kind}
@@ -186,19 +217,22 @@ function MemoryBody() {
           type="search"
           size="sm"
           aria-label="Search memory"
-          placeholder="Search"
+          placeholder="Search loaded entries…"
           value={search}
-          onChange={(event) => setSearch(event.target.value)}
+          onChange={(event) => {
+            setSearch(event.target.value);
+            setPage(1);
+          }}
         />
       </div>
-      <ScrollArea className="min-h-0 flex-1">
+      <ScrollArea key={directory.page} className="min-h-0 flex-1">
         {days.length === 0 ? (
           <p className="py-8 text-center text-muted-foreground text-sm">
             {memory.length === 0 ? "Nothing saved yet." : "No entries match."}
           </p>
         ) : (
           <ol className="flex flex-col gap-4">
-            {days.map((day) => (
+            {directory.days.map((day) => (
               <li key={day.day} className="flex flex-col gap-2">
                 <h3 className="font-medium text-muted-foreground text-xs">{formatDay(day.day)}</h3>
                 <ul className="flex flex-col gap-2">
@@ -221,7 +255,7 @@ function MemoryBody() {
             ))}
           </ol>
         )}
-        {hasMore && cursor !== undefined ? (
+        {showLoadOlder(directory, hasMore) && cursor !== undefined ? (
           <div className="flex justify-center py-3">
             <Button
               size="sm"
@@ -234,6 +268,10 @@ function MemoryBody() {
           </div>
         ) : null}
       </ScrollArea>
+      <p className="text-xs text-muted-foreground">
+        Search covers loaded entries. Load older history to include more.
+      </p>
+      <CollectionPager {...directory} label="memory entries" onPageChange={setPage} />
     </div>
   );
 }
@@ -337,7 +375,6 @@ function AddMemoryForm({ defaultProjectId }: { readonly defaultProjectId: Projec
   const [projectId, setProjectId] = useState<ProjectId | null>(defaultProjectId);
   const [text, setText] = useState("");
   const [saving, setSaving] = useState(false);
-  const selectedProject = projects.find((item) => item.id === projectId);
 
   const submit = async (event: FormEvent) => {
     event.preventDefault();
@@ -395,24 +432,13 @@ function AddMemoryForm({ defaultProjectId }: { readonly defaultProjectId: Projec
           </Select>
         </div>
         <div className="min-w-0 flex-1">
-          <Select
-            value={projectId ?? NO_PROJECT}
-            onValueChange={(value) =>
-              setProjectId(projects.find((item) => item.id === value)?.id ?? null)
-            }
-          >
-            <SelectTrigger aria-label="Project" size="sm">
-              <SelectValue>{selectedProject?.title ?? "No project"}</SelectValue>
-            </SelectTrigger>
-            <SelectPopup>
-              <SelectItem value={NO_PROJECT}>No project</SelectItem>
-              {projects.map((item) => (
-                <SelectItem key={item.id} value={item.id}>
-                  {item.title}
-                </SelectItem>
-              ))}
-            </SelectPopup>
-          </Select>
+          <ProjectPicker
+            projects={projects}
+            value={projectId}
+            onValueChange={setProjectId}
+            nullableLabel="No project"
+            ariaLabel="Memory entry project"
+          />
         </div>
         <Button type="submit" size="sm" disabled={saving || !text.trim()}>
           Save

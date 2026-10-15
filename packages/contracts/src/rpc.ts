@@ -365,6 +365,8 @@ import {
   CommandCenterSetSectionPullRequestInput,
   CommandCenterStreamEvent,
   CommandCenterSubscribeInput,
+  CommandCenterThreadDigestsInput,
+  CommandCenterThreadDigestsResult,
   CommandCenterUpsertInput,
 } from "./commandCenter.ts";
 import {
@@ -647,6 +649,7 @@ export const WS_METHODS = {
   commandCenterListWorkflowRuns: "commandCenter.listWorkflowRuns",
   commandCenterGetWorkflowRun: "commandCenter.getWorkflowRun",
   commandCenterSubscribeWorkflowRuns: "commandCenter.subscribeWorkflowRuns",
+  commandCenterThreadDigests: "commandCenter.threadDigests",
 
   // Cloud environment methods
   cloudGetRelayClientStatus: "cloud.getRelayClientStatus",
@@ -2021,6 +2024,13 @@ const WsCommandCenterBuildRepoDigestRpc = Rpc.make(WS_METHODS.commandCenterBuild
   error: Schema.Union([CommandCenterError, EnvironmentAuthorizationError]),
 });
 
+/** Final reply and diff size of each thread's latest finished run, from stored records. */
+const WsCommandCenterThreadDigestsRpc = Rpc.make(WS_METHODS.commandCenterThreadDigests, {
+  payload: CommandCenterThreadDigestsInput,
+  success: CommandCenterThreadDigestsResult,
+  error: Schema.Union([CommandCenterError, EnvironmentAuthorizationError]),
+});
+
 /** Creates the Onboarding team when missing, restores it when archived, keeps user edits. */
 const WsCommandCenterEnsureOnboardingTeamRpc = Rpc.make(
   WS_METHODS.commandCenterEnsureOnboardingTeam,
@@ -2382,6 +2392,7 @@ export const CommandCenterRpcGroup = RpcGroup.make(
   WsCommandCenterListWorkflowRunsRpc,
   WsCommandCenterGetWorkflowRunRpc,
   WsCommandCenterSubscribeWorkflowRunsRpc,
+  WsCommandCenterThreadDigestsRpc,
 ).middleware(RpcScopeAuthorization);
 
 /**

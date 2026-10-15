@@ -27,23 +27,25 @@ import {
 } from "../../ui/dialog";
 import { Input } from "../../ui/input";
 import { Toggle, ToggleGroup } from "../../ui/toggle-group";
+import { CollectionPager } from "../CollectionPager";
+import { paginateCollection } from "../collectionPaging";
+import { searchLibrary } from "./libraryLogic";
 import { Field } from "./NodePanel";
 import { useDocumentVisible } from "../infra/useDocumentVisible";
 import { SkillsPanel } from "./text/SkillsPanel";
 import { SnippetsPanel } from "./text/SnippetsPanel";
 import type { WorkflowCommands } from "./useWorkflowCommands";
+import { WorkflowRunList } from "./WorkflowRunList";
 import { lastRunBySlug, RUN_STATUS_LABEL, statusVariant, uniqueSlug } from "./workflowLogic";
 
 type Section = "library" | "deleted" | "skills" | "snippets";
 const isSection = (value: unknown): value is Section =>
   value === "library" || value === "deleted" || value === "skills" || value === "snippets";
 
-/** Recent runs listed under the library; older ones stay reachable from each run's workflow. */
-const RECENT_RUNS = 8;
-
 /**
- * A project's workflows: cards with their inputs and last run, recent runs, built-in starters to
- * copy in, deleted workflows to restore, and the project's skills and snippets.
+ * A project's workflows: cards with their inputs and last run, its runs (paged, waiting first),
+ * built-in starters to copy in, deleted workflows to restore, and the project's skills and
+ * snippets.
  */
 export function WorkflowLibrary({
   environmentId,
@@ -68,6 +70,18 @@ export function WorkflowLibrary({
 }) {
   const [section, setSection] = useState<Section>("library");
   const [creating, setCreating] = useState(false);
+  const [search, setSearch] = useState("");
+  const [page, setPage] = useState(1);
+  const filtered = useMemo(
+    () =>
+      searchLibrary(list?.workflows ?? [], search, (workflow) => [
+        workflow.title,
+        workflow.slug,
+        workflow.description,
+      ]),
+    [list, search],
+  );
+  const directory = paginateCollection(filtered, page, 12);
   const lastRuns = useMemo(() => lastRunBySlug(runs?.runs ?? []), [runs]);
   const taken = useMemo(
     () => new Set((list?.workflows ?? []).map((workflow) => workflow.slug as string)),
@@ -118,17 +132,33 @@ export function WorkflowLibrary({
         </p>
       ) : (
         <>
-          {list.workflows.length === 0 ? (
+          <div className="flex flex-wrap items-center gap-3 rounded-xl border bg-card p-3">
+            <div className="min-w-0 flex-1 text-sm font-medium">Workflow library</div>
+            <div className="w-full sm:w-72">
+              <Input
+                type="search"
+                aria-label="Search workflows"
+                placeholder="Search title, description or slug"
+                value={search}
+                onChange={(event) => {
+                  setSearch(event.target.value);
+                  setPage(1);
+                }}
+              />
+            </div>
+          </div>
+          {filtered.length === 0 ? (
             <p className="rounded-xl border border-dashed py-8 text-center text-sm text-muted-foreground">
-              No workflows in this project yet. Copy a starter below, make a new one, or ask an
-              agent to build one.
+              {search.trim()
+                ? "No workflows match your search. Clear the search to see the library."
+                : "No workflows in this project yet. Copy a starter below, make a new one, or ask an agent to build one."}
             </p>
           ) : (
             <ul
               aria-label="Workflows"
-              className="grid grid-cols-[repeat(auto-fill,minmax(16rem,1fr))] gap-3"
+              className="grid grid-cols-[repeat(auto-fill,minmax(min(100%,20rem),1fr))] gap-3"
             >
-              {list.workflows.map((workflow) => (
+              {directory.items.map((workflow) => (
                 <WorkflowCard
                   key={workflow.slug}
                   workflow={workflow}
@@ -141,13 +171,29 @@ export function WorkflowLibrary({
               ))}
             </ul>
           )}
-          <RecentRuns runs={runs} onOpenRun={onOpenRun} />
-          <Starters
-            environmentId={environmentId}
-            canWrite={commands.canWrite}
-            taken={taken}
-            onCopy={create}
-          />
+          <CollectionPager {...directory} label="workflows" onPageChange={setPage} />
+          <section className="flex flex-col gap-2" aria-label="Runs">
+            <h2 className="text-sm font-medium">Runs</h2>
+            <WorkflowRunList
+              environmentId={environmentId}
+              projectId={projectId}
+              live={runs}
+              onOpenRun={(run) => onOpenRun(run.id)}
+            />
+          </section>
+          <details className="rounded-xl border p-3" open={list.workflows.length === 0}>
+            <summary className="cursor-pointer text-sm font-medium focus-visible:outline-ring">
+              Starter workflows
+            </summary>
+            <div className="pt-3">
+              <Starters
+                environmentId={environmentId}
+                canWrite={commands.canWrite}
+                taken={taken}
+                onCopy={create}
+              />
+            </div>
+          </details>
         </>
       )}
 
@@ -247,41 +293,6 @@ function WorkflowCard({
   );
 }
 
-function RecentRuns({
-  runs,
-  onOpenRun,
-}: {
-  readonly runs: CommandCenterWorkflowRunsState | null;
-  readonly onOpenRun: (runId: CommandCenterWorkflowRunId) => void;
-}) {
-  const recent = (runs?.runs ?? []).slice(0, RECENT_RUNS);
-  if (recent.length === 0) return null;
-  return (
-    <section className="flex flex-col gap-2">
-      <h3 className="text-sm font-medium">Recent runs</h3>
-      <ul className="flex flex-col divide-y rounded-xl border">
-        {recent.map((run) => (
-          <li key={run.id}>
-            <button
-              type="button"
-              onClick={() => onOpenRun(run.id)}
-              className="flex w-full min-w-0 items-center gap-2 px-3 py-2 text-start text-sm outline-none hover:bg-accent/50 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset"
-            >
-              <Badge size="sm" variant={statusVariant(run.status)}>
-                {RUN_STATUS_LABEL[run.status]}
-              </Badge>
-              <span className="min-w-0 flex-1 truncate">{run.title}</span>
-              <span className="shrink-0 text-xs text-muted-foreground">
-                {formatRelativeTimeLabel(run.startedAt)}
-              </span>
-            </button>
-          </li>
-        ))}
-      </ul>
-    </section>
-  );
-}
-
 function Starters({
   environmentId,
   canWrite,
@@ -301,7 +312,6 @@ function Starters({
   if (starters.length === 0) return null;
   return (
     <section className="flex flex-col gap-2">
-      <h3 className="text-sm font-medium">Starters</h3>
       <p className="text-xs text-muted-foreground">
         Built-in workflows. Copy one into this project to run or change it.
       </p>
@@ -359,6 +369,17 @@ function DeletedWorkflows({
       : null,
   );
   const [restoring, setRestoring] = useState<string | null>(null);
+  const [search, setSearch] = useState("");
+  const [page, setPage] = useState(1);
+  const directory = paginateCollection(
+    searchLibrary(query.data?.workflows ?? [], search, (workflow) => [
+      workflow.title,
+      workflow.slug,
+      workflow.description,
+    ]),
+    page,
+    15,
+  );
   if (query.data === null) {
     return (
       <p className="py-12 text-center text-sm text-muted-foreground" role="status">
@@ -374,31 +395,49 @@ function DeletedWorkflows({
     );
   }
   return (
-    <ul className="flex flex-col divide-y rounded-xl border">
-      {query.data.workflows.map((workflow) => (
-        <li key={workflow.slug} className="flex items-center gap-2 px-3 py-2">
-          <span className="min-w-0 flex-1 truncate text-sm">{workflow.title}</span>
-          <span className="shrink-0 text-xs text-muted-foreground">
-            {formatRelativeTimeLabel(workflow.updatedAt)}
-          </span>
-          {commands.canWrite ? (
-            <Button
-              size="xs"
-              variant="outline"
-              disabled={restoring !== null}
-              onClick={async () => {
-                setRestoring(workflow.slug);
-                await commands.restore(workflow.slug);
-                setRestoring(null);
-              }}
-            >
-              <RotateCcwIcon />
-              Restore
-            </Button>
-          ) : null}
-        </li>
-      ))}
-    </ul>
+    <div className="space-y-3">
+      <Input
+        type="search"
+        aria-label="Search deleted workflows"
+        placeholder="Search deleted workflows"
+        value={search}
+        onChange={(event) => {
+          setSearch(event.target.value);
+          setPage(1);
+        }}
+      />
+      {directory.total === 0 ? (
+        <p className="py-6 text-sm text-muted-foreground">
+          No deleted workflows match your search.
+        </p>
+      ) : null}
+      <ul className="flex flex-col divide-y rounded-xl border">
+        {directory.items.map((workflow) => (
+          <li key={workflow.slug} className="flex items-center gap-2 px-3 py-2">
+            <span className="min-w-0 flex-1 truncate text-sm">{workflow.title}</span>
+            <span className="shrink-0 text-xs text-muted-foreground">
+              {formatRelativeTimeLabel(workflow.updatedAt)}
+            </span>
+            {commands.canWrite ? (
+              <Button
+                size="xs"
+                variant="outline"
+                disabled={restoring !== null}
+                onClick={async () => {
+                  setRestoring(workflow.slug);
+                  await commands.restore(workflow.slug);
+                  setRestoring(null);
+                }}
+              >
+                <RotateCcwIcon />
+                Restore
+              </Button>
+            ) : null}
+          </li>
+        ))}
+      </ul>
+      <CollectionPager {...directory} label="deleted workflows" onPageChange={setPage} />
+    </div>
   );
 }
 

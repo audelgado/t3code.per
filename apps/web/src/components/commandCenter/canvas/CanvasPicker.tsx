@@ -18,6 +18,9 @@ import {
   DialogTitle,
 } from "../../ui/dialog";
 import { Input } from "../../ui/input";
+import { Toggle, ToggleGroup } from "../../ui/toggle-group";
+import { CollectionPager } from "../CollectionPager";
+import { paginateCollection } from "../collectionPaging";
 import { SECTION_STATUS_LABEL, sortSections } from "../projects/logic";
 import { useCommandCenter, useCommandCenterCommands } from "../shared";
 import { refKey } from "./canvasLogic";
@@ -55,6 +58,8 @@ export function CanvasPicker({
   const { snapshot, primaryEnvironmentId } = useCommandCenter();
   const { listMemory } = useCommandCenterCommands();
   const [search, setSearch] = useState("");
+  const [kind, setKind] = useState("Artifacts");
+  const [page, setPage] = useState(1);
   const query = useDebouncedValue(search.trim(), 250);
   const artifactInput = (scope: ProjectId | null) => ({
     projectId: scope,
@@ -158,13 +163,17 @@ export function CanvasPicker({
       });
     }
   };
+  const group = groups.find((candidate) => candidate.label === kind) ?? groups[0]!;
+  const directory = paginateCollection(group.rows, page, 15);
 
   return (
     <Dialog open onOpenChange={onOpenChange}>
       <DialogPopup>
         <DialogHeader>
           <DialogTitle>Add to canvas</DialogTitle>
-          <DialogDescription>Each card lands in the middle of the board view.</DialogDescription>
+          <DialogDescription>
+            Choose a source, find an item and add it to the middle of the board view.
+          </DialogDescription>
         </DialogHeader>
         <DialogPanel>
           <Input
@@ -173,44 +182,75 @@ export function CanvasPicker({
             aria-label="Search"
             placeholder="Search artifacts, sections and memory"
             value={search}
-            onChange={(event) => setSearch(event.target.value)}
+            onChange={(event) => {
+              setSearch(event.target.value);
+              setPage(1);
+            }}
           />
-          {groups.map((group) => (
-            <section key={group.label} className="flex flex-col gap-1">
-              <h3 className="text-xs font-medium text-muted-foreground">{group.label}</h3>
-              {group.label === "Artifacts" && artifacts === undefined ? (
-                <p className="text-sm text-muted-foreground" role="status">
-                  {artifactsError ? `Could not load artifacts: ${artifactsError}` : "Loading…"}
-                </p>
-              ) : group.rows.length === 0 ? (
-                <p className="text-sm text-muted-foreground">Nothing else to add.</p>
-              ) : (
-                <ul className="flex flex-col">
-                  {group.rows.map((row) => {
-                    const done = added.has(refKey(row.kind, row.refId));
-                    return (
-                      <li key={row.refId}>
-                        <button
-                          type="button"
-                          disabled={done}
-                          onClick={() => void add(row)}
-                          className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-start text-sm outline-none hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset disabled:text-muted-foreground"
-                        >
-                          <span className="min-w-0 flex-1 truncate">{row.title}</span>
-                          <span className="shrink-0 text-xs text-muted-foreground">
+          <ToggleGroup
+            aria-label="Canvas item source"
+            variant="segmented"
+            value={[kind]}
+            onValueChange={(values) => {
+              if (groups.some((candidate) => candidate.label === values[0])) {
+                setKind(values[0]!);
+                setPage(1);
+              }
+            }}
+          >
+            {groups.map((candidate) => (
+              <Toggle key={candidate.label} value={candidate.label}>
+                {candidate.label}
+              </Toggle>
+            ))}
+          </ToggleGroup>
+          <section key={group.label} className="flex flex-col gap-1">
+            <h3 className="text-xs font-medium text-muted-foreground">{group.label}</h3>
+            {group.label === "Artifacts" && artifacts === undefined ? (
+              <p className="text-sm text-muted-foreground" role="status">
+                {artifactsError ? `Could not load artifacts: ${artifactsError}` : "Loading…"}
+              </p>
+            ) : group.rows.length === 0 ? (
+              <p className="py-6 text-sm text-muted-foreground">
+                {search.trim()
+                  ? "No available items match your search."
+                  : "Nothing else to add from this source."}
+              </p>
+            ) : (
+              <ul className="flex flex-col">
+                {directory.items.map((row) => {
+                  const done = added.has(refKey(row.kind, row.refId));
+                  return (
+                    <li key={row.refId}>
+                      <button
+                        type="button"
+                        disabled={done}
+                        onClick={() => void add(row)}
+                        className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-start text-sm outline-none hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset disabled:text-muted-foreground"
+                      >
+                        <span className="min-w-0 flex-1">
+                          <span className="block truncate">{row.title}</span>
+                          <span className="block truncate text-xs text-muted-foreground">
                             {row.detail}
                           </span>
-                          {done ? (
-                            <CheckIcon aria-label="Added" className="size-3.5 shrink-0" />
-                          ) : null}
-                        </button>
-                      </li>
-                    );
-                  })}
-                </ul>
-              )}
-            </section>
-          ))}
+                        </span>
+                        {done ? (
+                          <CheckIcon aria-label="Added" className="size-3.5 shrink-0" />
+                        ) : null}
+                      </button>
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+          </section>
+          <CollectionPager {...directory} label={kind.toLowerCase()} onPageChange={setPage} />
+          {kind === "Artifacts" &&
+          (projectArtifacts.data?.hasMore || globalArtifacts.data?.hasMore) ? (
+            <p className="text-xs text-muted-foreground">
+              Showing the newest available artifacts. Search by title to find older pages.
+            </p>
+          ) : null}
         </DialogPanel>
       </DialogPopup>
     </Dialog>

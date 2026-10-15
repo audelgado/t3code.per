@@ -13,7 +13,8 @@ import { describe, expect, it } from "@effect/vitest";
 import { applyWorkflowRunEvent } from "./commandCenterWorkflows.ts";
 
 const at = "2026-10-13T00:00:00.000Z";
-const run = (id: string, status: CommandCenterWorkflowRun["status"] = "running") =>
+const later = "2026-10-14T00:00:00.000Z";
+const run = (id: string, status: CommandCenterWorkflowRun["status"] = "running", startedAt = at) =>
   ({
     id: CommandCenterWorkflowRunId.make(id),
     slug: CommandCenterWorkflowSlug.make("feature"),
@@ -23,7 +24,7 @@ const run = (id: string, status: CommandCenterWorkflowRun["status"] = "running")
     status,
     inputs: {},
     error: null,
-    startedAt: at,
+    startedAt,
     finishedAt: null,
     updatedAt: at,
   }) satisfies CommandCenterWorkflowRun;
@@ -65,7 +66,7 @@ describe("applyWorkflowRunEvent", () => {
     const oldest = runs[runs.length - 1]!.id;
     const state = applyWorkflowRunEvent(
       { runs, steps: [step(oldest, "running")] },
-      { type: "run", run: run("new") },
+      { type: "run", run: run("new", "running", later) },
     );
     expect(state?.runs).toHaveLength(COMMAND_CENTER_WORKFLOW_RUN_SNAPSHOT_LIMIT);
     expect(state?.runs[0]?.id).toBe("new");
@@ -74,5 +75,20 @@ describe("applyWorkflowRunEvent", () => {
     expect(applyWorkflowRunEvent(state, { type: "step", step: step(oldest, "failed") })).toBe(
       state,
     );
+  });
+
+  it("keeps the feed the newest runs: an older run outside a full feed is dropped", () => {
+    const runs = Array.from({ length: COMMAND_CENTER_WORKFLOW_RUN_SNAPSHOT_LIMIT }, (_, index) =>
+      run(`r${index}`, "running", later),
+    );
+    const full = { runs, steps: [] };
+    // Answered from the CLI: a run far older than the feed changes. The window keeps its tail.
+    expect(applyWorkflowRunEvent(full, { type: "run", run: run("old", "waiting") })).toBe(full);
+    // Below the cap, a run joins in server order rather than on top.
+    const partial = applyWorkflowRunEvent(
+      { runs: [run("b", "running", later)], steps: [] },
+      { type: "run", run: run("a") },
+    );
+    expect(partial?.runs.map((entry) => entry.id)).toEqual(["b", "a"]);
   });
 });

@@ -1,62 +1,52 @@
 import { CommandCenterWorkflowRunId, ProjectId } from "@t3tools/contracts";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
-import { useMemo } from "react";
 
 import { CommandCenterPage } from "../components/commandCenter/CommandCenterPage";
-import { COMMAND_CENTER_TABS, type CommandCenterTab } from "../components/commandCenter/tabs";
-
-export interface CommandCenterSearch {
-  readonly tab?: CommandCenterTab;
-  /** Artifact open in the Artifacts tab's viewer, so other views can link straight to it. */
-  readonly artifact?: string;
-  /** A run to open in the Workflows tab, with the project it belongs to. */
-  readonly project?: string;
-  readonly run?: string;
-}
-
-const searchText = (value: unknown) =>
-  typeof value === "string" && value.trim() !== "" ? value.trim() : undefined;
+import { parseCommandCenterSearch } from "../components/commandCenter/tabs";
+import { resolveCommandCenterSections } from "../components/commandCenter/customization";
+import { usePrimarySettings } from "../hooks/useSettings";
 
 export const Route = createFileRoute("/_chat/command")({
-  validateSearch: (raw: Record<string, unknown>): CommandCenterSearch => {
-    const tab = COMMAND_CENTER_TABS.find((option) => option.value === raw.tab);
-    const artifact = tab?.value === "artifacts" ? searchText(raw.artifact) : undefined;
-    const project = tab?.value === "workflows" ? searchText(raw.project) : undefined;
-    const run = project === undefined ? undefined : searchText(raw.run);
-    // Team is the default, so it stays out of the URL.
-    return {
-      ...(tab && tab.value !== "team" ? { tab: tab.value } : {}),
-      ...(artifact === undefined ? {} : { artifact }),
-      ...(project === undefined || run === undefined ? {} : { project, run }),
-    };
-  },
+  validateSearch: parseCommandCenterSearch,
   component: CommandCenterRouteView,
 });
 
 function CommandCenterRouteView() {
   const search = Route.useSearch();
+  const sections = usePrimarySettings((settings) => settings.commandCenter.sections);
+  const defaultTab = resolveCommandCenterSections(sections).find((section) => section.visible)!.id;
   const navigate = useNavigate({ from: Route.fullPath });
-  const workflowRun = useMemo(
-    () =>
-      search.project === undefined || search.run === undefined
-        ? null
-        : {
-            projectId: ProjectId.make(search.project),
-            runId: CommandCenterWorkflowRunId.make(search.run),
-          },
-    [search.project, search.run],
-  );
+  // The focus travels with every tab change; a run or artifact belongs to the view it was opened in.
+  const focus = search.project === undefined ? {} : { project: search.project };
   return (
     <CommandCenterPage
-      tab={search.tab ?? "team"}
-      onTabChange={(tab) => void navigate({ search: tab === "team" ? {} : { tab }, replace: true })}
-      artifactId={search.artifact ?? null}
-      workflowRun={workflowRun}
-      onArtifactChange={(artifact) =>
+      tab={search.tab ?? defaultTab}
+      onTabChange={(tab) => void navigate({ search: { tab, ...focus } })}
+      projectId={search.project === undefined ? null : ProjectId.make(search.project)}
+      onProjectChange={(project) =>
         void navigate({
-          search: artifact === null ? { tab: "artifacts" } : { tab: "artifacts", artifact },
+          search: ({ run: _run, project: _project, ...rest }) =>
+            project === null ? rest : { ...rest, project },
           replace: true,
         })
+      }
+      artifactId={search.artifact ?? null}
+      onArtifactChange={(artifact) =>
+        void navigate({
+          search: { tab: "artifacts", ...focus, ...(artifact === null ? {} : { artifact }) },
+          replace: true,
+        })
+      }
+      workflowRunId={search.run === undefined ? null : CommandCenterWorkflowRunId.make(search.run)}
+      onOpenWorkflowRun={(project, run) =>
+        void navigate({ search: { tab: "workflows", project, run } })
+      }
+      onCloseWorkflowRun={() =>
+        void navigate({ search: ({ run: _run, ...rest }) => rest, replace: true })
+      }
+      ask={search.ask ?? null}
+      onAskHandled={() =>
+        void navigate({ search: ({ ask: _ask, ...rest }) => rest, replace: true })
       }
     />
   );

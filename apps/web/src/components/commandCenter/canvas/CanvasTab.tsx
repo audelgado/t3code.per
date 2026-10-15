@@ -50,8 +50,12 @@ import { useEnvironmentQuery } from "~/state/query";
 import { serverEnvironment } from "~/state/server";
 import { useAtomCommand } from "~/state/use-atom-command";
 import { Button } from "../../ui/button";
+import { Input } from "../../ui/input";
+import { CollectionPager } from "../CollectionPager";
+import { paginateCollection } from "../collectionPaging";
 import { toastManager } from "../../ui/toast";
 import { useDocumentVisible } from "../infra/useDocumentVisible";
+import { FocusPrompt } from "../ProjectPicker";
 import { useCommandCenter } from "../shared";
 import { CanvasCardSheet, type CanvasSheetTarget } from "./CanvasCardSheet";
 import {
@@ -92,16 +96,20 @@ const KIND_ICON = {
 
 /**
  * A project's canvas: cards for artifacts, sections, memory entries and notes, joined by edges.
- * One board per project, picked with the page's project filter.
+ * One board per project: the page's project focus.
  */
 export function CanvasTab() {
   const { projectId, projects } = useCommandCenter();
   const project = projects.find((candidate) => candidate.id === projectId);
   if (projectId === null || !project) {
     return (
-      <p className="py-12 text-center text-sm text-muted-foreground">
-        Pick a project above to lay out its artifacts, sections and notes.
-      </p>
+      <FocusPrompt
+        text={
+          projectId === null
+            ? "Choose a project to lay out its artifacts, sections and notes."
+            : "This project is not available. It was removed or its machine is offline."
+        }
+      />
     );
   }
   // Keyed so local drag state never carries over to another project's board.
@@ -212,6 +220,8 @@ function CanvasBoard({
     readonly target: CanvasSheetTarget | null;
   }>({ open: false, target: null });
   const [pickerOpen, setPickerOpen] = useState(false);
+  const [cardSearch, setCardSearch] = useState("");
+  const [cardPage, setCardPage] = useState(1);
   const scrollRef = useRef<HTMLDivElement>(null);
   // Used inside `url(#…)`, so keep only characters that need no escaping.
   const markerId = `cc-canvas-arrow-${useId().replace(/[^\w-]/g, "")}`;
@@ -231,6 +241,16 @@ function CanvasBoard({
     () => new Map((items ?? []).map((item) => [item.id as string, describeCard(item, lookups)])),
     [items, lookups],
   );
+  const cardDirectory = useMemo(() => {
+    const needle = cardSearch.trim().toLocaleLowerCase();
+    const rows = (items ?? []).map((item) => ({ item, view: views.get(item.id) }));
+    return rows
+      .filter(({ item, view }) =>
+        `${view?.title ?? ""} ${CANVAS_KIND_LABEL[item.kind]}`.toLocaleLowerCase().includes(needle),
+      )
+      .toSorted((left, right) => (left.view?.title ?? "").localeCompare(right.view?.title ?? ""));
+  }, [cardSearch, items, views]);
+  const directory = paginateCollection(cardDirectory, cardPage, 10);
   const size = boardSize(rects.values());
   const onBoard = useMemo(
     () =>
@@ -467,6 +487,58 @@ function CanvasBoard({
         <p className="text-xs text-muted-foreground">
           This canvas is full. Remove a card to add another.
         </p>
+      ) : null}
+
+      {items.length > 0 ? (
+        <details className="rounded-xl border bg-card p-3">
+          <summary className="cursor-pointer text-sm font-medium focus-visible:outline-ring">
+            Find a card · {items.length}
+          </summary>
+          <div className="pt-3">
+            <Input
+              type="search"
+              aria-label="Search canvas cards"
+              placeholder="Search card title or type"
+              value={cardSearch}
+              onChange={(event) => {
+                setCardSearch(event.target.value);
+                setCardPage(1);
+              }}
+            />
+            {directory.total === 0 ? (
+              <p className="py-4 text-sm text-muted-foreground">
+                No canvas cards match your search.
+              </p>
+            ) : null}
+            <ul className="mt-2 grid gap-1 sm:grid-cols-2">
+              {directory.items.map(({ item, view }) => (
+                <li key={item.id}>
+                  <button
+                    type="button"
+                    className="flex w-full min-w-0 items-center gap-2 rounded-md px-2 py-2 text-start text-sm outline-none hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset"
+                    onClick={() => {
+                      const scroller = scrollRef.current;
+                      const rect = rects.get(item.id);
+                      if (!scroller || !rect) return;
+                      scroller.scrollTo({
+                        left: Math.max(0, rect.x + rect.w / 2 - scroller.clientWidth / 2),
+                        top: Math.max(0, rect.y + rect.h / 2 - scroller.clientHeight / 2),
+                      });
+                      scroller.scrollIntoView({ block: "nearest" });
+                      scroller.focus({ preventScroll: true });
+                    }}
+                  >
+                    <span className="min-w-0 flex-1 truncate">{view?.title ?? "Card"}</span>
+                    <span className="shrink-0 text-xs text-muted-foreground">
+                      {CANVAS_KIND_LABEL[item.kind]}
+                    </span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+            <CollectionPager {...directory} label="canvas cards" onPageChange={setCardPage} />
+          </div>
+        </details>
       ) : null}
 
       <DndContext

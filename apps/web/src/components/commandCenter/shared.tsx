@@ -1,3 +1,8 @@
+import {
+  type CommandCenterAttention,
+  deriveAgentStates,
+  deriveAttention,
+} from "@t3tools/client-runtime/state/commandCenterDerive";
 import type { EnvironmentProject } from "@t3tools/client-runtime/state/shell";
 import {
   isAtomCommandInterrupted,
@@ -27,17 +32,12 @@ import {
   useEnvironments,
   usePrimaryEnvironmentId,
 } from "~/state/environments";
+import { useEnvironmentQuery } from "~/state/query";
 import { serverEnvironment } from "~/state/server";
 import { useAtomCommand } from "~/state/use-atom-command";
 import { useRelativeTimeTick } from "../settings/settingsLayout";
 import { toastManager } from "../ui/toast";
-import {
-  deriveAgentState,
-  latestAssignmentByAgent,
-  pendingChildrenByParent,
-  threadShellKey,
-  type CommandCenterAgentState,
-} from "./logic";
+import type { CommandCenterAgentState } from "./logic";
 
 /** Where the orchestrator sends work: a specific environment, or `auto` to pick one. */
 export type CommandCenterTarget = EnvironmentId | "auto";
@@ -49,8 +49,13 @@ export interface CommandCenterContextValue {
   readonly primaryEnvironmentId: EnvironmentId;
   /** T3 projects across all connected environments (scratch projects excluded, ids deduped). */
   readonly projects: ReadonlyArray<EnvironmentProject>;
-  /** Project filter chip; null shows everything. Tabs dim rows outside it rather than hide them. */
+  /**
+   * Project focus from the URL (`?project=`). Tabs filter to it and never dim; in Projects it is
+   * the open detail. Ask the team and the plan drawer start on it.
+   */
   readonly projectId: ProjectId | null;
+  /** Sets or clears the focus (replaces the URL entry and drops an open run). */
+  readonly setProjectFocus: (projectId: ProjectId | null) => void;
   /** Hide amounts toggle; `Money` already reads it. */
   readonly hidden: boolean;
   /** Whether this viewer may write (orchestration:operate on the primary environment). */
@@ -59,7 +64,7 @@ export interface CommandCenterContextValue {
   readonly openPlan: (plan: CommandCenterPlanSeed) => void;
 }
 
-/** Steps handed straight to the plan drawer, e.g. "Delegate what's missing" or "Give work". */
+/** Steps handed straight to the plan drawer, e.g. a project's "Ask the team". */
 export interface CommandCenterPlanSeed {
   readonly projectId: ProjectId | null;
   readonly steps: ReadonlyArray<{
@@ -72,9 +77,16 @@ export interface CommandCenterPlanSeed {
 
 /** DOM id of the orchestrator input, so `/` and prefill can focus it. */
 export const ORCHESTRATOR_INPUT_ID = "command-center-orchestrator-input";
+export const ORCHESTRATOR_TOGGLE_ID = "command-center-orchestrator-toggle";
 
 export function focusOrchestrator() {
-  document.getElementById(ORCHESTRATOR_INPUT_ID)?.focus();
+  const trigger = document.getElementById(ORCHESTRATOR_TOGGLE_ID);
+  if (trigger?.getAttribute("aria-expanded") === "false") {
+    trigger.click();
+    requestAnimationFrame(() => document.getElementById(ORCHESTRATOR_INPUT_ID)?.focus());
+  } else {
+    document.getElementById(ORCHESTRATOR_INPUT_ID)?.focus();
+  }
 }
 
 const CommandCenterContext = createContext<CommandCenterContextValue | null>(null);
@@ -204,24 +216,30 @@ export function useAgentStates(): ReadonlyMap<CommandCenterAgentId, CommandCente
   const { snapshot } = useCommandCenter();
   const shells = useThreadShells();
   const now = useRelativeTimeTick(60_000);
-  return useMemo(() => {
-    const shellByKey = new Map(
-      shells.map((shell) => [threadShellKey(shell.environmentId, shell.id), shell] as const),
-    );
-    const latest = latestAssignmentByAgent(snapshot.assignments);
-    const pendingChildren = pendingChildrenByParent(shells);
-    return new Map(
-      snapshot.agentProfiles.map((agent) => {
-        const assignment = latest.get(agent.id) ?? null;
-        const key = assignment ? threadShellKey(assignment.environmentId, assignment.threadId) : "";
-        const shell = assignment ? (shellByKey.get(key) ?? null) : null;
-        return [
-          agent.id,
-          deriveAgentState(assignment, shell, now, pendingChildren.get(key) ?? null),
-        ] as const;
-      }),
-    );
-  }, [now, shells, snapshot.agentProfiles, snapshot.assignments]);
+  return useMemo(() => deriveAgentStates(snapshot, shells, now), [now, shells, snapshot]);
+}
+
+/**
+ * Home's "Needs you" list and its count in Team: threads waiting on the user across machines,
+ * workflow runs waiting on the primary server, then Command Center alerts and items. Reads the
+ * thread shells and the snapshot already loaded, plus the primary's run feed, which closes when
+ * the calling tab unmounts; re-derives each minute for snooze wakes and stuck agents.
+ */
+export function useCommandCenterAttention(): ReadonlyArray<CommandCenterAttention> {
+  const { snapshot, primaryEnvironmentId } = useCommandCenter();
+  const shells = useThreadShells();
+  const environments = useCommandCenterEnvironments();
+  const now = useRelativeTimeTick(60_000);
+  const runs = useEnvironmentQuery(
+    serverEnvironment.commandCenterWorkflowRunsLive({
+      environmentId: primaryEnvironmentId,
+      input: {},
+    }),
+  ).data?.runs;
+  return useMemo(
+    () => deriveAttention({ shells, snapshot, environments, primaryEnvironmentId, now, runs }),
+    [environments, now, primaryEnvironmentId, runs, shells, snapshot],
+  );
 }
 
 export interface CommandCenterEnvironment {

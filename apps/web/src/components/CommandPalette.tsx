@@ -66,7 +66,6 @@ import {
   FolderGit2Icon,
   FolderIcon,
   FolderPlusIcon,
-  LayoutDashboardIcon,
   MessageSquareDashedIcon,
   LinkIcon,
   MessageSquareIcon,
@@ -238,6 +237,7 @@ import {
 import { resolveShortcutCommand, threadJumpIndexFromCommand } from "../keybindings";
 import { commandForWorkflow, workflowSlugFromCommand } from "../workflowCommand";
 import { RunWorkflowHost, runWorkflowNow, useWorkflowChoices } from "./RunWorkflowDialog";
+import { useCommandCenterPaletteItems } from "./commandCenter/useCommandCenterPaletteItems";
 import { CommandDialog, CommandDialogPopup, CommandFooterAction } from "./ui/command";
 import { Button } from "./ui/button";
 import { Kbd, KbdGroup } from "./ui/kbd";
@@ -397,6 +397,7 @@ export function CommandPalette({ children }: { children: ReactNode }) {
   const openNewThreadIn = useCallback(() => dispatch({ _tag: "OpenNewThreadIn" }), []);
   const clearOpenIntent = useCallback(() => dispatch({ _tag: "ClearOpenIntent" }), []);
   const keybindings = useAtomValue(primaryServerKeybindingsAtom);
+  const commandCenterEnabled = usePrimarySettings((settings) => settings.commandCenter.enabled);
   const { theme, themeHalves, resolvedTheme, appearanceMode, setAppearanceMode } = useTheme();
   const composerHandleRef = useRef<ChatComposerHandle | null>(null);
   const routeTarget = useParams({
@@ -482,7 +483,8 @@ export function CommandPalette({ children }: { children: ReactNode }) {
         void navigate({ to: "/usage" });
         return;
       }
-      if (command === "commandCenter.open") {
+      // While Command Center is off its shortcut does nothing, so the chord stays free.
+      if (command === "commandCenter.open" && commandCenterEnabled) {
         event.preventDefault();
         event.stopPropagation();
         setOpen(false);
@@ -519,6 +521,7 @@ export function CommandPalette({ children }: { children: ReactNode }) {
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [
     appearanceMode,
+    commandCenterEnabled,
     keybindings,
     navigate,
     previewOpen,
@@ -1098,6 +1101,7 @@ function OpenCommandPaletteDialog(props: {
     activeThread?.environmentId ?? activeDraftThread?.environmentId ?? null;
   const currentProjectId = activeThread?.projectId ?? activeDraftThread?.projectId ?? null;
   // Live only while the palette is open (this dialog unmounts when it closes).
+  const commandCenterPaletteItems = useCommandCenterPaletteItems();
   const workflowChoicesForPalette = useWorkflowChoices(
     currentProjectEnvironmentId,
     currentProjectId,
@@ -2266,32 +2270,7 @@ function OpenCommandPaletteDialog(props: {
     });
   }
 
-  if (commandCenterEnabled) {
-    actionItems.push({
-      kind: "action",
-      value: "action:command-center",
-      searchTerms: [
-        "command center",
-        "team",
-        "agents",
-        "memory",
-        "projects",
-        "infra",
-        "finance",
-        "artifacts",
-        "library",
-        "canvas",
-        "workflows",
-        "skills",
-      ],
-      title: "Open Command Center",
-      icon: <LayoutDashboardIcon className={ITEM_ICON_CLASS} />,
-      shortcutCommand: "commandCenter.open",
-      run: async () => {
-        await navigate({ to: "/command" });
-      },
-    });
-  }
+  actionItems.push(...commandCenterPaletteItems);
 
   for (const workflow of workflowChoicesForPalette.choices) {
     const shortcutCommand = commandForWorkflow(workflow.slug);

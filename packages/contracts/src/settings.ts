@@ -7,6 +7,7 @@ import {
 } from "./auth.ts";
 import * as Effect from "effect/Effect";
 import * as Duration from "effect/Duration";
+import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 import * as SchemaTransformation from "effect/SchemaTransformation";
 import {
@@ -1097,6 +1098,82 @@ export const StorageCleanupSettings = Schema.Struct({
 });
 export type StorageCleanupSettings = typeof StorageCleanupSettings.Type;
 
+export const COMMAND_CENTER_SECTION_IDS = [
+  "home",
+  "work",
+  "team",
+  "projects",
+  "infra",
+  "finance",
+  "artifacts",
+  "canvas",
+  "workflows",
+] as const;
+
+const CommandCenterSection = Schema.Struct({
+  id: Schema.Literals(COMMAND_CENTER_SECTION_IDS),
+  label: TrimmedString.check(Schema.isMaxLength(80)),
+  visible: Schema.Boolean,
+});
+const decodeCommandCenterSection = Schema.decodeUnknownOption(CommandCenterSection);
+
+/**
+ * Drops entries this build does not know (a section added by a newer client
+ * or server) instead of failing the whole settings snapshot.
+ */
+const CommandCenterSections = Schema.Unknown.pipe(
+  Schema.decodeTo(
+    Schema.Array(CommandCenterSection).check(Schema.isMaxLength(COMMAND_CENTER_SECTION_IDS.length)),
+    SchemaTransformation.transform<ReadonlyArray<typeof CommandCenterSection.Encoded>, unknown>({
+      decode: (raw) =>
+        Array.isArray(raw)
+          ? raw.filter((entry) => Option.isSome(decodeCommandCenterSection(entry)))
+          : (raw as ReadonlyArray<typeof CommandCenterSection.Encoded>),
+      encode: (raw) => raw,
+    }),
+  ),
+);
+
+const CommandCenterQuickActions = Schema.Array(
+  Schema.Struct({
+    id: TrimmedNonEmptyString.check(Schema.isMaxLength(80)),
+    label: TrimmedNonEmptyString.check(Schema.isMaxLength(80)),
+    kind: Schema.Literals(["section", "link", "prompt"]),
+    target: TrimmedNonEmptyString.check(Schema.isMaxLength(4_000)),
+  }),
+).check(Schema.isMaxLength(20));
+
+export const COMMAND_CENTER_MAX_PROJECT_GROUPS = 50;
+export const COMMAND_CENTER_MAX_PROJECTS = 200;
+
+/** User-defined project groups; deleting one only ungroups its projects. */
+const CommandCenterProjectGroups = Schema.Array(
+  Schema.Struct({
+    id: TrimmedNonEmptyString.check(Schema.isMaxLength(80)),
+    name: TrimmedNonEmptyString.check(Schema.isMaxLength(40)),
+  }),
+).check(Schema.isMaxLength(COMMAND_CENTER_MAX_PROJECT_GROUPS));
+
+/** Per-project launcher choices. `key` is `<environmentId>:<projectId>`, one row per T3 project. */
+const CommandCenterProjects = Schema.Array(
+  Schema.Struct({
+    key: TrimmedNonEmptyString.check(Schema.isMaxLength(500)),
+    pinned: Schema.Boolean,
+    groupId: Schema.NullOr(TrimmedNonEmptyString.check(Schema.isMaxLength(80))),
+    /** The project's site or admin page: http(s) with a host. */
+    url: Schema.NullOr(
+      TrimmedNonEmptyString.check(
+        Schema.isMaxLength(2_000),
+        Schema.isPattern(/^https?:\/\/[^\s/?#]\S*$/i),
+      ),
+    ),
+  }),
+).check(Schema.isMaxLength(COMMAND_CENTER_MAX_PROJECTS));
+
+const CommandCenterProjectOrder = Schema.Array(
+  TrimmedNonEmptyString.check(Schema.isMaxLength(500)),
+).check(Schema.isMaxLength(COMMAND_CENTER_MAX_PROJECTS));
+
 export const ServerSettings = Schema.Struct({
   // Null means no client has migrated this preference yet; an empty value is
   // authoritative so another device cannot resurrect cleared preferences.
@@ -1311,6 +1388,13 @@ export const ServerSettings = Schema.Struct({
   /** Off hides the Command Center entry, refuses its stream and skips its daily tick. */
   commandCenter: Schema.Struct({
     enabled: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(true))),
+    /** Web and desktop navigation; hiding a section never deletes its data. */
+    sections: CommandCenterSections.pipe(Schema.withDecodingDefault(Effect.succeed([]))),
+    quickActions: CommandCenterQuickActions.pipe(Schema.withDecodingDefault(Effect.succeed([]))),
+    projectGroups: CommandCenterProjectGroups.pipe(Schema.withDecodingDefault(Effect.succeed([]))),
+    projects: CommandCenterProjects.pipe(Schema.withDecodingDefault(Effect.succeed([]))),
+    /** Manual Projects order as `<environmentId>:<projectId>` keys; unknown keys sort last. */
+    projectOrder: CommandCenterProjectOrder.pipe(Schema.withDecodingDefault(Effect.succeed([]))),
   }).pipe(Schema.withDecodingDefault(Effect.succeed({}))),
 
   // New driver-agnostic instance map. Keyed by `ProviderInstanceId`; values
@@ -1612,7 +1696,16 @@ export const ServerSettingsPatch = Schema.Struct({
   reviewGuideModelSelection: Schema.optionalKey(Schema.NullOr(ModelSelection)),
   reviewGuideInstructions: Schema.optionalKey(TrimmedString),
   pullRequestMergeMethod: Schema.optionalKey(Schema.NullOr(PullRequestMergeMethod)),
-  commandCenter: Schema.optionalKey(Schema.Struct({ enabled: Schema.optionalKey(Schema.Boolean) })),
+  commandCenter: Schema.optionalKey(
+    Schema.Struct({
+      enabled: Schema.optionalKey(Schema.Boolean),
+      sections: Schema.optionalKey(CommandCenterSections),
+      quickActions: Schema.optionalKey(CommandCenterQuickActions),
+      projectGroups: Schema.optionalKey(CommandCenterProjectGroups),
+      projects: Schema.optionalKey(CommandCenterProjects),
+      projectOrder: Schema.optionalKey(CommandCenterProjectOrder),
+    }),
+  ),
   observability: Schema.optionalKey(
     Schema.Struct({
       otlpTracesUrl: Schema.optionalKey(TrimmedString),

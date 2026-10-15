@@ -131,6 +131,7 @@ import * as SkillWriter from "./commandCenter/SkillWriter.ts";
 import * as TextRewriter from "./commandCenter/TextRewriter.ts";
 import * as WorkflowRunner from "./commandCenter/WorkflowRunner.ts";
 import * as WorkflowStore from "./commandCenter/WorkflowStore.ts";
+import * as WorkflowThreads from "./commandCenter/workflowThreads.ts";
 import * as SecretRequests from "./secrets/SecretRequests.ts";
 import {
   archivedShellStreamItemFromThreadShell,
@@ -1213,8 +1214,11 @@ const layerCommandCenterRpc = CommandCenterRpcGroup.toLayer(
     const workflows = yield* WorkflowStore.WorkflowStore;
     const skills = yield* SkillWriter.SkillWriter;
     const workflowRuns = yield* WorkflowRunner.WorkflowRunner;
+    const workflowThreads = yield* WorkflowThreads.WorkflowThreads;
     const textRewriter = yield* TextRewriter.TextRewriter;
     return {
+      [WS_METHODS.commandCenterThreadDigests]: (input) =>
+        workflowThreads.readDigests(input.threadIds),
       [WS_METHODS.commandCenterSubscribe]: (input) => commandCenter.subscribe(input),
       [WS_METHODS.commandCenterUpsert]: (input) => commandCenter.upsert(input),
       [WS_METHODS.commandCenterDelete]: (input) => commandCenter.delete(input),
@@ -3241,6 +3245,7 @@ export const layer = Layer.unwrap(
     const previewAutomationBroker = yield* PreviewAutomationBroker.PreviewAutomationBroker;
     const serverBrowser = yield* ServerBrowser.ServerBrowser;
     const serverSelfUpdate = yield* ServerSelfUpdate.ServerSelfUpdate;
+    const workflowThreads = yield* WorkflowThreads.WorkflowThreads;
     const pullRequests = yield* PullRequestService.PullRequestService;
     const reviewGuides = yield* PullRequestReviewGuideService.PullRequestReviewGuideService;
     const commandCenter = yield* CommandCenter.CommandCenterService;
@@ -3330,6 +3335,7 @@ export const layer = Layer.unwrap(
               Layer.provide(Layer.succeed(WorkflowStore.WorkflowStore, workflows)),
               Layer.provide(Layer.succeed(SkillWriter.SkillWriter, skills)),
               Layer.provide(Layer.succeed(WorkflowRunner.WorkflowRunner, workflowRuns)),
+              Layer.provide(Layer.succeed(WorkflowThreads.WorkflowThreads, workflowThreads)),
               Layer.provide(Layer.succeed(TextRewriter.TextRewriter, textRewriter)),
               Layer.provide(
                 SourceControlDiscovery.layer.pipe(

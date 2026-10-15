@@ -10,10 +10,93 @@ import { describe, expect, it } from "vite-plus/test";
 
 import {
   checkAgentProvider,
+  activeAssignmentsByMachine,
+  resolveAutoMachine,
   guessTeamForStep,
   resolveStepMachine,
   splitRequestIntoSteps,
 } from "./planLogic";
+
+describe("resolveAutoMachine", () => {
+  const primary = "pc" as EnvironmentId;
+  const vps = "vps" as EnvironmentId;
+  const candidate = (environmentId: EnvironmentId, patch = {}) => ({
+    environmentId,
+    connected: true,
+    hasProject: true,
+    providerOk: true,
+    activeAssignments: 0,
+    ...patch,
+  });
+  const resolve = (
+    candidates: Parameters<typeof resolveAutoMachine>[0]["candidates"],
+    explicit: EnvironmentId | "auto" = "auto",
+    teamMachine: EnvironmentId | null = null,
+  ) => resolveAutoMachine({ candidates, explicit, teamMachine, primary });
+
+  it("honors explicit routes without silently falling back", () => {
+    expect(resolve([candidate(primary), candidate(vps)], vps)).toEqual({
+      environmentId: vps,
+      reason: "explicit",
+    });
+    expect(resolve([candidate(primary), candidate(vps, { connected: false })], vps)).toHaveProperty(
+      "error",
+      "The selected machine is offline.",
+    );
+    expect(
+      resolve([candidate(primary), candidate(vps, { hasProject: false })], vps),
+    ).toHaveProperty("error");
+    expect(
+      resolve([candidate(primary), candidate(vps, { providerOk: false })], vps),
+    ).toHaveProperty("error");
+  });
+  it("filters disconnected machines, missing projects and unavailable providers before team preference", () => {
+    for (const patch of [{ connected: false }, { hasProject: false }, { providerOk: false }]) {
+      expect(resolve([candidate(primary), candidate(vps, patch)], "auto", vps)).toEqual({
+        environmentId: primary,
+        reason: "only",
+      });
+    }
+    expect(
+      resolve([candidate(primary), candidate(vps, { activeAssignments: 4 })], "auto", vps),
+    ).toEqual({ environmentId: vps, reason: "team" });
+  });
+  it("uses the least busy machine and prefers the primary on a tie", () => {
+    expect(resolve([candidate(primary, { activeAssignments: 2 }), candidate(vps)])).toEqual({
+      environmentId: vps,
+      reason: "least-busy",
+    });
+    expect(resolve([candidate(vps), candidate(primary)])).toEqual({
+      environmentId: primary,
+      reason: "least-busy",
+    });
+  });
+  it("explains empty candidate sets", () => {
+    expect(resolve([])).toHaveProperty("error", "No machines are connected.");
+    expect(resolve([candidate(primary, { hasProject: false })])).toHaveProperty(
+      "error",
+      "This project has no associated copy on a connected machine.",
+    );
+    expect(resolve([candidate(primary, { providerOk: false })])).toHaveProperty(
+      "error",
+      "The agent's provider is not available on a connected machine with this project.",
+    );
+  });
+  it("counts only unfinished working assignments", () => {
+    expect(
+      activeAssignmentsByMachine([
+        { status: "working", assignment: { environmentId: vps, finishedAt: null } },
+        { status: "working", assignment: { environmentId: vps, finishedAt: null } },
+        { status: "idle", assignment: { environmentId: primary, finishedAt: null } },
+        {
+          status: "working",
+          assignment: { environmentId: primary, finishedAt: "2026-10-14T00:00:00Z" },
+        },
+        { status: "working", assignment: null },
+      ]),
+    ).toEqual(new Map([[vps, 2]]));
+  });
+});
 
 describe("splitRequestIntoSteps", () => {
   it("splits on punctuation and English or Spanish connectives", () => {

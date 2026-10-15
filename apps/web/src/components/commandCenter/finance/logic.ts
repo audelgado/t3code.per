@@ -5,6 +5,35 @@ import type {
   ProjectId,
 } from "@t3tools/contracts";
 
+/** Filters the ledger without changing the source used for financial totals. */
+export function filterIncome(
+  rows: ReadonlyArray<CommandCenterIncome>,
+  query: string,
+  status: string,
+) {
+  const search = query.trim().toLocaleLowerCase();
+  return rows.filter(
+    (row) =>
+      (status === "all" || row.status === status) &&
+      `${row.concept} ${row.clientName} ${row.date} ${row.currency}`
+        .toLocaleLowerCase()
+        .includes(search),
+  );
+}
+
+export function filterCosts(
+  rows: ReadonlyArray<CommandCenterCost>,
+  query: string,
+  projectTitle: (id: ProjectId | null) => string,
+) {
+  const search = query.trim().toLocaleLowerCase();
+  return rows.filter((row) =>
+    `${row.concept} ${row.category} ${row.currency} ${row.projectIds.map(projectTitle).join(" ")}`
+      .toLocaleLowerCase()
+      .includes(search),
+  );
+}
+
 /** Click order for the income status badge. */
 export const NEXT_INCOME_STATUS: Record<CommandCenterIncomeStatus, CommandCenterIncomeStatus> = {
   pending: "paid",
@@ -17,13 +46,16 @@ export function monthKey(date: Date) {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
 }
 
-/** Totals are only meaningful in one currency: the one most rows use (USD when empty). */
+/**
+ * Totals are only meaningful in one currency: the one most income rows and active costs use
+ * (USD when empty). Archived costs do not vote, so Home and Finance agree.
+ */
 export function displayCurrency(
   income: ReadonlyArray<CommandCenterIncome>,
   costs: ReadonlyArray<CommandCenterCost>,
 ) {
   const counts = new Map<string, number>();
-  for (const row of [...income, ...costs]) {
+  for (const row of [...income, ...costs.filter((cost) => cost.archivedAt === null)]) {
     counts.set(row.currency, (counts.get(row.currency) ?? 0) + 1);
   }
   let best = "USD";

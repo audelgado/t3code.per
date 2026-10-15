@@ -2,7 +2,7 @@ import { useAtomValue } from "@effect/atom-react";
 import type { EnvironmentProject } from "@t3tools/client-runtime/state/shell";
 import { useNavigate } from "@tanstack/react-router";
 import { CalendarClockIcon, PlusIcon } from "lucide-react";
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 
 import { useClientSettings } from "~/hooks/useSettings";
 import {
@@ -15,6 +15,8 @@ import { serverEnvironment } from "~/state/server";
 import { relativeLabel, scheduleLabel } from "../../settings/ScheduledTasksSettings";
 import { useRelativeTimeTick } from "../../settings/settingsLayout";
 import { Button } from "../../ui/button";
+import { CollectionPager } from "../CollectionPager";
+import { paginateCollection } from "../collectionPaging";
 import { recurringProjectTasks } from "./logic";
 
 /**
@@ -43,6 +45,8 @@ export function ProjectSchedules({ project }: { readonly project: EnvironmentPro
     () => recurringProjectTasks(live.data?.tasks ?? [], project.id),
     [live.data, project.id],
   );
+  const [page, setPage] = useState(1);
+  const visible = paginateCollection(tasks, page, 5);
   // Keeps "next in 5m" honest between list updates.
   useRelativeTimeTick(60_000);
   if (tasks.length === 0 && !canCreate) return null;
@@ -75,7 +79,7 @@ export function ProjectSchedules({ project }: { readonly project: EnvironmentPro
         </p>
       ) : (
         <ul className="flex flex-col gap-1">
-          {tasks.map((task) => (
+          {visible.items.map((task) => (
             <li key={task.id}>
               <button
                 type="button"
@@ -93,6 +97,9 @@ export function ProjectSchedules({ project }: { readonly project: EnvironmentPro
           ))}
         </ul>
       )}
+      {visible.pageCount > 1 ? (
+        <CollectionPager {...visible} label="scheduled tasks" onPageChange={setPage} />
+      ) : null}
     </div>
   );
 }

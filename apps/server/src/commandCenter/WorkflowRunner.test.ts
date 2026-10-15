@@ -81,6 +81,7 @@ const makeThreads = Effect.gen(function* () {
     return created;
   };
   const service: WorkflowThreads["Service"] = {
+    readDigests: () => Effect.succeed({ digests: [] }),
     launch: (input) =>
       Queue.offer(launches, input).pipe(Effect.as(ThreadId.make(`thread:${input.key}`))),
     awaitSettled: (threadId) => Deferred.await(resultFor(threadId)),

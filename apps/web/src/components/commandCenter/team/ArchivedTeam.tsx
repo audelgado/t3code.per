@@ -5,6 +5,8 @@ import { useState } from "react";
 import { cn } from "~/lib/utils";
 import { Button } from "../../ui/button";
 import { Collapsible, CollapsiblePanel, CollapsibleTrigger } from "../../ui/collapsible";
+import { CollectionPager } from "../CollectionPager";
+import { paginateCollection } from "../collectionPaging";
 import { useCommandCenter, useCommandCenterCommands } from "../shared";
 import { agentProfileInput } from "./AgentDrawer";
 import { teamColorClass } from "./TeamForms";
@@ -24,6 +26,7 @@ export function ArchivedTeam() {
   const { snapshot, canOperate } = useCommandCenter();
   const commands = useCommandCenterCommands();
   const [restoring, setRestoring] = useState<string | null>(null);
+  const [page, setPage] = useState(1);
   const rows: ArchivedRow[] = [
     ...snapshot.teams.flatMap((row) =>
       row.archivedAt === null ? [] : [{ kind: "team" as const, row }],
@@ -33,6 +36,7 @@ export function ArchivedTeam() {
     ),
   ];
   if (rows.length === 0) return null;
+  const archivedPage = paginateCollection(rows, page, 10);
 
   const restore = async (item: ArchivedRow) => {
     setRestoring(item.row.id);
@@ -52,7 +56,7 @@ export function ArchivedTeam() {
       </CollapsibleTrigger>
       <CollapsiblePanel>
         <ul className="mt-2 divide-y rounded-xl border bg-card px-3 text-sm">
-          {rows.map((item) => (
+          {archivedPage.items.map((item) => (
             <li key={item.row.id} className="flex items-center gap-3 py-2">
               {item.kind === "team" ? (
                 <span className={cn("size-2.5 rounded-full", teamColorClass(item.row.color))} />
@@ -77,6 +81,7 @@ export function ArchivedTeam() {
             </li>
           ))}
         </ul>
+        <CollectionPager {...archivedPage} label="archived items" onPageChange={setPage} />
       </CollapsiblePanel>
     </Collapsible>
   );

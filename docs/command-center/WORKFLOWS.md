@@ -79,7 +79,11 @@ Workflows view in Command Center:
   the file reload, or ask first when there are unsaved edits.
 - **Run view:** the same graph colored by step status, click a node to open
   its thread or diff, answer a waiting step, or retry. Static rendering, no
-  continuous animation.
+  continuous animation. The open run is `?run=` (pushed on open or start,
+  replaced away on Back); a run whose project is not listed opens on the
+  primary server, where Home's and every project's runs come from. A run
+  older than the live feed's newest 50 is re-read after each action instead
+  of streaming.
 - **Skills** and **Snippets** sections list the project's own; delete moves
   them to `.t3/workflows/.trash/{skills,snippets}` with Undo.
 
