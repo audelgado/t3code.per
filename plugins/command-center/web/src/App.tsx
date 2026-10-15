@@ -97,7 +97,7 @@ export function App() {
     active = "more";
     page = (
       <>
-        <a href="#more" className="mb-3 inline-flex items-center gap-1 text-sm text-muted-fg">
+        <a href="#more" className="mb-3 inline-flex items-center gap-1 text-sm text-muted-fg lg:hidden">
           <ChevronLeft className="size-4" aria-hidden />
           More
         </a>
@@ -110,12 +110,40 @@ export function App() {
   else if (route === "queue") page = <Queue />;
   else page = <Home openKey={null} />;
 
+  // Desktop (lg): a sidebar with every page replaces the bottom tabs and the More list.
+  const current = sub?.route ?? (runId ? "workflows" : active);
+  const sideLink = (r: string, label: string, Icon?: (typeof tabs)[number]["icon"]) => {
+    const n = badge(r);
+    return (
+      <a
+        key={r}
+        href={`#${r}`}
+        aria-current={current === r ? "page" : undefined}
+        className={cn(
+          "flex items-center gap-2.5 rounded-lg px-3 py-1.5",
+          current === r ? "bg-accent font-medium text-primary" : "text-muted-fg hover:bg-accent hover:text-fg",
+        )}
+      >
+        {Icon && <Icon className="size-4" aria-hidden />}
+        <span className="flex-1">{label}</span>
+        {n > 0 && <span className="min-w-5 rounded-full bg-warn px-1.5 text-center text-xs leading-5 text-bg">{n}</span>}
+      </a>
+    );
+  };
+
   return (
-    <div className="mx-auto flex min-h-dvh max-w-xl flex-col">
-      <main className="flex-1 px-4 pt-[max(1rem,env(safe-area-inset-top))] pb-24">{page}</main>
+    <div className="flex min-h-dvh">
+      <nav aria-label="Pages" className="sticky top-0 hidden h-dvh w-56 shrink-0 flex-col gap-0.5 overflow-y-auto border-r border-border p-3 lg:flex">
+        <span className="px-3 pt-1 pb-3 font-semibold">Command Center</span>
+        {tabs.filter((t) => t.route !== "more").map((t) => sideLink(t.route, t.label, t.icon))}
+        <span className="mt-4 px-3 pb-1 text-xs text-muted-fg">More</span>
+        {more.filter((s) => orca || s.route !== "orca").map((s) => sideLink(s.route, s.label))}
+      </nav>
+      <div className="mx-auto flex min-w-0 max-w-xl flex-1 flex-col lg:max-w-6xl">
+      <main className="flex-1 px-4 pt-[max(1rem,env(safe-area-inset-top))] pb-24 lg:px-8 lg:pt-6 lg:pb-8">{page}</main>
       <nav
         aria-label="Sections"
-        className="fixed inset-x-0 bottom-0 z-40 border-t border-border bg-bg pb-[env(safe-area-inset-bottom)]"
+        className="fixed inset-x-0 bottom-0 z-40 border-t border-border bg-bg pb-[env(safe-area-inset-bottom)] lg:hidden"
       >
         <div className="mx-auto flex max-w-xl">
           {tabs.map(({ route: r, label, icon: Icon }) => {
@@ -142,6 +170,7 @@ export function App() {
           })}
         </div>
       </nav>
+      </div>
     </div>
   );
 }

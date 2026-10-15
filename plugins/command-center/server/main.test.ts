@@ -130,7 +130,7 @@ test("CLI + serve: pairing, view, task dispatch, re-add, and no token leaks", as
     rmSync(home, { recursive: true, force: true });
   });
 
-  assert.equal(await cli(["machine", "add", "https://vps.tailnet.ts.net/some/path", "--max", "3"], `${SENTINEL}\n`), 0);
+  assert.equal(await cli(["machine", "add", "https://vps.tailnet.ts.net/some/path", "--max", "3", "--label", "Box"], `${SENTINEL}\n`), 0);
   await assert.rejects(cli(["machine", "add", "https://vps.tailnet.ts.net"], "  \n"), /no token/);
 
   handle = await serve({ home, port: 0, publicUrl: PUBLIC, staticDir }, fake.factory);
@@ -245,9 +245,10 @@ test("CLI + serve: pairing, view, task dispatch, re-add, and no token leaks", as
   assert.equal(fake.made[0]!.closed, true);
   assert.equal(fake.made[1]!.token, "second-token");
   assert.equal(fake.made[1]!.machine.maxConcurrent, 3, "re-add keeps --max");
+  assert.equal(fake.made[1]!.machine.label, "Box", "re-add keeps --label");
 
   await cli(["machine", "list"]);
-  assert.ok(out.some((l) => l.startsWith(`${ENV_ID}  VPS  https://vps.tailnet.ts.net`) && l.includes("token ok")));
+  assert.ok(out.some((l) => l.startsWith(`${ENV_ID}  Box  https://vps.tailnet.ts.net`) && l.includes("token ok")));
   assert.equal(await cli(["machine", "rm", ENV_ID]), 0);
   assert.equal(existsSync(join(home, "tokens", ENV_ID)), false);
   handle.reconcile();

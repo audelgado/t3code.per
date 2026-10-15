@@ -43,8 +43,8 @@ export function Home({ openKey }: { openKey: string | null }) {
   const sub = (t: ThreadItem) => view.machines.find((m) => m.id === t.machineId)?.label ?? "";
 
   return (
-    <div className="grid gap-6">
-      <h1 className="text-xl font-semibold">Home</h1>
+    <div className="grid gap-6 lg:grid-cols-3 lg:items-start">
+      <h1 className="text-xl font-semibold lg:col-span-3">Home</h1>
 
       <Section title="Needs you" count={view.needsYou.length}>
         {view.needsYou.length === 0 && <Empty>Nothing waiting on you.</Empty>}

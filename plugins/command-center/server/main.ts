@@ -492,7 +492,7 @@ ${USAGE}`);
       writeToken(home, id, token); // first: it rejects ids that are not safe file names
       upsertMachine(db, {
         id,
-        label: values.label ?? (typeof desc.label === "string" ? desc.label : new URL(apiUrl).hostname),
+        label: values.label ?? existing?.label ?? (typeof desc.label === "string" ? desc.label : new URL(apiUrl).hostname),
         apiUrl,
         webUrl: webUrl ?? existing?.webUrl ?? null,
         maxConcurrent: max ?? existing?.maxConcurrent ?? 2,

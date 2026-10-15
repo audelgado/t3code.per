@@ -71,7 +71,7 @@ Each machine needs a T3 token that can read and run threads, nothing more. Add a
 
 ```sh
 t3 auth session issue --scope orchestration:read --scope orchestration:operate --ttl 365d --label command-center --token-only \
-  | ccctl machine add https://<vps>.<tailnet>.ts.net --web-url https://app.t3.codes
+  | ccctl machine add https://<vps>.<tailnet>.ts.net --web-url https://nightly.app.t3.codes
 ```
 
 **PC**: in the desktop app, open **Settings → Connections** and turn on **Tailscale HTTPS** (leave Network access off). Install the `t3` command from **Settings → General → About**, then run in a terminal on the PC:
@@ -80,8 +80,9 @@ t3 auth session issue --scope orchestration:read --scope orchestration:operate -
 t3 auth session issue --scope orchestration:read --scope orchestration:operate --ttl 365d --label command-center --token-only
 ```
 
-Copy the token, then on the VPS run `ccctl machine add https://<pc>.<tailnet>.ts.net --web-url https://app.t3.codes`, paste it and press Ctrl-D.
+Copy the token, then on the VPS run `ccctl machine add https://<pc>.<tailnet>.ts.net --web-url https://nightly.app.t3.codes`, paste it and press Ctrl-D.
 
+- `--web-url` is where **Open in T3** goes. Use `https://nightly.app.t3.codes` while your machines run T3 Nightly: the stable web app and the App Store and Google Play apps cannot connect to Nightly servers yet. On the phone, use the beta app (TestFlight on iOS, the `android-nightly` APK from T3's GitHub releases on Android).
 - `--max <n>` sets how many CC tasks run at once on that machine (default 2). `--label <name>` renames it. Run `machine add` again with the same address to change these or to replace the token.
 - `ccctl machine list` shows each machine, its T3 version and token expiry. `ccctl machine rm <id>` removes one.
 - Tokens are stored only on the VPS, readable only by `cc`. Revoke one in T3 under **Settings → Connections**. You get an alert 14 days before a token expires.
