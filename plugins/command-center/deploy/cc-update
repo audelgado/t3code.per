@@ -1,0 +1,79 @@
+#!/usr/bin/env bash
+# cc-update: deploy plugins/command-center from origin/$CC_BRANCH (default main).
+# Usage: sudo cc-update [--force]. Daily via cc-update.timer.
+# Runs as root only for systemctl and installing helpers; every git, npm and file step runs as user cc,
+# so root never executes code or follows paths that cc can change.
+# Redeploys only when the git tree id of plugins/command-center changed, so upstream merges never trigger it.
+set -euo pipefail
+base=/var/lib/cc; branch=${CC_BRANCH:-main}; port=${CC_PORT:-3900}; dir=plugins/command-center
+unit=command-center.service; db=$base/data/cc.sqlite; force=${1:-}
+as_cc() { runuser -u cc -- "$@"; }
+exec 9>/run/lock/cc-update.lock; flock -n 9 || { echo 'cc-update: already running' >&2; exit 1; }
+cd /   # runuser keeps the working directory, and cc must be able to enter it
+
+as_cc git -C $base/src fetch -q origin "$branch"
+id=$(as_cc git -C $base/src rev-parse --short=12 "FETCH_HEAD:$dir")
+[[ $id =~ ^[0-9a-f]{12}$ ]] || { echo "cc-update: unexpected tree id '$id'" >&2; exit 1; }
+rel=$base/releases/$id
+prev=$(as_cc readlink $base/current || true)
+if [[ $force != --force ]]; then
+  [[ $prev == "$rel" ]] && { echo "cc-update: already on $id"; exit 0; }
+  [[ -e $rel/.bad ]] && { echo "cc-update: $id failed before (use --force)" >&2; exit 1; }
+fi
+
+if [[ ! -e $rel/.ok ]]; then
+  as_cc rm -rf $rel
+  as_cc mkdir -p $rel
+  as_cc bash -c "git -C $base/src archive 'FETCH_HEAD:$dir' | tar -x -C $rel"
+  as_cc bash -c "cd $rel && npm ci --ignore-scripts --no-audit --no-fund && npm run build && npm test"
+  as_cc test -s $rel/server/main.ts
+  as_cc touch $rel/.ok
+fi
+as_cc rm -f $rel/.bad
+
+swap() { as_cc ln -sfn "$1" $base/current.tmp && as_cc mv -T $base/current.tmp $base/current; }
+healthy() {
+  for _ in $(seq 30); do curl -fsS --max-time 2 http://127.0.0.1:$port/healthz >/dev/null && break; sleep 1; done
+  sleep 10   # catch a crash right after startup
+  systemctl is-active --quiet $unit && curl -fsS --max-time 2 http://127.0.0.1:$port/healthz >/dev/null
+}
+
+snap=$base/backups/pre-$id-$(date +%Y%m%d-%H%M%S).sqlite
+systemctl stop $unit
+if [[ -f $db ]]; then   # the unit is stopped, but the backup API also folds in a leftover -wal
+  as_cc node --input-type=module - $db "$snap" <<'JS'
+import { DatabaseSync, backup } from 'node:sqlite';
+const db = new DatabaseSync(process.argv[2], { readOnly: true });
+await backup(db, process.argv[3]);
+db.close();
+JS
+fi
+swap $rel
+systemctl start $unit
+
+if ! healthy; then
+  echo "cc-update: $id unhealthy, rolling back (journalctl -u $unit -n 100)" >&2
+  as_cc touch $rel/.bad
+  systemctl stop $unit
+  if [[ -f $snap ]]; then as_cc rm -f $db $db-wal $db-shm; as_cc cp "$snap" $db; fi
+  if [[ -n $prev ]]; then swap "$prev"; systemctl start $unit; fi
+  exit 1
+fi
+
+# Keep the 3 newest releases and the 5 newest pre-update snapshots.
+as_cc bash -c "ls -1dt $base/releases/*/ | tail -n +4 | grep -vxF '$rel/' | xargs -r rm -rf"
+as_cc bash -c "ls -1t $base/backups/pre-*.sqlite 2>/dev/null | tail -n +6 | xargs -r rm -f"
+echo "cc-update: now on $id"
+
+# cc-backup runs as cc, so a cc-owned copy grants nothing new. Read it as cc, so a symlink in the release
+# cannot make root copy a file cc cannot read.
+as_cc cat $rel/deploy/cc-backup >/usr/local/bin/cc-backup.new
+chmod 755 /usr/local/bin/cc-backup.new && mv -f /usr/local/bin/cc-backup.new /usr/local/bin/cc-backup
+# Never auto-install cc-update (runs as root) or t3-update (runs as the T3 user, which holds T3's data and
+# provider credentials): the release is cc-owned and npm, build and tests ran dependency code as cc.
+for f in sbin/cc-update bin/t3-update; do
+  name=${f#*/}
+  if ! as_cc cat $rel/deploy/$name | cmp -s - /usr/local/$f; then
+    echo "cc-update: deploy/$name changed; review it, then: sudo install -m 755 $rel/deploy/$name /usr/local/${f%/*}/"
+  fi
+done

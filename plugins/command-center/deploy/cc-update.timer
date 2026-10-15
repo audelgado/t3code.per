@@ -1,0 +1,9 @@
+[Unit]
+Description=Daily Command Center update check
+
+[Timer]
+OnCalendar=*-*-* 04:40
+Persistent=true
+
+[Install]
+WantedBy=timers.target

@@ -1,0 +1,9 @@
+# User unit of the account that runs T3. Install: sudo install -m 644 t3-update.service t3-update.timer /etc/systemd/user/
+[Unit]
+Description=Update official T3 Code (skipped while the Command Center has runs on this machine)
+
+[Service]
+Type=oneshot
+# Login shell, so the t3 launcher's PATH entry applies.
+ExecStart=/bin/bash -lc 'exec /usr/local/bin/t3-update'
+TimeoutStartSec=30min

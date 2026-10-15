@@ -1,0 +1,16 @@
+[Unit]
+Description=Back up the Command Center database
+
+[Service]
+Type=oneshot
+User=cc
+Group=cc
+Environment=CC_HOME=/var/lib/cc/data
+ExecStart=/usr/local/bin/cc-backup
+UMask=0077
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+# data too: a read-only connection to a WAL database still writes its -shm file.
+ReadWritePaths=/var/lib/cc/backups /var/lib/cc/data

@@ -1,0 +1,37 @@
+# System unit. Install: sudo install -m 644 command-center.service /etc/systemd/system/
+[Unit]
+Description=T3 Command Center
+Wants=network-online.target
+After=network-online.target
+StartLimitIntervalSec=300
+StartLimitBurst=5
+
+[Service]
+Type=simple
+User=cc
+Group=cc
+WorkingDirectory=/var/lib/cc/current
+Environment=CC_HOME=/var/lib/cc/data
+Environment=CC_PORT=3900
+# HOME is read-only under ProtectSystem=strict; tools the CC spawns (the optional orca CLI) keep config and state in the data dir.
+Environment=XDG_CONFIG_HOME=/var/lib/cc/data/xdg/config
+Environment=XDG_STATE_HOME=/var/lib/cc/data/xdg/state
+Environment=XDG_DATA_HOME=/var/lib/cc/data/xdg/data
+Environment=XDG_CACHE_HOME=/var/lib/cc/data/xdg/cache
+# CC_PUBLIC_URL, CC_PUSH_SUBJECT and the optional CC_ORCA_* (see env.example); owner cc, mode 600.
+EnvironmentFile=/var/lib/cc/env
+# Node >= 24.13.1. The server listens on 127.0.0.1 only; tailscale serve publishes it on the tailnet.
+ExecStart=/usr/bin/node --disable-warning=ExperimentalWarning server/main.ts serve
+Restart=always
+RestartSec=3
+TimeoutStopSec=20
+UMask=0077
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+# Only the data dir is writable: a compromised server cannot rewrite its own code in releases/ or src/.
+ReadWritePaths=/var/lib/cc/data
+
+[Install]
+WantedBy=multi-user.target

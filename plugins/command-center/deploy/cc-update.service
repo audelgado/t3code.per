@@ -1,0 +1,10 @@
+# System unit, runs as root; cc-update runs every build and file step as user cc.
+[Unit]
+Description=Update the Command Center from the fork (no-op unless plugins/command-center changed)
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/cc-update
+TimeoutStartSec=30min

@@ -1,0 +1,19 @@
+#!/usr/bin/env bash
+# cc-backup: nightly consistent copy of the Command Center database (and artifacts, once they exist), 14 kept.
+# Runs as user cc from cc-backup.service. Never touches T3 data.
+# Leaves out tokens/ and vapid.json on purpose: a leaked backup carries no credentials, and after a restore
+# each machine needs `machine add` again.
+set -euo pipefail
+home=${CC_HOME:-/var/lib/cc/data}; bk=${CC_BACKUPS:-/var/lib/cc/backups}
+out=$bk/nightly-$(date +%F); umask 077
+rm -rf "$out"; mkdir -p "$out"
+if [[ -f $home/cc.sqlite ]]; then
+  node --input-type=module - "$home/cc.sqlite" "$out/cc.sqlite" <<'JS'
+import { DatabaseSync, backup } from 'node:sqlite';
+const db = new DatabaseSync(process.argv[2], { readOnly: true });
+await backup(db, process.argv[3]);
+db.close();
+JS
+fi
+if [[ -d $home/artifacts ]]; then tar -C "$home" -czf "$out/artifacts.tgz" artifacts; fi
+ls -1dt "$bk"/nightly-*/ | tail -n +15 | xargs -r rm -rf

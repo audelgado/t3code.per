@@ -1,0 +1,38 @@
+#!/usr/bin/env bash
+# t3-update: unattended official `t3 update --yes` for the VPS background service, daily via the t3-update user timer.
+# Skips while the Command Center reports active runs on this machine. If the CC cannot be reached it updates anyway:
+# T3 must never depend on the CC. Before updating it snapshots statev2.sqlite (read-only) into ~/t3-backups, 3 kept.
+# It never downgrades; see the README for a manual rollback.
+set -euo pipefail
+data=${T3CODE_HOME:-$HOME/.t3}/userdata; db=$data/statev2.sqlite; bk=$HOME/t3-backups
+cc=${CC_URL:-http://127.0.0.1:3900}
+id=$(cat "$data/environment-id" 2>/dev/null || true)
+
+runs=$(node -e '
+const [url, id] = process.argv.slice(1);
+fetch(url + "/healthz", { signal: AbortSignal.timeout(5000) })
+  .then((r) => r.json())
+  .then((j) => console.log(Number(j?.activeRuns?.[id]) || 0), () => console.log(0));
+' "$cc" "$id")
+if (( runs > 0 )); then echo "t3-update: $runs active run(s) on this machine, skipping"; exit 0; fi
+
+prev=$(t3 --version)
+snap=
+if [[ -f $db ]]; then
+  umask 077; mkdir -p "$bk"
+  snap=$bk/statev2-$(date +%Y%m%d-%H%M%S).sqlite
+  node --input-type=module - "$db" "$snap" <<'JS'
+import { DatabaseSync, backup } from 'node:sqlite';
+const db = new DatabaseSync(process.argv[2], { readOnly: true });
+await backup(db, process.argv[3]);
+db.close();
+JS
+fi
+t3 update --yes
+now=$(t3 --version)
+if [[ $now == "$prev" ]]; then
+  [[ -n $snap ]] && rm -f "$snap"   # nothing changed; keep the snapshots that precede real updates
+  exit 0
+fi
+echo "t3-update: $prev -> $now"
+(ls -1t "$bk"/statev2-*.sqlite 2>/dev/null || true) | tail -n +4 | xargs -r rm -f
