@@ -1,6 +1,7 @@
 // Sections: per-project workstreams (status, counts, blocker...) that people and agents keep current.
 // The web imports selectSectionPage from here, so this file must keep to type-only imports;
 // the runtime pieces of http.ts and mcp.ts arrive through createSections' `kit`. Do not import node modules at runtime.
+import { paginateCollection } from "./collections.ts";
 import type { DatabaseSync } from "node:sqlite";
 import type { HttpError, Route } from "./http.ts";
 import type { ToolDef, ToolError, resolveProject } from "./mcp.ts";
@@ -344,13 +345,7 @@ export function createSections(db: DatabaseSync, kit: SectionKit, machineLabel: 
 
 // ---- directory paging (used by the web) ----
 
-export function paginateCollection<T>(items: readonly T[], page: number, size: number) {
-  const total = items.length;
-  const pageCount = Math.max(1, Math.ceil(total / size));
-  const current = Math.min(pageCount, Math.max(1, Number.isFinite(page) ? Math.floor(page) : 1));
-  const offset = (current - 1) * size;
-  return { items: items.slice(offset, offset + size), page: current, pageCount, total, start: total === 0 ? 0 : offset + 1, end: Math.min(offset + size, total) };
-}
+export { paginateCollection } from "./collections.ts";
 
 /** Filters one project's sections by status and search, keeping an open edit visible and on its page. */
 export function selectSectionPage({
