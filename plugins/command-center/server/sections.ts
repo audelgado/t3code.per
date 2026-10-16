@@ -1,5 +1,5 @@
 // Sections: per-project workstreams (status, counts, blocker...) that people and agents keep current.
-// The web imports selectSectionPage from here, so this file must keep to type-only imports;
+// The web imports selectSectionPage from here, so runtime imports must stay browser-safe;
 // the runtime pieces of http.ts and mcp.ts arrive through createSections' `kit`. Do not import node modules at runtime.
 import { paginateCollection } from "./collections.ts";
 import type { DatabaseSync } from "node:sqlite";

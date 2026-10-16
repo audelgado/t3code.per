@@ -1,5 +1,5 @@
 import { ArrowDown, ArrowUp } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { RuntimeMode, TaskItem } from "../../server/types.ts";
 import { call, refresh, useLive } from "./api.ts";
 import { queueGroup, queueGroups, queueResults } from "./homeQueueView.ts";
@@ -130,10 +130,19 @@ export function Queue() {
   const [size, setSize] = useState(5);
   // Paging/filtering must not discard a pending action, its error, or approval permissions.
   const [cardStates, setCardStates] = useState<Record<string, TaskCardState>>({});
+  const results = queueResults(view?.queue ?? [], query, machine, status);
+  const visible = paginateCollection(results, page, size);
+  useEffect(() => { if (view) setPage(visible.page); }, [view, visible.page]);
+  useEffect(() => {
+    if (!view) return;
+    const ids = new Set(view.queue.map((t) => t.id));
+    setCardStates((current) => {
+      const entries = Object.entries(current).filter(([id, state]) => ids.has(id) || state.busy);
+      return entries.length === Object.keys(current).length ? current : Object.fromEntries(entries);
+    });
+  }, [view]);
   if (!view) return null;
   const titles = new Map(view.queue.map((t) => [t.id, t.title]));
-  const results = queueResults(view.queue, query, machine, status);
-  const visible = paginateCollection(results, page, size);
   const machines = new Map([...view.machines.map((m) => [m.id, m.label] as const), ...view.queue.map((t) => [t.machineId, t.machineLabel] as const)]);
   return (
     <div className="grid gap-3">

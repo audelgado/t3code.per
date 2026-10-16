@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { Alert, ThreadItem } from "../../server/types.ts";
 import { useLive } from "./api.ts";
 import { homeAttention, homeThread } from "./homeQueueView.ts";
@@ -46,12 +46,16 @@ export function Home({ openKey }: { openKey: string | null }) {
   const [needsPage, setNeedsPage] = useState(1);
   const [runningPage, setRunningPage] = useState(1);
   const [donePage, setDonePage] = useState(1);
+  const attention = homeAttention(view?.needsYou ?? []);
+  const needs = paginateCollection(attention.actions, needsPage, 5);
+  const running = paginateCollection(view?.running ?? [], runningPage, 5);
+  const done = paginateCollection(view?.done ?? [], donePage, 5);
+  useEffect(() => {
+    if (!view) return;
+    setNeedsPage(needs.page); setRunningPage(running.page); setDonePage(done.page);
+  }, [view, needs.page, running.page, done.page]);
   if (!view) return null;
   const open = homeThread(view, openKey);
-  const attention = homeAttention(view.needsYou);
-  const needs = paginateCollection(attention.actions, needsPage, 5);
-  const running = paginateCollection(view.running, runningPage, 5);
-  const done = paginateCollection(view.done, donePage, 5);
   const sub = (t: ThreadItem) => view.machines.find((m) => m.id === t.machineId)?.label ?? "";
 
   return (
@@ -59,7 +63,7 @@ export function Home({ openKey }: { openKey: string | null }) {
       <div className="grid gap-3 lg:col-span-2">
         <h1 className="text-xl font-semibold">Home</h1>
         <dl className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-          {[["Needs you", view.needsYou.length], ["Running, loaded", view.running.length], ["Done in 24 h, loaded", view.done.length], ["Queued", view.queue.filter((t) => t.status === "queued").length]].map(([label, count]) => (
+          {[["Needs you", view.needsYou.length], ["Running", view.running.length], ["Done in 24 h", view.done.length], ["Queued", view.queue.filter((t) => t.status === "queued").length]].map(([label, count]) => (
             <Card key={label}>
               <dt className="text-xs text-muted-fg">{label}</dt>
               <dd className="text-2xl font-semibold tabular-nums">{count}</dd>
@@ -71,13 +75,14 @@ export function Home({ openKey }: { openKey: string | null }) {
           <LinkButton size="sm" href="#projects">Projects</LinkButton>
           <LinkButton size="sm" href="#work">Work</LinkButton>
         </nav>
-        {(view.running.length >= 50 || view.done.length >= 30) && <p className="text-xs text-muted-fg">Showing latest loaded activity. Counts describe this snapshot, not all historical activity.</p>}
+        {(view.running.length >= 50 || view.done.length >= 30) && <p className="text-xs text-muted-fg">Showing up to 50 running threads and the 30 most recent completions in the last 24 hours.</p>}
       </div>
 
       <div className="min-w-0 lg:col-span-2">
         <Section title="Needs you" count={view.needsYou.length}>
           {view.needsYou.length === 0 && <Empty>Nothing waiting on you.</Empty>}
           {attention.alerts.map((n) => <AlertRow key={n.alert.key} alert={n.alert} />)}
+          {attention.alerts.length > 0 && attention.actions.length > 0 && <p className="text-xs text-muted-fg">{attention.alerts.length} alerts always shown · {attention.actions.length} actions below</p>}
           {needs.items.map((n) => {
             if (n.kind === "workflow")
               return (

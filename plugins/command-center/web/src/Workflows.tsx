@@ -48,11 +48,12 @@ export function Workflows({ runId = null }: { runId?: string | null }) {
   }, []);
   useEffect(load, [load, view]);
 
-  if (open) return <RunView id={open} onBack={() => setOpen(null)} />;
-
   const last = lastRunBySlug(runs);
   const library = paginateCollection((list ?? []).filter((w) => matchesSearch(query, w.title, w.slug, w.description)), libraryPage, librarySize);
   const recent = paginateCollection(orderRuns(runs).filter((r) => matchesSearch(query, r.title, r.slug, RUN_LABEL[r.status])), runsPage, 5);
+  useEffect(() => { if (list) setLibraryPage(library.page); }, [list, library.page]);
+  useEffect(() => { setRunsPage(recent.page); }, [recent.page]);
+  if (open) return <RunView id={open} onBack={() => setOpen(null)} />;
   const edit = async (slug: string) => {
     try {
       setEditor({ text: JSON.stringify(await api("GET /api/workflows/:slug", { params: { slug } }), null, 2), isNew: false });
