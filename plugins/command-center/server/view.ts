@@ -39,6 +39,8 @@ export interface ViewInput {
 
 const MINUTE = 60_000;
 const DAY = 24 * 60 * MINUTE;
+/** ISO instant as a short es-AR date and time, for alert text. */
+const at = (iso: string) => new Date(iso).toLocaleString("es-AR", { dateStyle: "short", timeStyle: "short" });
 const ACTIVE_RUN = new Set<ThreadStatus>(["preparing", "queued", "starting", "running", "waiting"]);
 const INPUT_KINDS = new Set(["user_input", "mcp-elicitation"]);
 
@@ -164,16 +166,16 @@ export function buildHomeView(input: ViewInput, now: number): HomeView {
     const link = linkOf(m.id);
     const waiting = count(m.id, ["queued", "starting"]);
     if (link.status === "offline" && waiting > 0 && now - Date.parse(link.since) > 15 * MINUTE)
-      alert("offline", m, `offline with ${waiting} task${waiting === 1 ? "" : "s"} waiting`, link.since);
-    if (link.status === "incompatible") alert("incompatible", m, link.message ?? "T3 protocol not supported; dispatch paused", link.since);
-    if (link.status === "unauthorized") alert("unauthorized", m, "token rejected; run `machine add` with a new token", link.since);
+      alert("offline", m, `sin conexión con ${waiting} ${waiting === 1 ? "tarea esperando" : "tareas esperando"}`, link.since);
+    if (link.status === "incompatible") alert("incompatible", m, link.message ?? "protocolo de T3 no compatible; envío pausado", link.since);
+    if (link.status === "unauthorized") alert("unauthorized", m, "token rechazado; corré `machine add` con un token nuevo", link.since);
     if (m.tokenExpiresAt && Date.parse(m.tokenExpiresAt) - now <= 14 * DAY)
-      alert("token_expiring", m, `T3 token expires ${m.tokenExpiresAt}`, m.tokenExpiresAt);
+      alert("token_expiring", m, `el token de T3 vence el ${at(m.tokenExpiresAt)}`, m.tokenExpiresAt);
     if (link.degraded)
-      alert("degraded", m, `T3 sent data the CC could not read (${link.droppedRows} rows dropped, ${link.unknownItems} unknown items)`, link.since);
+      alert("degraded", m, `T3 mandó datos que el CC no pudo leer (${link.droppedRows} filas descartadas, ${link.unknownItems} elementos desconocidos)`, link.since);
     const version = versionOf(m);
     if (version && newest && compareVersions(version, newest) < 0)
-      alert("version_skew", m, `T3 ${version} is behind ${newest}; update it`, link.since);
+      alert("version_skew", m, `T3 ${version} está atrasado respecto de ${newest}; actualizalo`, link.since);
   }
   for (const p of input.pauses ?? []) {
     const m = machines.get(p.machineId);
@@ -182,7 +184,7 @@ export function buildHomeView(input: ViewInput, now: number): HomeView {
       key: `provider_paused:${p.machineId}:${p.instanceId}`,
       kind: "provider_paused",
       machineId: p.machineId,
-      message: `${m.label}: ${p.instanceId} hit a usage limit; paused until ${p.until}`,
+      message: `${m.label}: ${p.instanceId} llegó al límite de uso; en pausa hasta el ${at(p.until)}`,
       since: p.since,
     });
   }

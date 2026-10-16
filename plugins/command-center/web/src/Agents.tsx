@@ -1,49 +1,85 @@
-import { Check, Copy } from "lucide-react";
+import { Check, Copy, KeyRound, Plus } from "lucide-react";
 import { useEffect, useState } from "react";
 import type { AgentToken, NewAgentToken } from "../../server/mcp.ts";
 import { call } from "./api.ts";
+import { Profiles } from "./Profiles.tsx";
 import { Button } from "./ui/Button.tsx";
-import { ago } from "./ui/cn.ts";
-import { Card, Empty, Field, Input } from "./ui/fields.tsx";
+import { ago } from "./look.ts";
+import { EmptyState, Field, Input } from "./ui/fields.tsx";
+import { Panel } from "./ui/Panel.tsx";
+import { Sheet } from "./ui/Sheet.tsx";
+import { Tabs } from "./ui/Tabs.tsx";
 
 function snippets(token: string) {
   const url = `${location.origin}/mcp`;
   return [
-    { title: "Claude Code", text: `claude mcp add --scope user --transport http cc ${url} --header "Authorization: Bearer ${token}"` },
-    { title: "Codex · ~/.codex/config.toml", text: `[mcp_servers.cc]\nurl = "${url}"\nhttp_headers = { "Authorization" = "Bearer ${token}" }` },
-    { title: "Hermes · ~/.hermes/config.yaml", text: `mcp_servers:\n  cc:\n    url: "${url}"\n    headers:\n      Authorization: "Bearer ${token}"` },
+    { id: "claude", label: "Claude Code", text: `claude mcp add --scope user --transport http cc ${url} --header "Authorization: Bearer ${token}"` },
+    { id: "codex", label: "Codex", text: `# ~/.codex/config.toml\n[mcp_servers.cc]\nurl = "${url}"\nhttp_headers = { "Authorization" = "Bearer ${token}" }` },
+    { id: "hermes", label: "Hermes", text: `# ~/.hermes/config.yaml\nmcp_servers:\n  cc:\n    url: "${url}"\n    headers:\n      Authorization: "Bearer ${token}"` },
   ];
 }
 
-function Snippet({ title, text }: { title: string; text: string }) {
+function CopyButton({ text, label }: { text: string; label: string }) {
   const [copied, setCopied] = useState(false);
-  const copy = () =>
-    navigator.clipboard.writeText(text).then(
-      () => setCopied(true),
-      () => {},
-    );
   return (
-    <div className="grid gap-1">
-      <div className="flex items-center gap-2">
-        <span className="flex-1 text-xs font-medium text-muted-fg">{title}</span>
-        <Button variant="ghost" size="icon" aria-label={`Copy ${title}`} onClick={() => void copy()}>
-          {copied ? <Check className="size-4" /> : <Copy className="size-4" />}
-        </Button>
-      </div>
-      <pre className="whitespace-pre-wrap break-all rounded-lg bg-accent p-2 text-xs">{text}</pre>
-    </div>
+    <Button
+      size="sm"
+      aria-label={`Copiar ${label}`}
+      onClick={() =>
+        navigator.clipboard.writeText(text).then(
+          () => setCopied(true),
+          () => {},
+        )
+      }
+    >
+      {copied ? <Check className="size-4" aria-hidden /> : <Copy className="size-4" aria-hidden />}
+      {copied ? "Copiado" : "Copiar"}
+    </Button>
   );
 }
 
-/** Bearer tokens for agents that call the CC's MCP. Agent tasks always wait for approval in Queue. */
-export function Agents() {
+/** Shown once, right after creating a token: the token itself and ready-to-paste config for each client. */
+function NewToken({ created, onDone }: { created: NewAgentToken; onDone: () => void }) {
+  const list = snippets(created.token);
+  const [pick, setPick] = useState(list[0]!.id);
+  const snippet = list.find((s) => s.id === pick)!;
+  return (
+    <section className="overflow-hidden rounded-card border border-[#f3d9a6] bg-panel">
+      <header className="flex items-center gap-2 bg-need-bg px-4 py-3">
+        <h2 className="font-semibold">Token de {created.label}</h2>
+        <span className="text-sm text-muted-fg">· se muestra una sola vez</span>
+      </header>
+      <div className="grid gap-3 px-4 py-3">
+        <p className="text-sm text-need">Copialo ahora: no se vuelve a mostrar.</p>
+        <div className="flex items-center gap-2">
+          <code className="min-w-0 flex-1 rounded-lg bg-soft px-2.5 py-2 font-mono text-[13px] break-all">{created.token}</code>
+          <CopyButton text={created.token} label="el token" />
+        </div>
+        <div className="flex items-center gap-2">
+          <Tabs label="Cliente" items={list.map((s) => ({ id: s.id, label: s.label }))} value={pick} onChange={setPick} />
+          <span className="ml-auto">
+            <CopyButton text={snippet.text} label={`la configuración de ${snippet.label}`} />
+          </span>
+        </div>
+        <pre className="overflow-x-auto rounded-lg bg-fg p-2.5 font-mono text-[11.5px] leading-normal whitespace-pre-wrap break-all text-[#e7e5e0]">{snippet.text}</pre>
+        <Button variant="primary" className="justify-self-end" onClick={onDone}>
+          Listo
+        </Button>
+      </div>
+    </section>
+  );
+}
+
+/** Acceso API: tokens bearer para agentes que llaman al MCP del Command Center. Sus tareas siempre esperan aprobación en Trabajo. */
+function ApiAccess() {
   const [agents, setAgents] = useState<AgentToken[] | null>(null);
   const [label, setLabel] = useState("");
+  const [creating, setCreating] = useState(false);
   const [created, setCreated] = useState<NewAgentToken | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const load = () => call("GET /api/agents").then(setAgents, (e) => setError(e instanceof Error ? e.message : "Could not load agents"));
+  const load = () => call("GET /api/agents").then(setAgents, (e) => setError(e instanceof Error ? e.message : "No se pudieron cargar los agentes"));
   useEffect(() => void load(), []);
 
   const act = async (fn: () => Promise<unknown>) => {
@@ -52,19 +88,25 @@ export function Agents() {
     try {
       await fn();
       await load();
+      return true;
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Action failed");
+      setError(e instanceof Error ? e.message : "No se pudo completar la acción");
+      return false;
     } finally {
       setBusy(false);
     }
   };
-  const create = () =>
-    act(async () => {
+  const create = async () => {
+    const ok = await act(async () => {
       setCreated(await call("POST /api/agents", { body: { label: label.trim() } }));
-      setLabel("");
     });
+    if (ok) {
+      setLabel("");
+      setCreating(false);
+    }
+  };
   const revoke = (l: string) => {
-    if (confirm(`Revoke ${l}? Its MCP calls stop working. Its tasks stay.`))
+    if (confirm(`¿Revocar ${l}? Sus llamadas MCP dejan de funcionar. Sus tareas se conservan.`))
       void act(async () => {
         await call("DELETE /api/agents/:label", { params: { label: l } });
         if (created?.label === l) setCreated(null);
@@ -72,60 +114,91 @@ export function Agents() {
   };
 
   return (
-    <div className="grid gap-4">
-      <h1 className="text-xl font-semibold">Agents</h1>
-      <p className="text-muted-fg">
-        Agents with a token can submit tasks through the Command Center MCP. Every task they submit waits for your approval in Queue.
-      </p>
-
-      <form
-        className="flex items-end gap-2"
-        onSubmit={(e) => {
-          e.preventDefault();
-          void create();
-        }}
-      >
-        <div className="min-w-0 flex-1">
-          <Field label="New agent">
-            <Input value={label} onChange={(e) => setLabel(e.target.value)} placeholder="hermes" maxLength={40} autoCapitalize="off" autoCorrect="off" />
-          </Field>
-        </div>
-        <Button type="submit" variant="primary" disabled={busy || !label.trim()}>
-          Create
-        </Button>
-      </form>
-      {error && (
-        <p role="alert" className="text-bad">
-          {error}
-        </p>
-      )}
-
-      {created && (
-        <Card className="grid gap-3 border-warn">
-          <p className="font-medium">Token for {created.label}</p>
-          <p className="text-warn">Copy it now. It is not shown again.</p>
-          <pre className="whitespace-pre-wrap break-all rounded-lg bg-accent p-2 text-xs">{created.token}</pre>
-          {snippets(created.token).map((s) => (
-            <Snippet key={s.title} {...s} />
-          ))}
-          <Button onClick={() => setCreated(null)}>Done</Button>
-        </Card>
-      )}
-
-      {agents?.length === 0 && <Empty>No agents yet.</Empty>}
-      {agents?.map((a) => (
-        <Card key={a.label} className="flex items-center gap-2">
-          <div className="min-w-0 flex-1">
-            <p className="truncate font-medium">{a.label}</p>
-            <p className="text-muted-fg">
-              Created {ago(a.createdAt)} · {a.lastUsedAt ? `used ${ago(a.lastUsedAt)}` : "never used"}
+    <>
+      <div className="grid gap-4">
+        <Panel
+          title="Acceso API"
+          action={
+            <Button onClick={() => setCreating(true)}>
+              <Plus className="size-4" aria-hidden />
+              Nuevo agente
+            </Button>
+          }
+        >
+          <p className="px-4 py-2.5 text-xs text-muted-fg">Tokens MCP para agentes externos. Cada tarea que envíen espera tu aprobación en Trabajo.</p>
+          {error && !creating && (
+            <p role="alert" className="px-4 py-2.5 text-fail">
+              {error}
             </p>
-          </div>
-          <Button variant="danger" size="sm" disabled={busy} onClick={() => revoke(a.label)}>
-            Revoke
-          </Button>
-        </Card>
-      ))}
+          )}
+          {agents?.length === 0 && (
+            <div className="p-4">
+              <EmptyState>Nada por acá: creá un agente para que otros asistentes o scripts usen el Command Center por MCP.</EmptyState>
+            </div>
+          )}
+          {agents?.map((a) => (
+            <div key={a.label} className="flex items-center gap-3 px-4 py-3">
+              <KeyRound className="size-4 shrink-0 text-tx2" aria-hidden />
+              <div className="min-w-0 flex-1">
+                <b className="block truncate font-mono text-[13px]">{a.label}</b>
+                <span className="block text-xs text-muted-fg">
+                  <span className="hidden md:inline">Creado {ago(a.createdAt)} · </span>
+                  {a.lastUsedAt ? `usado ${ago(a.lastUsedAt)}` : "nunca usado"}
+                </span>
+              </div>
+              <Button variant="danger" size="sm" disabled={busy} onClick={() => revoke(a.label)}>
+                Revocar
+              </Button>
+            </div>
+          ))}
+        </Panel>
+        {created && <NewToken created={created} onDone={() => setCreated(null)} />}
+      </div>
+      {creating && (
+        <Sheet
+          title="Nuevo agente"
+          onClose={() => setCreating(false)}
+          footer={
+            <div className="flex gap-2">
+              <Button className="ml-auto" onClick={() => setCreating(false)}>
+                Cancelar
+              </Button>
+              <Button variant="primary" type="submit" form="agent-form" disabled={busy || !label.trim()}>
+                Crear
+              </Button>
+            </div>
+          }
+        >
+          <form
+            id="agent-form"
+            className="grid gap-3"
+            onSubmit={(e) => {
+              e.preventDefault();
+              void create();
+            }}
+          >
+            <Field label="Nombre">
+              <Input value={label} onChange={(e) => setLabel(e.target.value)} placeholder="hermes" maxLength={40} autoCapitalize="off" autoCorrect="off" autoFocus />
+            </Field>
+            <p className="text-xs text-muted-fg">Letras, números, puntos, guiones y guiones bajos. Después vas a ver el token una sola vez.</p>
+            {error && (
+              <p role="alert" className="text-fail">
+                {error}
+              </p>
+            )}
+          </form>
+        </Sheet>
+      )}
+    </>
+  );
+}
+
+/** Flota / Agentes: perfiles (roles para Pedir) y acceso API (tokens MCP). */
+export function Agents() {
+  return (
+    <div className="grid items-start gap-4 lg:grid-cols-[1.2fr_1fr]">
+      <Profiles />
+      <ApiAccess />
     </div>
   );
 }

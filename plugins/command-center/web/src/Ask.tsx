@@ -1,21 +1,22 @@
-import { Mic, Square } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { Mic, Sparkles, Square } from "lucide-react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import type { OrganizeDraft } from "../../server/organize.ts";
 import { splitRequest } from "../../server/plan.ts";
 import type { Profile } from "../../server/profiles.ts";
 import type { MachineProjects, ModelSelection, ProviderInfo, TaskInput } from "../../server/types.ts";
 import { insertAtCaret, useDictation } from "./dictation.ts";
 import { call, refresh, useLive } from "./api.ts";
+import { PRIORITIES, statusTone } from "./look.ts";
+import { CoordinatorPicker, OrderingBanner, ReviewBanner, Segmented, useOrganize } from "./Organize.tsx";
+import { draftSteps } from "./organizeFlow.ts";
 import { Plan, toPlanSteps } from "./Plan.tsx";
 import { Button } from "./ui/Button.tsx";
+import { Sheet } from "./ui/Sheet.tsx";
 import { Field, Select, Textarea, Input } from "./ui/fields.tsx";
+import { ProjectDot } from "./ui/ProjectDot.tsx";
 
-const priorities = [
-  [2, "Urgent"],
-  [1, "High"],
-  [0, "Normal"],
-  [-1, "Low"],
-  [-2, "Lowest"],
-] as const;
+/** Lowest first, as in the design. */
+const PRIORITY_ITEMS = [...PRIORITIES].reverse().map(([id, label]) => ({ id: id as number, label }));
 
 /** Project value is "<machineId>:<projectId>"; machine ids contain no colon. */
 const splitKey = (k: string) => {
@@ -23,7 +24,20 @@ const splitKey = (k: string) => {
   return { machineId: k.slice(0, i), projectId: k.slice(i + 1) };
 };
 
-export function Ask({ project }: { project: string | null }) {
+function Check({ checked, onChange, label, hint }: { checked: boolean; onChange: (v: boolean) => void; label: string; hint?: ReactNode }) {
+  return (
+    <label className="flex items-start gap-2 text-sm">
+      <input type="checkbox" className="mt-0.5 size-5 shrink-0 md:size-4" checked={checked} onChange={(e) => onChange(e.target.checked)} />
+      <span>
+        {label}
+        {hint && <span className="block text-xs text-muted-fg">{hint}</span>}
+      </span>
+    </label>
+  );
+}
+
+/** Global Pedir overlay. `project` preselects "<machineId>:<projectId>"; `autoDictate` starts dictation on open (phone mic button). */
+export function Ask({ project, onClose, autoDictate }: { project: string | null; onClose: () => void; autoDictate: boolean }) {
   const { view } = useLive();
   const [groups, setGroups] = useState<MachineProjects[]>([]);
   const [key, setKey] = useState(project ?? "");
@@ -41,6 +55,11 @@ export function Ask({ project }: { project: string | null }) {
   /** The user's edit of the automatic split; null = follow the prompt. */
   const [edited, setEdited] = useState<string[] | null>(null);
   const [ordered, setOrdered] = useState(false);
+  const [options, setOptions] = useState(false);
+  /** The coordinator's draft under review. Null while the user writes their own text. */
+  const [draft, setDraft] = useState<{ by: string; title: string; questions: string[] } | null>(null);
+  /** What the form held before the draft replaced it ("Usar mi texto original"). */
+  const before = useRef({ prompt: "", key: "", priority: 0, profileId: "" });
   const box = useRef<HTMLTextAreaElement>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -49,7 +68,7 @@ export function Ask({ project }: { project: string | null }) {
     call("GET /api/projects").then((g) => {
       setGroups(g);
       setKey((k) => k || (g.flatMap((m) => m.projects.map((p) => `${m.machineId}:${p.id}`))[0] ?? ""));
-    }, (e) => setError(e instanceof Error ? e.message : "Could not load projects"));
+    }, (e) => setError(e instanceof Error ? e.message : "No se pudieron cargar los proyectos"));
   }, []);
 
   useEffect(() => {
@@ -64,6 +83,43 @@ export function Ask({ project }: { project: string | null }) {
       return r.value;
     });
   });
+
+  useEffect(() => {
+    if (autoDictate && dictation.supported) dictation.start();
+  }, []);
+
+  const applyDraft = (d: OrganizeDraft, by: string) => {
+    const steps = draftSteps(d);
+    setDraft({ by, title: d.title, questions: d.questions });
+    setPrompt(d.prompt);
+    if (d.projectKey && groups.some((g) => g.projects.some((p) => `${g.machineId}:${p.id}` === d.projectKey))) setKey(d.projectKey);
+    setPriority(Math.max(-2, Math.min(2, Math.round(d.priority))));
+    setProfileId(d.profileId && profiles.some((p) => p.id === d.profileId) ? d.profileId : "");
+    setSplit(steps.length > 0);
+    setEdited(steps.length > 0 ? steps : null);
+    setOrdered(steps.length > 0);
+    setOptions(true);
+  };
+  const organize = useOrganize((d, c) => applyDraft(d, c.label));
+  const ordering = organize.running !== null;
+
+  const order = () => {
+    dictation.stop();
+    if (!draft) before.current = { prompt, key, priority, profileId };
+    void organize.start(prompt.trim(), key);
+  };
+
+  const discardDraft = () => {
+    const b = before.current;
+    setDraft(null);
+    setPrompt(b.prompt);
+    setKey(b.key);
+    setPriority(b.priority);
+    setProfileId(b.profileId);
+    setSplit(false);
+    setEdited(null);
+    organize.setError(null);
+  };
 
   const machineId = key ? splitKey(key).machineId : "";
   useEffect(() => {
@@ -86,6 +142,7 @@ export function Ask({ project }: { project: string | null }) {
   const profile = profiles.find((p) => p.id === profileId);
   const steps = split ? (edited ?? splitRequest(prompt)) : [];
   const filled = steps.map((x) => x.trim()).filter(Boolean);
+  const group = groups.find((g) => g.machineId === machineId);
 
   const submit = async () => {
     dictation.stop();
@@ -93,6 +150,7 @@ export function Ask({ project }: { project: string | null }) {
     // Left unset, a profile's own defaults apply; the server fills the rest.
     const body: TaskInput = {
       prompt: prompt.trim(),
+      title: !split && draft?.title.trim() ? draft.title.trim() : undefined,
       machineId,
       projectId,
       model: model === "" ? null : (models[Number(model)]?.sel ?? null),
@@ -108,158 +166,221 @@ export function Ask({ project }: { project: string | null }) {
     try {
       if (split) await call("POST /api/plans", { body: { ...body, request: prompt.trim(), steps: toPlanSteps(filled, ordered) } });
       else await call("POST /api/tasks", { body });
-      setPrompt("");
-      setEdited(null);
-      setDeps([]);
       void refresh();
-      location.hash = "#queue";
+      onClose();
+      location.hash = "#work";
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Could not queue the task");
+      setError(e instanceof Error ? e.message : "No se pudo encolar la tarea");
     } finally {
       setBusy(false);
     }
   };
 
   const openDeps = view?.queue.filter((t) => !["pending_approval", "failed", "cancelled"].includes(t.status)) ?? [];
+  const canOrder = !!prompt.trim() && !!organize.coordinator && !ordering;
+  const link = group ? statusTone(group.status) : null;
 
   return (
-    <form
-      className="grid gap-4"
-      onSubmit={(e) => {
-        e.preventDefault();
-        void submit();
-      }}
-    >
-      <h1 className="text-xl font-semibold">Ask</h1>
-      <div className="grid gap-1">
-        <Textarea
-          ref={box}
-          aria-label="Prompt"
-          value={prompt}
-          onChange={(e) => setPrompt(e.target.value)}
-          placeholder="What should the agent do?"
-          autoFocus
-        />
-        {dictation.interim && <p className="text-muted-fg italic">{dictation.interim}</p>}
-        {dictation.error && (
-          <p role="alert" className="text-warn">
-            {dictation.error}
-          </p>
-        )}
-        {dictation.supported && (
-          <Button
-            variant={dictation.listening ? "primary" : "outline"}
-            aria-pressed={dictation.listening}
-            onClick={dictation.listening ? dictation.stop : dictation.start}
-          >
-            {dictation.listening ? <Square className="size-4" aria-hidden /> : <Mic className="size-4" aria-hidden />}
-            {dictation.listening ? "Stop dictation" : "Dictate"}
+    <Sheet
+      title="Pedir"
+      onClose={onClose}
+      wide
+      footer={
+        <div className="flex items-center gap-3">
+          <span className="flex min-w-0 flex-1 items-center gap-1.5 text-xs text-muted-fg">
+            {group && link && (
+              <>
+                <span aria-hidden style={{ background: link.fg }} className="size-2 shrink-0 rounded-full" />
+                <span className="truncate">
+                  Se ejecuta en {group.machineLabel} · {link.label.toLowerCase()}
+                </span>
+              </>
+            )}
+          </span>
+          <Button variant="primary" type="submit" form="ask-form" disabled={busy || ordering || !prompt.trim() || !key || (split && filled.length === 0)}>
+            {busy ? "Encolando..." : split ? `Encolar ${filled.length} ${filled.length === 1 ? "tarea" : "tareas"}` : "Encolar"}
           </Button>
+        </div>
+      }
+    >
+      <form
+        id="ask-form"
+        className="grid gap-3"
+        onSubmit={(e) => {
+          e.preventDefault();
+          void submit();
+        }}
+      >
+        {draft && !ordering && (
+          <ReviewBanner label={draft.by} questions={draft.questions} busy={!canOrder} onRedo={order} onDiscard={discardDraft} />
         )}
-      </div>
-      {profiles.length > 0 && (
-        <Field label="Profile">
-          <Select value={profileId} onChange={(e) => setProfileId(e.target.value)}>
-            <option value="">None</option>
-            {profiles.map((p) => (
-              <option key={p.id} value={p.id}>
-                {p.avatar} {p.name}
-                {p.createdBy.startsWith("agent:") ? ` (by ${p.createdBy.slice(6)})` : ""}
-              </option>
-            ))}
-          </Select>
-        </Field>
-      )}
-      <Field label="Project">
-        <Select value={key} onChange={(e) => setKey(e.target.value)} required>
-          {groups.map((g) => (
-            <optgroup key={g.machineId} label={g.status === "online" ? g.machineLabel : `${g.machineLabel} (${g.status})`}>
-              {g.projects.map((p) => (
-                <option key={p.id} value={`${g.machineId}:${p.id}`}>
-                  {p.title}
-                </option>
-              ))}
-            </optgroup>
-          ))}
-        </Select>
-      </Field>
-      {groups.some((g) => g.machineId === machineId && g.status !== "online") && (
-        <p className="text-warn">This machine is not online. The task will wait in the queue.</p>
-      )}
-      <div className="grid grid-cols-2 gap-3">
-        <Field label="Model">
-          <Select value={model} onChange={(e) => setModel(e.target.value)}>
-            <option value="">{profile?.model ? "Profile default" : "Default"}</option>
-            {models.map((m, i) => (
-              <option key={m.sel.instanceId + m.sel.model} value={i}>
-                {m.label}
-              </option>
-            ))}
-          </Select>
-        </Field>
-        <Field label="Priority">
-          <Select value={priority} onChange={(e) => setPriority(Number(e.target.value))}>
-            {priorities.map(([v, l]) => (
-              <option key={v} value={v}>
-                {l}
-              </option>
-            ))}
-          </Select>
-        </Field>
-      </div>
-      <div className="grid gap-2">
-        <label className="flex items-center gap-2">
-          <input type="checkbox" checked={worktree} onChange={(e) => setWorktree(e.target.checked)} className="size-5" />
-          New worktree
-        </label>
-        {worktree && (
-          <Field label="Base branch">
-            <Input value={baseRef} onChange={(e) => setBaseRef(e.target.value)} />
+        {draft && !split && (
+          <Field label="Título">
+            <Input value={draft.title} maxLength={120} onChange={(e) => setDraft({ ...draft, title: e.target.value })} />
           </Field>
         )}
-        <label className="flex items-center gap-2">
-          <input type="checkbox" checked={plan} onChange={(e) => setPlan(e.target.checked)} className="size-5" />
-          Agent plans first
-        </label>
-        <label className="flex items-center gap-2">
-          <input type="checkbox" checked={split} onChange={(e) => setSplit(e.target.checked)} className="size-5" />
-          Split into steps
-        </label>
-      </div>
-      {split && (
-        <Plan
-          steps={steps}
-          ordered={ordered}
-          edited={edited !== null}
-          onSteps={setEdited}
-          onOrdered={setOrdered}
-          onReset={() => setEdited(null)}
-        />
-      )}
-      {openDeps.length > 0 && (
-        <fieldset className="grid gap-2">
-          <legend className="mb-1 text-xs font-medium text-muted-fg">Run after</legend>
-          {openDeps.map((t) => (
-            <label key={t.id} className="flex items-center gap-2">
-              <input
-                type="checkbox"
-                className="size-5"
-                checked={deps.includes(t.id)}
-                onChange={(e) => setDeps((d) => (e.target.checked ? [...d, t.id] : d.filter((x) => x !== t.id)))}
+        <div className="grid gap-1">
+          {draft && <span className="text-xs font-medium text-muted-fg">Prompt optimizado</span>}
+          <Textarea
+            ref={box}
+            aria-label="Pedido"
+            value={prompt}
+            readOnly={ordering}
+            onChange={(e) => setPrompt(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) e.currentTarget.form?.requestSubmit();
+            }}
+            placeholder="¿Qué tiene que hacer el agente?"
+            className="min-h-32 border-run bg-panel shadow-[0_0_0_3px_var(--run-bg)] focus-visible:outline-none"
+            autoFocus
+          />
+          {dictation.interim && <p className="text-sm text-muted-fg italic">{dictation.interim}</p>}
+          {dictation.error && (
+            <p role="alert" className="text-sm text-need">
+              {dictation.error}
+            </p>
+          )}
+        </div>
+        {ordering ? (
+          <OrderingBanner label={organize.running!.label} onCancel={organize.cancel} />
+        ) : (
+          <div className="grid gap-2">
+            <div className="flex gap-2">
+              <Button
+                variant={dictation.listening ? "primary" : "outline"}
+                className="h-11 flex-1 md:h-[34px]"
+                aria-pressed={dictation.listening}
+                disabled={!dictation.supported}
+                title={dictation.supported ? undefined : "Este navegador no soporta dictado"}
+                onClick={dictation.listening ? dictation.stop : dictation.start}
+              >
+                {dictation.listening ? <Square className="size-4" aria-hidden /> : <Mic className="size-4" aria-hidden />}
+                {dictation.listening ? "Detener" : "Dictar"}
+              </Button>
+              <Button className="h-11 flex-1 md:h-[34px]" disabled={!canOrder || busy} onClick={order}>
+                <Sparkles className="size-4" aria-hidden />
+                Ordenar con IA
+              </Button>
+            </div>
+            {dictation.listening && (
+              <p role="status" className="flex items-center gap-1.5 text-xs text-muted-fg">
+                <span aria-hidden className="size-2 rounded-full bg-fail" />
+                Escuchando… tocá Detener cuando termines.
+              </p>
+            )}
+            <div className="flex items-center gap-2">
+              <span className="shrink-0 text-xs text-muted-fg">Coordinador</span>
+              <CoordinatorPicker o={organize} className="flex-1" />
+            </div>
+            {organize.error && (
+              <p role="alert" className="text-sm text-fail">
+                {organize.error}
+              </p>
+            )}
+          </div>
+        )}
+        <div className="grid grid-cols-2 gap-2.5">
+          <Field label="Proyecto">
+            <span className="relative block">
+              {key && <ProjectDot projectKey={key} className="pointer-events-none absolute top-1/2 left-3 -translate-y-1/2" />}
+              <Select value={key} onChange={(e) => setKey(e.target.value)} required className={key ? "pl-8" : ""}>
+                {groups.map((g) => (
+                  <optgroup key={g.machineId} label={g.status === "online" ? g.machineLabel : `${g.machineLabel} (${statusTone(g.status).label.toLowerCase()})`}>
+                    {g.projects.map((p) => (
+                      <option key={p.id} value={`${g.machineId}:${p.id}`}>
+                        {p.title}
+                      </option>
+                    ))}
+                  </optgroup>
+                ))}
+              </Select>
+            </span>
+          </Field>
+          <Field label="Perfil">
+            <Select value={profileId} onChange={(e) => setProfileId(e.target.value)} disabled={profiles.length === 0}>
+              <option value="">Ninguno</option>
+              {profiles.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.avatar} {p.name}
+                  {p.createdBy.startsWith("agent:") ? ` (de ${p.createdBy.slice(6)})` : ""}
+                </option>
+              ))}
+            </Select>
+          </Field>
+        </div>
+        {group && group.status !== "online" && <p className="text-sm text-need">Esta máquina no está en línea. La tarea esperará en la cola.</p>}
+        <details open={options} onToggle={(e) => setOptions(e.currentTarget.open)} className="rounded-[10px] border border-line">
+          <summary className="flex min-h-10 cursor-pointer items-center gap-2 px-3 text-sm font-medium select-none">
+            Opciones
+            <span className="text-xs font-normal text-muted-fg">prioridad, modelo, worktree, pasos</span>
+          </summary>
+          <div className="grid gap-3 border-t border-soft p-3">
+            <div className="grid gap-1">
+              <span className="text-xs font-medium text-muted-fg">Prioridad</span>
+              <Segmented label="Prioridad" items={PRIORITY_ITEMS} value={priority} onChange={setPriority} />
+            </div>
+            <Field label="Modelo">
+              <Select value={model} onChange={(e) => setModel(e.target.value)}>
+                <option value="">{profile?.model ? "El del perfil" : "Por defecto"}</option>
+                {models.map((m, i) => (
+                  <option key={m.sel.instanceId + m.sel.model} value={i}>
+                    {m.label}
+                  </option>
+                ))}
+              </Select>
+            </Field>
+            <div className="grid gap-2.5 md:grid-cols-2">
+              <Check checked={worktree} onChange={setWorktree} label="Worktree nuevo" hint={worktree ? undefined : "Si no, trabaja en el directorio del proyecto"} />
+              <Check checked={plan} onChange={setPlan} label="El agente planifica primero" />
+              <Check
+                checked={split}
+                onChange={(v) => {
+                  setSplit(v);
+                  if (!v) setEdited(null);
+                }}
+                label="Dividir en pasos"
+                hint={split ? `${filled.length} ${filled.length === 1 ? "tarea" : "tareas"}${ordered ? ", en orden" : ""}` : undefined}
               />
-              <span className="truncate">{t.title}</span>
-            </label>
-          ))}
-        </fieldset>
-      )}
-      {error && (
-        <p role="alert" className="text-bad">
-          {error}
-        </p>
-      )}
-      <Button variant="primary" type="submit" disabled={busy || !prompt.trim() || !key || (split && filled.length === 0)}>
-        {busy ? "Queuing..." : split ? `Queue ${filled.length} ${filled.length === 1 ? "task" : "tasks"}` : "Queue task"}
-      </Button>
-    </form>
+            </div>
+            {worktree && (
+              <Field label="Rama base">
+                <Input value={baseRef} onChange={(e) => setBaseRef(e.target.value)} />
+              </Field>
+            )}
+            {openDeps.length > 0 && (
+              <fieldset className="grid gap-2">
+                <legend className="mb-1 text-xs font-medium text-muted-fg">Ejecutar después de…</legend>
+                {openDeps.map((t) => (
+                  <label key={t.id} className="flex items-center gap-2 text-sm">
+                    <input
+                      type="checkbox"
+                      className="size-5 md:size-4"
+                      checked={deps.includes(t.id)}
+                      onChange={(e) => setDeps((d) => (e.target.checked ? [...d, t.id] : d.filter((x) => x !== t.id)))}
+                    />
+                    <span className="truncate">{t.title}</span>
+                  </label>
+                ))}
+              </fieldset>
+            )}
+          </div>
+        </details>
+        {split && (
+          <Plan
+            steps={steps}
+            ordered={ordered}
+            edited={edited !== null}
+            onSteps={setEdited}
+            onOrdered={setOrdered}
+            onReset={() => setEdited(null)}
+          />
+        )}
+        {error && (
+          <p role="alert" className="text-sm text-fail">
+            {error}
+          </p>
+        )}
+      </form>
+    </Sheet>
   );
 }

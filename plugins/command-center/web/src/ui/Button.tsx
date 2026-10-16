@@ -3,16 +3,17 @@ import type { ComponentProps } from "react";
 import { cn } from "./cn.ts";
 
 const button = cva(
-  "inline-flex shrink-0 items-center justify-center gap-1.5 rounded-lg border border-transparent font-medium whitespace-nowrap select-none disabled:pointer-events-none disabled:opacity-45",
+  "inline-flex shrink-0 items-center justify-center gap-1.5 rounded-ctl border border-transparent font-medium whitespace-nowrap select-none disabled:pointer-events-none disabled:opacity-45",
   {
     variants: {
       variant: {
-        primary: "bg-primary text-primary-fg active:opacity-90",
-        outline: "border-input bg-card active:bg-accent",
-        ghost: "text-muted-fg active:bg-accent",
-        danger: "bg-bad/10 text-bad active:bg-bad/20",
+        primary: "border-primary bg-primary text-primary-fg active:opacity-90",
+        outline: "border-line bg-panel active:bg-soft",
+        ghost: "text-muted-fg active:bg-soft",
+        danger: "border-line bg-panel text-fail active:bg-fail-bg",
       },
-      size: { default: "h-10 px-4", sm: "h-9 px-3", icon: "size-9" },
+      // Phone targets stay 40px; desktop is the denser 30px of the design.
+      size: { default: "h-10 px-4 text-sm md:h-[30px] md:px-3", sm: "h-9 px-3 text-sm md:h-[26px] md:px-2.5 md:text-xs", icon: "size-10 md:size-[30px]" },
     },
     defaultVariants: { variant: "outline", size: "default" },
   },

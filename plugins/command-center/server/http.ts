@@ -123,11 +123,11 @@ function builtins(opts: ServerOptions): Route[] {
         if (!originOk(req, opts.publicUrl)) throw new HttpError(403, "forbidden", "Host or Origin not allowed");
         const now = Date.now();
         if (now - windowStart >= 60_000) [windowStart, attempts] = [now, 0];
-        if (++attempts > 10) throw new HttpError(429, "rate_limited", "Too many pairing attempts, try again in a minute");
+        if (++attempts > 10) throw new HttpError(429, "rate_limited", "Demasiados intentos de vinculación, probá de nuevo en un minuto");
         const token = (body as { token?: unknown } | undefined)?.token;
         if (typeof token !== "string" || token.length > 200) throw new HttpError(400, "bad_request", "token required");
         const cookie = redeem(opts.db, token, (req.headers["user-agent"] ?? "").slice(0, 200));
-        if (!cookie) throw new HttpError(401, "invalid_token", "Pairing link is invalid, used or expired");
+        if (!cookie) throw new HttpError(401, "invalid_token", "El link de vinculación no es válido, ya se usó o venció");
         res.setHeader("set-cookie", cookie);
         return { ok: true };
       },

@@ -84,7 +84,7 @@ export function createHealth(deps: HealthDeps) {
             key: `contract_break:${machine.id}:${contract.version}`,
             kind: "contract_break",
             machineId: machine.id,
-            message: `${machine.label}: T3 ${contract.version} changed what the CC relies on (${contract.misses.join("; ")})`,
+            message: `${machine.label}: T3 ${contract.version} cambió algo de lo que depende el CC (${contract.misses.join("; ")})`,
             since: contract.since,
           });
         const token = kvGet<TokenState>(deps.db, `health:token:${machine.id}`);
@@ -94,7 +94,7 @@ export function createHealth(deps: HealthDeps) {
             key: `token_expiring:${machine.id}`,
             kind: "token_expiring",
             machineId: machine.id,
-            message: `${machine.label}: T3 token expires ${token.expiresAt}`,
+            message: `${machine.label}: el token de T3 vence el ${new Date(token.expiresAt).toLocaleString("es-AR", { dateStyle: "short", timeStyle: "short" })}`,
             since: token.expiresAt,
           });
       }

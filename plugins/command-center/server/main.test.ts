@@ -214,20 +214,20 @@ test("CLI + serve: pairing, view, task dispatch, re-add, and no token leaks", as
   assert.equal((await hit(port, "POST", "/mcp", bearer, init)).status, 401, "a revoked token stops working");
 
   // Phase 3 routes are all behind the cookie, and a profile's role prompt reaches the launched task.
-  for (const path of ["/api/memory/list", "/api/sections", "/api/profiles", "/api/settings/projects", "/api/work", "/api/infra", "/api/finance", "/api/workflows", "/api/workflow-runs", "/api/workflow-needs", "/api/features", "/api/orca"])
+  for (const path of ["/api/memory/list", "/api/sections", "/api/profiles", "/api/settings/projects", "/api/work", "/api/infra", "/api/finance", "/api/workflows", "/api/workflow-runs", "/api/workflow-needs", "/api/organize/coordinators"])
     assert.equal((await hit(port, path === "/api/memory/list" ? "POST" : "GET", path, {}, path === "/api/memory/list" ? {} : undefined)).status, 401, path);
   const saved = await hit(port, "PUT", "/api/settings/projects", auth, { pinned: [`${ENV_ID}:p1`] });
   assert.equal(saved.status, 200);
   assert.deepEqual(JSON.parse((await hit(port, "GET", "/api/settings/projects", auth)).text).pinned, [`${ENV_ID}:p1`]);
   assert.equal((await hit(port, "GET", "/api/sections", auth)).status, 200);
   assert.equal((await hit(port, "GET", "/api/work", auth)).status, 200);
-  // Phase 4: workflows and artifacts are wired; Orca is off without CC_ORCA_CLI.
+  // Phase 4: workflows, artifacts and "Ordenar con IA" are wired.
   assert.equal((await hit(port, "POST", "/api/artifacts/list", {}, {})).status, 401);
   assert.deepEqual(JSON.parse((await hit(port, "GET", "/api/workflows", auth)).text), []);
   assert.equal((await hit(port, "GET", "/api/workflow-runs", auth)).status, 200);
   assert.equal((await hit(port, "POST", "/api/artifacts/list", auth, {})).status, 200);
-  assert.deepEqual(JSON.parse((await hit(port, "GET", "/api/features", auth)).text), { orca: false });
-  assert.equal(JSON.parse((await hit(port, "GET", "/api/orca", auth)).text).configured, false);
+  assert.equal((await hit(port, "GET", "/api/features", auth)).status, 404);
+  assert.equal((await hit(port, "POST", "/api/organize", auth, { text: "", coordinator: "claude" })).status, 400);
   const profile = JSON.parse((await hit(port, "POST", "/api/profiles", auth, { name: "Reviewer", rolePrompt: "You review." })).text) as { id: string };
   const withProfile = await hit(port, "POST", "/api/tasks", auth, { prompt: "Check it", machineId: ENV_ID, projectId: "p1", profileId: profile.id });
   assert.equal(withProfile.status, 200);

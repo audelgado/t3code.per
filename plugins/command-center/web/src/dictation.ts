@@ -1,4 +1,4 @@
-// Voice input through the browser's SpeechRecognition. Not offered where it is missing (e.g. Firefox).
+// Voice input through the browser's SpeechRecognition (Spanish, es-AR). Not offered where it is missing (e.g. Firefox).
 import { useEffect, useRef, useState } from "react";
 
 interface Recognition {
@@ -18,13 +18,15 @@ const ctor = (): Ctor | null => {
   return w.SpeechRecognition ?? w.webkitSpeechRecognition ?? null;
 };
 
+const denied = "Se denegó el permiso del micrófono. Habilitalo en los ajustes del sitio del navegador.";
 const errors: Record<string, string | null> = {
   aborted: null,
-  "not-allowed": "Microphone permission denied. Allow it in the browser's site settings.",
-  "service-not-allowed": "Microphone permission denied. Allow it in the browser's site settings.",
-  network: "Dictation needs a network connection.",
-  "audio-capture": "No microphone found.",
-  "no-speech": "Didn't catch that. Try again.",
+  "not-allowed": denied,
+  "service-not-allowed": denied,
+  network: "El dictado necesita conexión a internet.",
+  "audio-capture": "No se encontró un micrófono.",
+  "no-speech": "No se escuchó nada. Probá de nuevo.",
+  "language-not-supported": "El navegador no soporta dictado en español.",
 };
 
 /** Inserts recognized text at the caret without joining neighboring words. */
@@ -47,6 +49,7 @@ export function useDictation(onFinal: (text: string) => void) {
   const [interim, setInterim] = useState("");
   const [error, setError] = useState<string | null>(null);
   const active = useRef<Recognition | null>(null);
+  const interimRef = useRef("");
   const emit = useRef(onFinal);
   emit.current = onFinal;
   const supported = typeof window !== "undefined" && ctor() !== null;
@@ -56,19 +59,24 @@ export function useDictation(onFinal: (text: string) => void) {
     if (!r) return;
     active.current = null;
     r.onresult = r.onerror = r.onend = null;
+    // abort() drops the phrase still being recognized: keep what was heard so far.
+    const pending = interimRef.current.trim();
+    interimRef.current = "";
+    if (pending) emit.current(pending);
     r.abort();
     setListening(false);
     setInterim("");
   };
 
-  const start = () => {
+  /** es-AR first; a browser that rejects it retries once with its own language. */
+  const begin = (lang: string) => {
     const C = ctor();
     if (!C || active.current) return;
     const r = new C();
     active.current = r;
     r.continuous = true;
     r.interimResults = true;
-    r.lang = navigator.language || "en-US";
+    r.lang = lang;
     setError(null);
     r.onresult = (e) => {
       let partial = "";
@@ -80,11 +88,20 @@ export function useDictation(onFinal: (text: string) => void) {
         else partial += res[0].transcript;
       }
       if (finals.length) emit.current(finals.join(" "));
+      interimRef.current = partial;
       setInterim(partial);
     };
-    r.onerror = (e) => setError(e.error in errors ? errors[e.error]! : "Dictation stopped. Try again.");
+    r.onerror = (e) => {
+      if (e.error === "language-not-supported" && navigator.language && lang !== navigator.language) {
+        stop();
+        begin(navigator.language);
+        return;
+      }
+      setError(e.error in errors ? errors[e.error]! : "El dictado se detuvo. Probá de nuevo.");
+    };
     r.onend = () => {
       if (active.current === r) active.current = null;
+      interimRef.current = "";
       setListening(false);
       setInterim("");
     };
@@ -93,9 +110,10 @@ export function useDictation(onFinal: (text: string) => void) {
       setListening(true);
     } catch {
       stop();
-      setError("Could not start dictation. Try again.");
+      setError("No se pudo iniciar el dictado. Probá de nuevo.");
     }
   };
+  const start = () => begin("es-AR");
 
   const stopRef = useRef(stop);
   stopRef.current = stop;

@@ -60,7 +60,7 @@ export function threadRoutes(deps: ThreadActionDeps): Route[] {
         const { text, pending } = await t3(link.readResult(row.id));
         // The shell row is fresher for the request id; readResult adds the summary.
         const live = row.pendingRequest && (pending?.id === row.pendingRequest.id ? pending : row.pendingRequest);
-        return { status: row.status, text, pending: live ?? null, answerable: live ? APPROVAL_KINDS.has(live.kind) : false };
+        return { status: row.status, text: text?.slice(0, 4000) ?? null, pending: live ?? null, answerable: live ? APPROVAL_KINDS.has(live.kind) : false };
       },
     },
     action("respond", async ({ row, link, body }) => {

@@ -14,7 +14,7 @@ async function api<R extends keyof PushApi>(route: R, body?: PushApi[R]["body"])
   });
   if (!res.ok) {
     const e = (await res.json().catch(() => null)) as { error?: { message?: string } } | null;
-    throw new Error(e?.error?.message ?? `Request failed (${res.status})`);
+    throw new Error(e?.error?.message ?? `No se pudo completar la solicitud (${res.status})`);
   }
   return (await res.json()) as PushApi[R]["res"];
 }

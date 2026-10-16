@@ -1,7 +1,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { moveProject, type ProjectSettings } from "../../server/settings.ts";
-import { projectDirectory, type ProjectEntry, type ProjectFilters } from "./projectDirectory.ts";
+import type { HomeView } from "../../server/types.ts";
+import { projectDirectory, projectEntries, projectWork, splitProjectKey, type ProjectEntry, type ProjectFilters } from "./projectDirectory.ts";
+import { indexProjects } from "./projectIndex.ts";
 
 const filters: ProjectFilters = { query: "", machineId: "", status: "all" };
 const entries: ProjectEntry[] = Array.from({ length: 26 }, (_, i) => ({
@@ -93,4 +95,54 @@ test("filtered header counts cover the full match set and manual moves require n
     assert.equal(projectDirectory(entries, settings, { ...filters, ...patch }, 1, 10).canMove, false);
   }
   assert.equal(projectDirectory(entries, { ...settings, sort: "name" }, filters, 1, 10).canMove, false);
+});
+
+const t = (over: object) => ({ machineId: "a", projectId: "p", ...over });
+const view = {
+  machines: [],
+  needsYou: [
+    { kind: "thread", reason: "approval", since: "2026-01-02", thread: t({ key: "a:t1" }) },
+    { kind: "task_approval", since: "2026-01-02", task: t({ id: "k1" }) },
+    { kind: "thread", reason: "input", since: "2026-01-02", thread: t({ key: "b:t2", machineId: "b" }) },
+    { kind: "workflow", key: "workflow:r:n", since: "2026-01-02", runId: "r", title: "x", text: "y" },
+  ],
+  running: [t({ key: "a:t3", updatedAt: "2026-01-05" }), t({ key: "a:t4", projectId: "q", updatedAt: "2026-01-09" })],
+  done: [t({ key: "a:t5", updatedAt: "2026-01-03" })],
+  queue: [t({ id: "k2", status: "queued" }), t({ id: "k3", status: "running" }), t({ id: "k4", status: "queued", machineId: "b" })],
+} as unknown as HomeView;
+
+test("project keys split at the first colon, so the project id may contain colons", () => {
+  assert.deepEqual(splitProjectKey("m1:abc:def"), { machineId: "m1", projectId: "abc:def" });
+});
+
+test("projectWork keeps only this machine's project and leaves alerts and workflows out", () => {
+  const w = projectWork(view, "a:p");
+  assert.equal(w.needs.length, 2);
+  assert.deepEqual(w.running.map((r) => r.key), ["a:t3"]);
+  assert.deepEqual(w.queued.map((r) => r.id), ["k2"]);
+  assert.deepEqual(w.done.map((r) => r.key), ["a:t5"]);
+  assert.equal(w.open, 4);
+  assert.equal(projectWork(null, "a:p").open, 0);
+});
+
+test("projectEntries counts live work per project and falls back to the project's own update time", () => {
+  const machines = [{ machineId: "a", machineLabel: "A", status: "online" as const, projects: [
+    { machineId: "a", id: "p", title: "P", workspaceRoot: "/p", defaultModel: null, updatedAt: "2025-01-01" },
+    { machineId: "a", id: "z", title: "Z", workspaceRoot: "/z", defaultModel: null, updatedAt: "2025-02-02" },
+  ] }];
+  const [p, z] = projectEntries(machines, view);
+  assert.deepEqual([p!.needs, p!.running, p!.queued, p!.active], [2, 1, 1, "2026-01-05"]);
+  assert.deepEqual([z!.needs, z!.running, z!.queued, z!.active], [0, 0, 0, "2025-02-02"]);
+});
+
+test("indexProjects lists each T3 project once, by title, and resolves titles and colour keys by id", () => {
+  const row = (machineId: string, id: string, title: string) => ({ machineId, id, title, workspaceRoot: "", defaultModel: null, updatedAt: "" });
+  const index = indexProjects([
+    { machineId: "a", machineLabel: "A", status: "online", projects: [row("a", "p2", "Zeta"), row("a", "p1", "Alfa")] },
+    { machineId: "b", machineLabel: "B", status: "online", projects: [row("b", "p1", "Alfa")] },
+  ]);
+  assert.deepEqual(index.list.map((p) => p.id), ["p1", "p2"]);
+  assert.equal(index.key("p1"), "a:p1");
+  assert.equal(index.title("gone"), "gone");
+  assert.equal(index.key("gone"), null);
 });

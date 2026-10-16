@@ -1,15 +1,18 @@
+import { Plus } from "lucide-react";
 import { useEffect, useState } from "react";
-import type { InteractionMode, ModelSelection, RuntimeMode } from "../../server/types.ts";
 import type { Profile, ProfileInput } from "../../server/profiles.ts";
+import type { InteractionMode, ModelSelection, RuntimeMode } from "../../server/types.ts";
 import { call } from "./api.ts";
+import { RUNTIME_MODES, runtimeModeLabel } from "./look.ts";
 import { Button } from "./ui/Button.tsx";
-import { Badge, Card, Empty, Field, Input, Select, Textarea } from "./ui/fields.tsx";
+import { Chip } from "./ui/Chip.tsx";
+import { EmptyState, Field, Input, Select, Textarea } from "./ui/fields.tsx";
+import { Panel } from "./ui/Panel.tsx";
+import { Sheet } from "./ui/Sheet.tsx";
 
-const runtimeModes: [RuntimeMode, string][] = [
-  ["approval-required", "Ask before every action"],
-  ["auto-accept-edits", "Auto-accept edits"],
-  ["auto", "Auto"],
-  ["full-access", "Full access"],
+const INTERACTION_MODES: readonly (readonly [InteractionMode, string])[] = [
+  ["default", "Predeterminado"],
+  ["plan", "Planificar primero"],
 ];
 
 interface ModelOption {
@@ -31,14 +34,34 @@ async function loadModels(): Promise<ModelOption[]> {
 const key = (m: ModelSelection) => `${m.instanceId}\0${m.model}`;
 const blank: ProfileInput = { name: "", avatar: "", rolePrompt: "", model: null, runtimeMode: null, interactionMode: null };
 
-function Form({ initial, models, busy, onSave, onCancel }: { initial: ProfileInput; models: ModelOption[]; busy: boolean; onSave(p: ProfileInput): void; onCancel(): void }) {
+/** Sheet to create (`id` "") or edit a profile; Eliminar shows only when editing. */
+function ProfileSheet({ initial, models, busy, onSave, onDelete, onClose }: { initial: ProfileInput; models: ModelOption[]; busy: boolean; onSave(p: ProfileInput): void; onDelete?: () => void; onClose: () => void }) {
   const [p, setP] = useState(initial);
   const patch = (x: Partial<ProfileInput>) => setP((cur) => ({ ...cur, ...x }));
   // A saved model that no machine lists now stays selectable instead of silently resetting.
   const options = p.model && !models.some((m) => key(m.sel) === key(p.model!)) ? [{ label: `${p.model.instanceId} · ${p.model.model}`, sel: p.model }, ...models] : models;
   return (
-    <Card>
+    <Sheet
+      title={onDelete ? "Editar perfil" : "Nuevo perfil"}
+      onClose={onClose}
+      footer={
+        <div className="flex gap-2">
+          {onDelete && (
+            <Button variant="danger" disabled={busy} onClick={onDelete}>
+              Eliminar
+            </Button>
+          )}
+          <Button className="ml-auto" onClick={onClose}>
+            Cancelar
+          </Button>
+          <Button variant="primary" type="submit" form="profile-form" disabled={busy || !p.name.trim()}>
+            Guardar
+          </Button>
+        </div>
+      }
+    >
       <form
+        id="profile-form"
         className="grid gap-3"
         onSubmit={(e) => {
           e.preventDefault();
@@ -49,16 +72,16 @@ function Form({ initial, models, busy, onSave, onCancel }: { initial: ProfileInp
           <Field label="Avatar">
             <Input value={p.avatar ?? ""} onChange={(e) => patch({ avatar: e.target.value })} maxLength={8} placeholder="🧑" />
           </Field>
-          <Field label="Name">
+          <Field label="Nombre">
             <Input value={p.name} onChange={(e) => patch({ name: e.target.value })} maxLength={40} required autoFocus />
           </Field>
         </div>
-        <Field label="Role prompt">
-          <Textarea value={p.rolePrompt ?? ""} onChange={(e) => patch({ rolePrompt: e.target.value })} maxLength={4000} placeholder="You are a careful reviewer. Focus on..." />
+        <Field label="Indicaciones del rol">
+          <Textarea value={p.rolePrompt ?? ""} onChange={(e) => patch({ rolePrompt: e.target.value })} maxLength={4000} placeholder="Sos un revisor cuidadoso. Enfocate en…" />
         </Field>
-        <Field label="Model">
+        <Field label="Modelo">
           <Select value={p.model ? key(p.model) : ""} onChange={(e) => patch({ model: options.find((m) => key(m.sel) === e.target.value)?.sel ?? null })}>
-            <option value="">No default</option>
+            <option value="">Sin definir</option>
             {options.map((m) => (
               <option key={key(m.sel)} value={key(m.sel)}>
                 {m.label}
@@ -66,38 +89,35 @@ function Form({ initial, models, busy, onSave, onCancel }: { initial: ProfileInp
             ))}
           </Select>
         </Field>
-        <div className="grid grid-cols-2 gap-3">
-          <Field label="Permissions">
+        <div className="grid gap-3 sm:grid-cols-2">
+          <Field label="Permisos">
             <Select value={p.runtimeMode ?? ""} onChange={(e) => patch({ runtimeMode: (e.target.value || null) as RuntimeMode | null })}>
-              <option value="">No default</option>
-              {runtimeModes.map(([v, l]) => (
+              <option value="">Sin definir</option>
+              {RUNTIME_MODES.map(([v, l]) => (
                 <option key={v} value={v}>
                   {l}
                 </option>
               ))}
             </Select>
           </Field>
-          <Field label="Mode">
+          <Field label="Modo">
             <Select value={p.interactionMode ?? ""} onChange={(e) => patch({ interactionMode: (e.target.value || null) as InteractionMode | null })}>
-              <option value="">No default</option>
-              <option value="default">Default</option>
-              <option value="plan">Plan first</option>
+              <option value="">Sin definir</option>
+              {INTERACTION_MODES.map(([v, l]) => (
+                <option key={v} value={v}>
+                  {l}
+                </option>
+              ))}
             </Select>
           </Field>
         </div>
-        <p className="text-xs text-muted-fg">Permissions apply to your own tasks only. Tasks from agents always get them from you at approval.</p>
-        <div className="flex gap-2">
-          <Button variant="primary" type="submit" disabled={busy || !p.name.trim()}>
-            Save
-          </Button>
-          <Button onClick={onCancel}>Cancel</Button>
-        </div>
+        <p className="text-xs text-muted-fg">Los permisos aplican solo a tus propias tareas. Las tareas de agentes siempre los reciben de vos al aprobar.</p>
       </form>
-    </Card>
+    </Sheet>
   );
 }
 
-/** Settings page: reusable roles you pick in Ask. A profile prefixes the prompt and fills defaults. */
+/** Perfiles: roles reutilizables que elegís en Pedir. Un perfil antepone su prompt al tuyo y completa los valores por defecto. */
 export function Profiles() {
   const [profiles, setProfiles] = useState<Profile[] | null>(null);
   const [models, setModels] = useState<ModelOption[]>([]);
@@ -106,7 +126,7 @@ export function Profiles() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const load = () => call("GET /api/profiles").then(setProfiles, (e) => setError(e instanceof Error ? e.message : "Could not load profiles"));
+  const load = () => call("GET /api/profiles").then(setProfiles, (e) => setError(e instanceof Error ? e.message : "No se pudieron cargar los perfiles"));
   useEffect(() => {
     void load();
     loadModels().then(setModels, () => {});
@@ -120,7 +140,7 @@ export function Profiles() {
       await load();
       return true;
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Action failed");
+      setError(e instanceof Error ? e.message : "No se pudo completar la acción");
       return false;
     } finally {
       setBusy(false);
@@ -130,50 +150,60 @@ export function Profiles() {
     const ok = await act(() => (id ? call("PATCH /api/profiles/:id", { params: { id }, body }) : call("POST /api/profiles", { body })));
     if (ok) setEditing(null);
   };
+  const remove = async (p: Profile) => {
+    if (!confirm(`¿Eliminar ${p.name}? Las tareas ya creadas conservan su prompt.`)) return;
+    if (await act(() => call("DELETE /api/profiles/:id", { params: { id: p.id } }))) setEditing(null);
+  };
+  const modelLabel = (m: ModelSelection) => models.find((o) => key(o.sel) === key(m))?.label ?? `${m.instanceId} · ${m.model}`;
+  const current = profiles?.find((p) => p.id === editing);
 
   return (
-    <div className="grid gap-4">
-      <div className="flex items-center gap-2">
-        <h1 className="flex-1 text-xl font-semibold">Profiles</h1>
-        {editing === null && <Button onClick={() => setEditing("")}>New profile</Button>}
-      </div>
-      <p className="text-muted-fg">A profile is a role you can pick in Ask: its prompt goes in front of yours and its model and mode are the defaults.</p>
-      {error && (
-        <p role="alert" className="text-bad">
-          {error}
-        </p>
-      )}
-      {editing === "" && <Form initial={blank} models={models} busy={busy} onSave={(p) => void save("", p)} onCancel={() => setEditing(null)} />}
-      {profiles?.length === 0 && editing === null && <Empty>No profiles yet.</Empty>}
-      {profiles?.map((p) =>
-        editing === p.id ? (
-          <Form key={p.id} initial={p} models={models} busy={busy} onSave={(x) => void save(p.id, x)} onCancel={() => setEditing(null)} />
-        ) : (
-          <Card key={p.id} className="flex items-center gap-2">
-            <span className="w-7 text-center text-xl" aria-hidden>
-              {p.avatar}
+    <>
+      <Panel
+        title="Perfiles"
+        action={
+          <Button onClick={() => setEditing("")}>
+            <Plus className="size-4" aria-hidden />
+            Nuevo perfil
+          </Button>
+        }
+      >
+        <p className="px-4 py-2.5 text-xs text-muted-fg">Roles que elegís en Pedir: su prompt va antes del tuyo y su modelo y modo son los valores por defecto.</p>
+        {error && (
+          <p role="alert" className="px-4 py-2.5 text-fail">
+            {error}
+          </p>
+        )}
+        {profiles?.length === 0 && (
+          <div className="p-4">
+            <EmptyState>Nada por acá: todavía no hay perfiles.</EmptyState>
+          </div>
+        )}
+        {profiles?.map((p) => (
+          <div key={p.id} className="flex items-start gap-3 px-4 py-3">
+            <span className="grid size-[34px] shrink-0 place-items-center rounded-[10px] bg-soft text-[17px]" aria-hidden>
+              {p.avatar || <b className="text-sm text-muted-fg">{p.name.slice(0, 1).toUpperCase()}</b>}
             </span>
             <div className="min-w-0 flex-1">
-              <p className="truncate font-medium">
-                {p.name}
-                {p.createdBy !== "user" && <Badge className="ml-2">{p.createdBy.slice(6)}</Badge>}
+              <p className="flex items-center gap-2">
+                <b className="truncate">{p.name}</b>
+                {p.createdBy !== "user" && <Chip tone="need" className="h-[19px] text-[11px]">por {p.createdBy.slice(6)}</Chip>}
               </p>
-              <p className="truncate text-muted-fg">{p.rolePrompt || "No role prompt"}</p>
+              <p className="line-clamp-2 text-sm break-words text-muted-fg">{p.rolePrompt || "Sin indicaciones de rol"}</p>
+              <div className="mt-1.5 flex flex-wrap gap-1.5 text-xs text-tx2">
+                {p.model && <span className="rounded-full bg-soft px-2 py-0.5">{modelLabel(p.model)}</span>}
+                {p.runtimeMode && <span className="rounded-full bg-soft px-2 py-0.5">{runtimeModeLabel(p.runtimeMode)}</span>}
+                {p.interactionMode && <span className="rounded-full bg-soft px-2 py-0.5">{INTERACTION_MODES.find(([v]) => v === p.interactionMode)?.[1]}</span>}
+              </div>
             </div>
-            <Button size="sm" disabled={busy} onClick={() => setEditing(p.id)}>
-              Edit
+            <Button variant="ghost" size="sm" disabled={busy} onClick={() => setEditing(p.id)}>
+              Editar
             </Button>
-            <Button
-              variant="danger"
-              size="sm"
-              disabled={busy}
-              onClick={() => confirm(`Delete ${p.name}? Tasks already created keep their prompt.`) && void act(() => call("DELETE /api/profiles/:id", { params: { id: p.id } }))}
-            >
-              Delete
-            </Button>
-          </Card>
-        ),
-      )}
-    </div>
+          </div>
+        ))}
+      </Panel>
+      {editing === "" && <ProfileSheet initial={blank} models={models} busy={busy} onSave={(p) => void save("", p)} onClose={() => setEditing(null)} />}
+      {current && <ProfileSheet key={current.id} initial={current} models={models} busy={busy} onSave={(p) => void save(current.id, p)} onDelete={() => void remove(current)} onClose={() => setEditing(null)} />}
+    </>
   );
 }

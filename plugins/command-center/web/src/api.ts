@@ -38,7 +38,7 @@ export async function call<R extends ApiRoute>(
   if (res.status === 401) set({ authed: false, view: null });
   if (!res.ok) {
     const e = (await res.json().catch(() => null)) as ApiError | null;
-    throw new ApiFail(res.status, e?.error.message ?? `Request failed (${res.status})`);
+    throw new ApiFail(res.status, e?.error.message ?? `No se pudo completar la solicitud (${res.status})`);
   }
   return (await res.json()) as Api[R]["res"];
 }
@@ -73,17 +73,7 @@ export const useLive = () =>
     () => live,
   );
 
-// ---- hash routes: #home, #ask?project=<machineId>:<projectId>, #queue, #machines, #pair ----
-
-export type Route = "home" | "ask" | "queue" | "machines" | "pair";
-const routes: Route[] = ["home", "ask", "queue", "machines", "pair"];
-
-export function parseHash(hash: string): { route: Route; query: URLSearchParams } {
-  const [name = "", q = ""] = hash.replace(/^#/, "").split("?");
-  const route = routes.find((r) => r === name) ?? "home";
-  return { route, query: new URLSearchParams(q) };
-}
-
+// Hash routes are parsed in navigation.ts.
 export const useHash = () =>
   useSyncExternalStore(
     (f) => (addEventListener("hashchange", f), () => removeEventListener("hashchange", f)),

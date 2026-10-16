@@ -318,7 +318,7 @@ test("readResult takes the last assistant text and pending request details", asy
   const projection = {
     messages: [
       { role: "assistant", text: "older", createdAt: "2026-10-15T00:00:01.000Z" },
-      { role: "assistant", text: "x".repeat(5000), createdAt: "2026-10-15T00:00:03.000Z" },
+      { role: "assistant", text: "x".repeat(13000), createdAt: "2026-10-15T00:00:03.000Z" },
       { role: "user", text: "later user", createdAt: "2026-10-15T00:00:04.000Z" },
     ],
     runtimeRequests: [
@@ -330,7 +330,7 @@ test("readResult takes the last assistant text and pending request details", asy
   const { link, fetch } = start({ ...healthy(), "GET /api/orchestration/threads/t1/bounded": { body: { snapshotSequence: 3, projection } } });
   await flush();
   const result = await link.readResult("t1");
-  assert.equal(result.text!.length, 4000);
+  assert.equal(result.text!.length, 12000);
   assert.deepEqual(result.pending, { id: "r1", kind: "command", summary: "rm -rf build", createdAt: "b" });
   assert.equal(fetch.calls.at(-1)!.headers["x-t3-orchestration-protocol"], "2");
   link.close();

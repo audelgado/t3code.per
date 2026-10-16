@@ -93,11 +93,11 @@ test("notifyDiff pushes CC items once per key and ignores non-CC threads", () =>
   assert.deepEqual(
     first.map((m) => [m.tag, m.t, m.urgency]),
     [
-      ["m:cc", "Needs you: T m:cc", "high"],
-      ["task:task-2", "Approve: Agent idea", "high"],
-      ["workflow:r1:ok", "Workflow: Release", "high"],
-      ["alert:offline:m", "Command Center alert", "high"],
-      ["m:done", "Failed: T m:done", "normal"],
+      ["m:cc", "Te necesita: T m:cc", "high"],
+      ["task:task-2", "Aprobá: Agent idea", "high"],
+      ["workflow:r1:ok", "Flujo: Release", "high"],
+      ["alert:offline:m", "Alerta del Command Center", "high"],
+      ["m:done", "Falló: T m:done", "normal"],
     ],
   );
   assert.equal(first[0]!.b, "rm -rf build");
@@ -106,7 +106,7 @@ test("notifyDiff pushes CC items once per key and ignores non-CC threads", () =>
 
   // A new request on the same thread is a new event; the same thread finishing replaces its notification by tag.
   const again = notifyDiff(sent, view({ needsYou: [{ kind: "thread", reason: "input", since: "", thread: thread("m:cc", "task-1", { pending: { ...pending, id: "req-2", summary: null } }) }] }), 3_000);
-  assert.deepEqual(again.map((m) => [m.tag, m.b]), [["m:cc", "Input needed"]]);
+  assert.deepEqual(again.map((m) => [m.tag, m.b]), [["m:cc", "Falta tu respuesta"]]);
 
   // After 24 h an item still open is pushed again as a reminder.
   assert.equal(notifyDiff(sent, v, 1_000 + 86_400_001).length, 5);

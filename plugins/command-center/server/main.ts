@@ -1,7 +1,7 @@
 // Composition root and CLI: `node server/main.ts <serve|pair|machine add|machine list|machine rm>`.
 // Env: CC_HOME (default ./data), CC_PORT (default 3900), CC_PUBLIC_URL (required for serve and pair),
 // CC_PUSH_SUBJECT (mailto: or https: contact for Web Push; defaults to CC_PUBLIC_URL),
-// CC_ORCA_CLI (optional path to the orca binary), CC_ORCA_ENV (optional Orca environment id).
+// CC_COORDINATOR_MACHINE / CC_COORDINATOR_PROJECT (optional machine and project id where "Ordenar con IA" runs).
 import { createHash } from "node:crypto";
 import { chmodSync, existsSync, readdirSync } from "node:fs";
 import type { AddressInfo } from "node:net";
@@ -18,8 +18,8 @@ import { createServer, HttpError, sse, type Route } from "./http.ts";
 import { createInfra } from "./infra.ts";
 import { createAgentToken, createMcp, initAgentTokens, listAgentTokens, resolveProject, revokeAgentToken, ToolError } from "./mcp.ts";
 import { memoryRoutes, memoryTools } from "./memory.ts";
-import { createOrca } from "./orca.ts";
-import { applyProfile, createProfileRoutes, initProfiles, profileTools } from "./profiles.ts";
+import { createOrganize } from "./organize.ts";
+import { applyProfile, createProfileRoutes, initProfiles, listProfiles, profileTools } from "./profiles.ts";
 import { createPush } from "./push.ts";
 import { createSections } from "./sections.ts";
 import { loadSettings, saveSettings } from "./settings.ts";
@@ -37,10 +37,10 @@ export interface Config {
   /** VAPID subject; defaults to publicUrl. */
   pushSubject?: string;
   staticDir?: string;
-  /** Path to the orca binary; unset turns the Orca screen off. */
-  orcaCli?: string;
-  /** Orca environment id (--environment), to drive another machine's runtime. */
-  orcaEnvironment?: string;
+  /** Machine id that runs "Ordenar con IA"; default: the first enabled machine that is online. */
+  coordinatorMachine?: string;
+  /** Project id on that machine for the coordinator thread; default: its first project. */
+  coordinatorProject?: string;
 }
 
 const RECONCILE_MS = 5_000;
@@ -138,6 +138,8 @@ export async function serve(cfg: Config, linkFactory: LinkFactory = createLink) 
     }
   }
 
+  // Coordinator threads of "Ordenar con IA" are plumbing: out of the view, push and Work. `organize` is set before any call.
+  const visibleThreads = () => dispatcher.threads().filter((r) => !organize.owns(r.machineId, r.id));
   function view(): HomeView {
     const machines = listMachines(db);
     const linkStates: Record<string, LinkState> = {};
@@ -157,7 +159,7 @@ export async function serve(cfg: Config, linkFactory: LinkFactory = createLink) 
     const extraAlerts = health.alerts().filter((a) => !known.has(a.key));
     // ponytail: every task on each build (blockedBy needs old deps); add a history cutoff if tasks reach tens of thousands.
     return buildHomeView(
-      { machines, linkStates, projects: listProjects(db), threads: dispatcher.threads(), tasks: listTasks(db), pauses: dispatcher.pauses(), extraAlerts, workflowNeeds: workflows.needs(), threadLinks },
+      { machines, linkStates, projects: listProjects(db), threads: visibleThreads(), tasks: listTasks(db), pauses: dispatcher.pauses(), extraAlerts, workflowNeeds: workflows.needs(), threadLinks },
       Date.now(),
     );
   }
@@ -210,12 +212,21 @@ export async function serve(cfg: Config, linkFactory: LinkFactory = createLink) 
   const work = createWork({
     machines: () => view().machines,
     projects: () => listProjects(db),
-    threads: () => dispatcher.threads(),
+    threads: visibleThreads,
     tasks: () => listTasks(db),
     link: (id) => links.get(id)?.link,
     createTask: (input) => dispatcher.createTask(input, "user"),
   });
-  const orca = createOrca({ cli: cfg.orcaCli, environment: cfg.orcaEnvironment });
+  const organize = createOrganize({
+    machines: () => listMachines(db),
+    projects: () => listProjects(db),
+    profiles: () => listProfiles(db),
+    link: (id) => links.get(id)?.link,
+    threads: () => dispatcher.threads(),
+    machineId: cfg.coordinatorMachine,
+    projectId: cfg.coordinatorProject,
+  });
+  dispatcher.on("changed", () => void organize.advance());
   const infra = createInfra({ machines: () => view().machines, link: (id) => links.get(id)?.link });
   const routes: Route[] = [
     ...push.routes,
@@ -228,9 +239,7 @@ export async function serve(cfg: Config, linkFactory: LinkFactory = createLink) 
     ...work.routes,
     ...artifactRoutes(artifacts),
     ...workflows.routes,
-    ...orca.routes,
-    // Cheap flags for the UI (GET /api/orca runs the CLI).
-    { method: "GET", path: "/api/features", auth: "cookie", handler: () => ({ orca: Boolean(cfg.orcaCli) }) },
+    ...organize.routes,
     { method: "GET", path: "/api/settings/projects", auth: "cookie", handler: () => loadSettings(db) },
     {
       method: "PUT",
@@ -279,7 +288,7 @@ export async function serve(cfg: Config, linkFactory: LinkFactory = createLink) 
       method: "GET",
       path: "/api/tasks/:id",
       auth: "cookie",
-      handler: ({ params }) => getTask(db, params.id!) ?? notFound("task"),
+      handler: ({ params }) => getTask(db, params.id!) ?? notFound("la tarea"),
     },
     {
       method: "PATCH",
@@ -308,9 +317,9 @@ export async function serve(cfg: Config, linkFactory: LinkFactory = createLink) 
       path: "/api/machines/:id/providers",
       auth: "cookie",
       handler: async ({ params }) => {
-        if (!getMachine(db, params.id!)) notFound("machine");
+        if (!getMachine(db, params.id!)) notFound("la máquina");
         const link = links.get(params.id!)?.link;
-        if (link?.state.status !== "online") throw new HttpError(409, "offline", "Machine is not online");
+        if (link?.state.status !== "online") throw new HttpError(409, "offline", "La máquina no está conectada");
         return link.providers().catch((e: unknown) => Promise.reject(toHttp(e)));
       },
     },
@@ -362,7 +371,7 @@ export async function serve(cfg: Config, linkFactory: LinkFactory = createLink) 
 }
 
 function notFound(what: string): never {
-  throw new HttpError(404, "not_found", `${what} not found`);
+  throw new HttpError(404, "not_found", `No se encontró ${what}`);
 }
 
 function toHttp(e: unknown): unknown {
@@ -407,7 +416,7 @@ export async function main(argv: string[], deps: CliDeps = {}): Promise<number> 
   process.umask(0o077); // the DB, its WAL and token files are private to the CC user
 
   if (cmd === "serve") {
-    const handle = await serve({ home, port: portOf(env), publicUrl: publicUrlOf(env), pushSubject: env.CC_PUSH_SUBJECT, orcaCli: env.CC_ORCA_CLI || undefined, orcaEnvironment: env.CC_ORCA_ENV || undefined }, deps.linkFactory);
+    const handle = await serve({ home, port: portOf(env), publicUrl: publicUrlOf(env), pushSubject: env.CC_PUSH_SUBJECT, coordinatorMachine: env.CC_COORDINATOR_MACHINE || undefined, coordinatorProject: env.CC_COORDINATOR_PROJECT || undefined }, deps.linkFactory);
     const stop = () => void handle.close().then(() => process.exit(0));
     process.once("SIGTERM", stop);
     process.once("SIGINT", stop);

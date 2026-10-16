@@ -1,245 +1,201 @@
-import { ChevronDown, ChevronRight } from "lucide-react";
-import { useEffect, useState } from "react";
-import type { WorkApi, WorkLane, WorkMachine, WorkRow } from "../../server/work.ts";
-import { workDirectory, type WorkFilters } from "./workDirectory.ts";
-import { paginateCollection } from "./pagination.ts";
-import { Pager } from "./ui/Pager.tsx";
-import { call, refresh } from "./api.ts";
-import { StatusDot } from "./StatusDot.tsx";
+import { WifiOff } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import type { LinkStatus } from "../../server/types.ts";
+import { useLive } from "./api.ts";
+import { ago, projectColor, stageLabel, statusTone, TONES } from "./look.ts";
+import { hashes } from "./navigation.ts";
 import { Button, LinkButton } from "./ui/Button.tsx";
-import { ago, cn } from "./ui/cn.ts";
-import { Badge, Card, Empty, Input, Select } from "./ui/fields.tsx";
+import { Chip, StatusChip } from "./ui/Chip.tsx";
+import { EmptyState, Input, Select } from "./ui/fields.tsx";
+import { Pager } from "./ui/Pager.tsx";
+import { Panel } from "./ui/Panel.tsx";
+import { Tabs } from "./ui/Tabs.tsx";
+import { toast } from "./ui/Toast.tsx";
+import { useIsPhone } from "./ui/useIsPhone.ts";
+import { BUCKET_LABEL, BUCKET_TONE, buildWork, entryAction, entryTone, entryWhy, groupByBucket, NO_FILTERS, searchWork, tabCounts, tidyLanes, WORK_TABS, workPage, type WorkEntry, type WorkFilters, type WorkTab } from "./workDirectory.ts";
+import { askTidy, taskCall, useAct, useProjectTitles, useWork } from "./workData.ts";
+import { WorkDetail } from "./WorkDetail.tsx";
+import { ErrorNote, GroupHeader, ProjectTag, Stepper } from "./workUi.tsx";
 
-// ponytail: typed through this cast until the routes are merged into Api (server/types.ts).
-const api = call as unknown as <R extends keyof WorkApi>(route: R, opts?: { body?: WorkApi[R]["body"] }) => Promise<WorkApi[R]["res"]>;
+const HISTORY_PAGE = 8;
 
-/** Mirrors STAGES in server/work.ts (a value import would pull server code into the bundle). */
-const STAGES = ["Created", "Working", "Committed", "Pushed", "PR open", "Merged", "Cleanup"];
-
-/** Matches the server's cache window, so a poll never finds a fresh read pending. */
-const POLL_MS = 30_000;
-
-type TidyState = { label: string; busy: boolean; msg: { ok: boolean; text: string } | null };
-
-/** Branches and PRs per project, grouped by machine. Reads only while mounted and the page is visible. */
-export function Work() {
-  const [machines, setMachines] = useState<WorkMachine[] | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [filters, setFilters] = useState<WorkFilters>({ query: "", machineId: "", status: "all" });
-  const [page, setPage] = useState(1);
-  const [size, setSize] = useState(5);
-  // Keep in-flight actions and feedback when filters/pages unmount a lane.
-  const [tidyStates, setTidyStates] = useState<Record<string, TidyState>>({});
-  const [collapsedLanes, setCollapsedLanes] = useState<Record<string, boolean>>({});
-  const dismissTidy = (key: string) => setTidyStates((states) => {
-    if (states[key]?.busy) return states;
-    const next = { ...states };
-    delete next[key];
-    return next;
-  });
-  async function askTidy(machineId: string, machineLabel: string, lane: WorkLane) {
-    const key = `${machineId}:${lane.projectId}`;
-    const label = `${machineLabel} / ${lane.title}`;
-    setTidyStates((states) => ({ ...states, [key]: { label, busy: true, msg: null } }));
-    let msg: TidyState["msg"];
-    try {
-      await api("POST /api/work/tidy", { body: { machineId, projectId: lane.projectId } });
-      refresh();
-      msg = { ok: true, text: "Tidy task queued." };
-    } catch (e) {
-      msg = { ok: false, text: e instanceof Error ? e.message : "Failed" };
-    }
-    setTidyStates((states) => ({ ...states, [key]: { label, busy: false, msg } }));
-  }
-  const filter = (patch: Partial<WorkFilters>) => {
-    setFilters((value) => ({ ...value, ...patch }));
-    setPage(1);
-  };
-
-  useEffect(() => {
-    let live = true;
-    let busy = false;
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    const load = () => {
-      clearTimeout(timer);
-      if (busy || document.visibilityState !== "visible") return;
-      busy = true;
-      api("GET /api/work")
-        .then(
-          (m) => {
-            if (!live) return;
-            setMachines(m);
-            setError(null);
-          },
-          (e: unknown) => {
-            if (live) setError(e instanceof Error ? e.message : "Could not load");
-          },
-        )
-        .finally(() => {
-          busy = false;
-          if (live) timer = setTimeout(load, POLL_MS);
-        });
-    };
-    load();
-    document.addEventListener("visibilitychange", load);
-    return () => {
-      live = false;
-      clearTimeout(timer);
-      document.removeEventListener("visibilitychange", load);
-    };
-  }, []);
-
-  const directory = workDirectory(machines ?? [], filters, page, size);
-  const currentPage = directory.pagination.page;
-  useEffect(() => {
-    setPage(currentPage);
-  }, [currentPage]);
-  const filterKey = JSON.stringify(filters);
-  return (
-    <div className="grid gap-4">
-      <h1 className="text-xl font-semibold">Work</h1>
-      <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
-        <Input type="search" aria-label="Search work" placeholder="Search name, project or branch" value={filters.query} onChange={(e) => filter({ query: e.target.value })} />
-        <Select aria-label="Filter work by machine" value={filters.machineId} onChange={(e) => filter({ machineId: e.target.value })}>
-          <option value="">All machines</option>
-          {machines?.map((m) => <option key={m.id} value={m.id}>{m.label}</option>)}
-        </Select>
-        <Select aria-label="Filter work by status" value={filters.status} onChange={(e) => filter({ status: e.target.value as WorkFilters["status"] })}>
-          <option value="all">All work</option><option value="active">Active</option><option value="tidy">Needs tidy</option><option value="pr">With PR</option>
-        </Select>
-        <Select aria-label="Work projects per page" value={size} onChange={(e) => { setSize(Number(e.target.value)); setPage(1); }}>
-          {[5, 20, 50].map((n) => <option key={n} value={n}>{n} projects per page</option>)}
-        </Select>
-      </div>
-      {error && <p className="text-bad">{error}</p>}
-      {machines === null && !error && <p className="text-muted-fg">Loading...</p>}
-      {directory.machines.filter((m) => m.status !== "online").map((m) => (
-        <p key={m.id} className="flex items-center gap-2 text-muted-fg">
-          <StatusDot status={m.status} /> {m.label}: {m.status}: showing what T3 last reported
-        </p>
-      ))}
-      {machines && <p className="text-xs text-muted-fg">{directory.pagination.total} matching projects, {directory.pagination.start}-{directory.pagination.end} shown</p>}
-      {machines && directory.pagination.total === 0 && <Empty>No branches or worktrees match these filters.</Empty>}
-      {Object.entries(tidyStates).map(([key, state]) => (
-        <p key={key} role={state.msg && !state.msg.ok ? "alert" : "status"} className={cn("text-xs", state.msg && !state.msg.ok ? "text-bad" : "text-muted-fg")}>
-          {state.label}: {state.busy ? "Queuing tidy task..." : state.msg?.text} {state.msg?.ok && <a href="#queue" className="text-primary">Open queue</a>}
-          {!state.busy && <Button variant="ghost" size="sm" aria-label={`Dismiss tidy result for ${state.label}`} onClick={() => dismissTidy(key)}>Dismiss</Button>}
-        </p>
-      ))}
-      <div className="grid items-start gap-3 lg:grid-cols-2">
-        {directory.pagination.items.map(({ machine, lane, rows }) => (
-          <Lane key={`${machine.id}:${lane.projectId}`} machineLabel={machine.label} lane={lane} rows={rows} filterKey={filterKey} collapsed={collapsedLanes[`${machine.id}:${lane.projectId}`] ?? false} onToggleCollapsed={() => setCollapsedLanes((states) => {
-            const key = `${machine.id}:${lane.projectId}`;
-            return { ...states, [key]: !states[key] };
-          })} busy={tidyStates[`${machine.id}:${lane.projectId}`]?.busy ?? false} onTidy={() => void askTidy(machine.id, machine.label, lane)} />
-        ))}
-      </div>
-      <Pager page={directory.pagination} onPageChange={setPage} label="Work projects" />
-    </div>
-  );
-}
-
-function Lane({ machineLabel, lane, rows, filterKey, collapsed, onToggleCollapsed, busy, onTidy }: { machineLabel: string; lane: WorkLane; rows: WorkRow[]; filterKey: string; collapsed: boolean; onToggleCollapsed: () => void; busy: boolean; onTidy: () => void }) {
-  const [paging, setPaging] = useState({ filterKey, page: 1 });
-  const [size, setSize] = useState(5);
-  const page = paginateCollection(rows, paging.filterKey === filterKey ? paging.page : 1, size);
-  const currentPage = page.page;
-  useEffect(() => {
-    setPaging((previous) => previous.filterKey === filterKey && previous.page === currentPage ? previous : { filterKey, page: currentPage });
-  }, [currentPage, filterKey]);
-  const tidy = lane.rows.filter((r) => r.tidy).length;
-  return (
-    <Card className="grid gap-3">
-      <div className="flex items-center gap-2">
-        <button type="button" className="min-w-0 flex-1 text-left" aria-expanded={!collapsed} aria-label={`Toggle ${lane.title} branches`} onClick={onToggleCollapsed}>
-          <span className="block truncate font-medium">{collapsed ? <ChevronRight className="inline size-4" aria-hidden /> : <ChevronDown className="inline size-4" aria-hidden />} {lane.title}</span>
-          <span className="block truncate text-xs text-muted-fg">{machineLabel}</span>
-        </button>
-        <Badge>
-          {rows.length} / {lane.rows.length} branches
-        </Badge>
-      </div>
-      {!collapsed && (
+/** Action cell: the primary action, or the status when there is nothing to do. */
+export function EntryAction({ entry, onOpen }: { entry: WorkEntry; onOpen: () => void }) {
+  const action = entryAction(entry);
+  const { busy, error, act } = useAct();
+  if (!action) return entry.task ? <StatusChip status={entry.task.status} /> : <Chip tone={BUCKET_TONE[entry.bucket]}>{BUCKET_LABEL[entry.bucket]}</Chip>;
+  const stop = (e: { stopPropagation(): void }) => e.stopPropagation();
+  switch (action.kind) {
+    case "thread":
+      return <LinkButton size="sm" variant="primary" href={hashes.thread(entry.thread!.key)} onClick={stop}>{action.label}</LinkButton>;
+    case "pr":
+      return <LinkButton size="sm" variant="outline" href={action.href} target="_blank" rel="noreferrer" onClick={stop}>{action.label}</LinkButton>;
+    case "retry":
+      return (
         <>
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <span className="text-xs text-muted-fg">{page.start}-{page.end} of {rows.length} matching branches</span>
-            <Select className="w-auto" aria-label={`Branches per page in ${lane.title}`} value={size} onChange={(e) => { setSize(Number(e.target.value)); setPaging({ filterKey, page: 1 }); }}>
-              {[5, 20, 50].map((n) => <option key={n} value={n}>{n} per page</option>)}
-            </Select>
-          </div>
-          <ul className="grid gap-3">
-            {page.items.map((r) => (
-              <Branch key={r.key} r={r} />
-            ))}
-          </ul>
-          <Pager page={page} onPageChange={(page) => setPaging({ filterKey, page })} label={`${lane.title} branches`} />
+          <Button size="sm" disabled={busy} onClick={(e) => { stop(e); void act("No se pudo reintentar", () => taskCall.retry(entry.task!.id)); }}>{action.label}</Button>
+          {error && <span role="alert" className="mt-1 block text-[11.5px] leading-tight text-fail">{error}</span>}
         </>
-      )}
-      {tidy > 0 && (
-        <div className="grid gap-1">
-          <Button size="sm" disabled={busy} onClick={onTidy}>
-            Ask an agent to tidy all {tidy} {tidy === 1 ? "branch" : "branches"}
-          </Button>
-        </div>
-      )}
-    </Card>
-  );
+      );
+    default:
+      return <Button size="sm" variant="primary" onClick={(e) => { stop(e); onOpen(); }}>{action.label}</Button>;
+  }
 }
 
-const AGENT_DOT = { working: "running", "needs-you": "needs_you", idle: "idle" } as const;
-
-function Branch({ r }: { r: WorkRow }) {
-  const facts = [
-    r.ahead ? `${r.ahead} ahead` : null,
-    r.behind ? `${r.behind} behind` : null,
-    r.changedFiles ? `${r.changedFiles} uncommitted` : null,
-    r.threadCount > 1 ? `${r.threadCount} threads` : null,
-    ago(r.updatedAt),
-  ].filter(Boolean);
+function EntryRow({ entry, selected, onSelect }: { entry: WorkEntry; selected: boolean; onSelect: () => void }) {
+  const r = entry.row;
+  const tone = entryTone(entry);
+  const why = entryWhy(entry);
+  const stage = r ? (
+    <>
+      <Stepper stage={r.stage} projectKey={entry.projectKey} tone={tone} />
+      <span className="mt-1 block truncate text-xs" style={{ color: tone === "fail" ? TONES.fail.fg : undefined }}>
+        {stageLabel(r.stage)}{tone === "fail" ? " · falló" : ""}
+      </span>
+    </>
+  ) : (
+    <span className="block truncate text-xs text-muted-fg">{why || (entry.bucket === "queue" ? "Sin iniciar" : statusLabel(entry))}</span>
+  );
   return (
-    <li className="grid gap-1.5 border-t border-border pt-3 first:border-t-0 first:pt-0">
-      <div className="flex items-center gap-2">
-        <StatusDot status={AGENT_DOT[r.agent]} />
-        <span className="min-w-0 flex-1 truncate font-mono text-xs" title={r.worktreePath ?? r.branch}>
-          {r.branch}
-        </span>
-        {r.pr && (
-          <a href={r.pr.url} target="_blank" rel="noreferrer" className="shrink-0">
-            <Badge className={cn(r.pr.state === "merged" && "text-ok", r.pr.state === "open" && "text-info")}>
-              #{r.pr.number} {r.pr.isDraft && r.pr.state === "open" ? "draft" : (r.pr.state ?? "PR")}
-            </Badge>
-          </a>
-        )}
-        {r.tidy && <Badge className="shrink-0 text-warn">{r.tidy}</Badge>}
-      </div>
-      <Stepper stage={r.stage} />
-      <p className="truncate text-xs text-muted-fg">
-        {r.title} · {facts.join(" · ")}
-      </p>
-      {(r.blocked || r.note) && <p className="text-xs text-muted-fg">{r.note ?? r.blocked}</p>}
-      <div className="flex gap-2">
-        <LinkButton size="sm" href={r.appUrl}>
-          Open in T3
-        </LinkButton>
-        {r.webUrl && (
-          <LinkButton size="sm" variant="ghost" href={r.webUrl} target="_blank" rel="noreferrer">
-            Web
-          </LinkButton>
-        )}
+    <li className={`relative border-b border-soft last:border-b-0 ${selected ? "bg-[#f5f8ff]" : ""}`}>
+      <span aria-hidden className="absolute inset-y-0 left-0 w-1" style={{ background: projectColor(entry.projectKey) }} />
+      <div className="flex items-center gap-3 py-2.5 pr-3 pl-4 md:grid md:min-h-[58px] md:grid-cols-[minmax(0,1fr)_150px_76px_112px] md:gap-4 md:py-2 md:pr-5 md:pl-5">
+        <button type="button" aria-pressed={selected} onClick={onSelect} className="min-w-0 flex-1 text-left">
+          <span className="block truncate font-semibold">{entry.title}</span>
+          <span className="mt-0.5 flex min-w-0 items-center gap-1.5 text-xs text-muted-fg">
+            <ProjectTag projectKey={entry.projectKey} name={entry.projectTitle} className="shrink-0 max-w-[40%]" />
+            <span className="truncate">{entry.machineLabel}</span>
+            {r && <span className="hidden truncate font-mono md:inline">{r.branch}</span>}
+          </span>
+          <span className="mt-1 block md:hidden">{stage}</span>
+        </button>
+        <div className="hidden min-w-0 md:block">{stage}</div>
+        <span className="hidden text-[13px] text-muted-fg md:block">{ago(entry.updatedAt)}</span>
+        <div className="shrink-0 md:text-right"><EntryAction entry={entry} onOpen={onSelect} /></div>
       </div>
     </li>
   );
 }
 
-function Stepper({ stage }: { stage: number }) {
+const statusLabel = (e: WorkEntry) => (e.task ? statusTone(e.task.status).label : BUCKET_LABEL[e.bucket]);
+
+function Offline({ label, status }: { label: string; status: LinkStatus }) {
   return (
-    <div className="grid gap-1">
-      <ol aria-label={`Stage: ${STAGES[stage]}`} className="flex gap-1">
-        {STAGES.map((label, i) => (
-          <li key={label} aria-current={i === stage ? "step" : undefined} className={cn("h-1 flex-1 rounded-full", i <= stage ? "bg-primary" : "bg-accent")} />
-        ))}
-      </ol>
-      <span className="text-xs font-medium">{STAGES[stage]}</span>
+    <p className="flex items-center gap-2 rounded-ctl bg-need-bg px-3 py-2 text-[13px] text-[#7c3d06]">
+      <WifiOff className="size-4 shrink-0" aria-hidden />
+      <span><b>{label}: {statusTone(status).label.toLowerCase()}.</b> Mostrando lo último que informó T3.</span>
+    </p>
+  );
+}
+
+function TidyRow({ lane }: { lane: ReturnType<typeof tidyLanes>[number] }) {
+  const { busy, error, act } = useAct();
+  return (
+    <div className="px-4 py-3">
+      <div className="flex items-center gap-3">
+        <ProjectTag projectKey={lane.projectKey} name={lane.title} className="font-semibold text-fg" />
+        <span className="min-w-0 flex-1 truncate text-[12.5px] text-muted-fg">{lane.machineLabel} · {lane.count} {lane.count === 1 ? "rama mergeada o abandonada" : "ramas mergeadas o abandonadas"}</span>
+        <Button
+          size="sm"
+          disabled={busy}
+          onClick={() =>
+            void act("No se pudo pedir la limpieza", async () => {
+              const task = await askTidy(lane.machineId, lane.projectId);
+              toast("Se encoló la tarea de limpieza.", { label: "Ver", onClick: () => (location.hash = hashes.task(task.id)) });
+            })
+          }
+        >
+          Pedir limpieza
+        </Button>
+      </div>
+      {error && <div className="mt-2"><ErrorNote>{error}</ErrorNote></div>}
+    </div>
+  );
+}
+
+/** Trabajo / Lista: every task and branch grouped by what you do with it, with a detail drawer. `taskId` (push links) opens a task. */
+export function Work({ taskId }: { taskId: string | null }) {
+  const { view } = useLive();
+  const { machines: work, error } = useWork();
+  const titles = useProjectTitles();
+  const phone = useIsPhone();
+  const [filters, setFilters] = useState<WorkFilters>(NO_FILTERS);
+  const [page, setPage] = useState(1);
+  const [selected, setSelected] = useState<string | null>(taskId ? `task:${taskId}` : null);
+  useEffect(() => setSelected(taskId ? `task:${taskId}` : null), [taskId]);
+
+  const threads = useMemo(() => (view ? [...view.needsYou.flatMap((n) => (n.kind === "thread" ? [n.thread] : [])), ...view.running, ...view.done] : []), [view]);
+  const entries = useMemo(
+    () =>
+      view
+        ? buildWork({ queue: view.queue, work: work ?? [], machines: view.machines.map((m) => ({ id: m.id, label: m.label, status: m.link.status })), threads })
+        : [],
+    [view, work, threads],
+  );
+  if (!view) return null;
+
+  const set = (patch: Partial<WorkFilters>) => {
+    setFilters((f) => ({ ...f, ...patch }));
+    setPage(1);
+  };
+  const found = searchWork(entries, filters);
+  const counts = tabCounts(found);
+  const { actionable, history } = workPage(found, filters.tab, page, HISTORY_PAGE);
+  const projects = [...new Map(entries.map((e) => [e.projectKey, titles.get(e.projectKey) ?? e.projectTitle])).entries()].sort((a, b) => a[1].localeCompare(b[1]));
+  const lanes = tidyLanes(work ?? []).filter((l) => (!filters.projectKey || l.projectKey === filters.projectKey) && (!filters.machineId || l.machineId === filters.machineId));
+  const showTidy = lanes.length > 0 && (filters.tab === "all" || filters.tab === "done");
+  const current = entries.find((e) => e.key === selected) ?? null;
+  const offline = view.machines.filter((m) => m.link.status !== "online" && (!filters.machineId || m.id === filters.machineId));
+  const groups = [...actionable, ...groupByBucket(history.items)];
+  // Also drops `?task=` from the hash, or opening the same task again by link would not change it.
+  const close = () => {
+    setSelected(null);
+    if (taskId) location.replace(hashes.page("work"));
+  };
+  const select = (e: WorkEntry) => setSelected(e.key === selected ? null : e.key);
+
+  return (
+    <div className="grid grid-cols-[minmax(0,1fr)] gap-3">
+      <div className="flex flex-wrap items-center gap-2">
+        <Tabs label="Filtrar trabajo" value={filters.tab} onChange={(tab: WorkTab) => set({ tab })} items={WORK_TABS.map(([id, label]) => ({ id, label, count: counts[id] }))} />
+        <div className="flex w-full flex-wrap gap-2 md:ml-auto md:w-auto">
+          <Input type="search" aria-label="Buscar trabajo" placeholder="Buscar tarea, proyecto o rama" className="md:w-64" value={filters.query} onChange={(e) => set({ query: e.target.value })} />
+          <Select aria-label="Filtrar por proyecto" className="min-w-[15rem] flex-1 md:w-auto md:min-w-0 md:flex-none" value={filters.projectKey} onChange={(e) => set({ projectKey: e.target.value })}>
+            <option value="">Todos los proyectos</option>
+            {projects.map(([key, title]) => <option key={key} value={key}>{title}</option>)}
+          </Select>
+          <Select aria-label="Filtrar por máquina" className="min-w-[15rem] flex-1 md:w-auto md:min-w-0 md:flex-none" value={filters.machineId} onChange={(e) => set({ machineId: e.target.value })}>
+            <option value="">Todas las máquinas</option>
+            {view.machines.map((m) => <option key={m.id} value={m.id}>{m.label}</option>)}
+          </Select>
+        </div>
+      </div>
+
+      {offline.map((m) => <Offline key={m.id} label={m.label} status={m.link.status} />)}
+      {error && <ErrorNote>No se pudo cargar las ramas. {error}</ErrorNote>}
+      {showTidy && <Panel title="Para limpiar" count={lanes.length}>{lanes.map((l) => <TidyRow key={l.projectKey} lane={l} />)}</Panel>}
+
+      <div className="flex items-start overflow-clip rounded-card border border-line bg-panel">
+        <div className="min-w-0 flex-1">
+          {groups.length === 0 && (
+            <div className="p-4">
+              <EmptyState action={filters.query || filters.projectKey || filters.machineId || filters.tab !== "all" ? <Button size="sm" onClick={() => { setFilters(NO_FILTERS); setPage(1); }}>Limpiar filtros</Button> : undefined}>
+                {work === null && !error ? "Cargando…" : "Nada por acá"}
+              </EmptyState>
+            </div>
+          )}
+          {groups.map((g) => (
+            <section key={g.bucket}>
+              <GroupHeader tone={BUCKET_TONE[g.bucket]} label={BUCKET_LABEL[g.bucket]} count={g.items.length} />
+              <ul>{g.items.map((e) => <EntryRow key={e.key} entry={e} selected={e.key === selected} onSelect={() => select(e)} />)}</ul>
+            </section>
+          ))}
+          {work === null && !error && groups.length > 0 && <p className="px-4 py-2 text-xs text-muted-fg">Cargando ramas…</p>}
+          {history.pageCount > 1 && <div className="px-4 py-3 md:px-5"><Pager page={history} onPageChange={setPage} label="Historial" /></div>}
+        </div>
+        {current && !phone && <WorkDetail key={current.key} entry={current} variant="aside" onClose={close} />}
+      </div>
+      {current && phone && <WorkDetail key={current.key} entry={current} variant="sheet" onClose={close} />}
     </div>
   );
 }

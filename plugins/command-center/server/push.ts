@@ -135,22 +135,22 @@ export function notifyDiff(sent: Map<string, number>, next: HomeView, now: numbe
     if (item.kind === "thread") {
       const th = item.thread;
       if (!th.taskId) continue;
-      if (item.reason === "plan") add(`plan:${th.key}`, th.key, `Plan ready: ${th.title}`, "Review the plan in T3.", "high");
-      else add(`ask:${th.key}:${th.pending?.id ?? ""}`, th.key, `Needs you: ${th.title}`, th.pending?.summary ?? (item.reason === "input" ? "Input needed" : "Approval needed"), "high");
+      if (item.reason === "plan") add(`plan:${th.key}`, th.key, `Plan listo: ${th.title}`, "Revisá el plan en T3.", "high");
+      else add(`ask:${th.key}:${th.pending?.id ?? ""}`, th.key, `Te necesita: ${th.title}`, th.pending?.summary ?? (item.reason === "input" ? "Falta tu respuesta" : "Falta tu aprobación"), "high");
     } else if (item.kind === "task_approval") {
       const task = item.task;
-      add(`approve:${task.id}`, `task:${task.id}`, `Approve: ${task.title}`, `${task.source} · ${task.machineLabel} · ${task.projectTitle}`, "high");
+      add(`approve:${task.id}`, `task:${task.id}`, `Aprobá: ${task.title}`, `${task.source} · ${task.machineLabel} · ${task.projectTitle}`, "high");
     } else if (item.kind === "workflow") {
-      add(item.key, item.key, `Workflow: ${item.title}`, item.text, "high");
+      add(item.key, item.key, `Flujo: ${item.title}`, item.text, "high");
     } else {
-      add(`alert:${item.alert.key}`, `alert:${item.alert.key}`, "Command Center alert", item.alert.message, "high");
+      add(`alert:${item.alert.key}`, `alert:${item.alert.key}`, "Alerta del Command Center", item.alert.message, "high");
     }
   }
   for (const th of next.done) {
-    if (th.taskId) add(`done:${th.key}`, th.key, `${th.failed ? "Failed" : "Done"}: ${th.title}`, th.preview ?? "", "normal");
+    if (th.taskId) add(`done:${th.key}`, th.key, `${th.failed ? "Falló" : "Listo"}: ${th.title}`, th.preview ?? "", "normal");
   }
   for (const task of next.queue) {
-    if (task.status === "failed" && task.threadId === null) add(`failed:${task.id}`, `task:${task.id}`, `Failed: ${task.title}`, task.error ?? "", "normal");
+    if (task.status === "failed" && task.threadId === null) add(`failed:${task.id}`, `task:${task.id}`, `Falló: ${task.title}`, task.error ?? "", "normal");
   }
   return out;
 }
@@ -248,9 +248,9 @@ export function createPush(opts: PushOptions) {
       path: "/api/push/test",
       auth: "cookie",
       handler: async (): Promise<PushApi["POST /api/push/test"]["res"]> => {
-        if (!allowed()) throw new HttpError(429, "rate_limited", "Too many notifications this minute, try again shortly");
+        if (!allowed()) throw new HttpError(429, "rate_limited", "Demasiadas notificaciones este minuto, probá de nuevo en un rato");
         const tag = `test:${now()}`;
-        return { sent: await send({ id: tag, tag, t: "Command Center", b: "Notifications work on this device.", u: "/#home", urgency: "normal" }) };
+        return { sent: await send({ id: tag, tag, t: "Command Center", b: "Las notificaciones funcionan en este dispositivo.", u: "/#home", urgency: "normal" }) };
       },
     },
   ];

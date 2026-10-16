@@ -1,9 +1,9 @@
 import { useEffect, useRef, useState } from "react";
 import { call, connect } from "./api.ts";
 import { Button } from "./ui/Button.tsx";
-import { Input } from "./ui/fields.tsx";
+import { Field, Input } from "./ui/fields.tsx";
 
-/** Consumes the single-use token from /pair#token=... (or a pasted one), then clears it from the URL. */
+/** Consumes the single-use token from /pair#token=... (or a pasted one), then clears it from the URL. Renders without the shell. */
 export function Pair() {
   const fromUrl = new URLSearchParams(location.hash.replace(/^#(pair\?)?/, "")).get("token");
   const [token, setToken] = useState(fromUrl ?? "");
@@ -21,7 +21,7 @@ export function Pair() {
     } catch (e) {
       history.replaceState(null, "", "/pair#pair");
       setToken("");
-      setError(e instanceof Error ? e.message : "Pairing failed");
+      setError(e instanceof Error ? e.message : "No se pudo vincular");
     } finally {
       setBusy(false);
     }
@@ -35,27 +35,36 @@ export function Pair() {
   }, []);
 
   return (
-    <main className="mx-auto grid max-w-sm gap-4 px-4 pt-[max(4rem,env(safe-area-inset-top))]">
-      <h1 className="text-xl font-semibold">Pair this device</h1>
-      <p className="text-muted-fg">
-        Run <code>pair</code> on the server and open the link it prints, or paste the token here.
-      </p>
-      <Input
-        value={token}
-        onChange={(e) => setToken(e.target.value)}
-        placeholder="Pairing token"
-        autoComplete="off"
-        autoCapitalize="off"
-        spellCheck={false}
-      />
-      {error && (
-        <p role="alert" className="text-bad">
-          {error}
-        </p>
-      )}
-      <Button variant="primary" disabled={busy || !token.trim()} onClick={() => void submit(token)}>
-        {busy ? "Pairing..." : "Pair"}
-      </Button>
+    <main className="grid min-h-dvh place-items-center bg-bg p-5">
+      <form
+        className="grid w-full max-w-[400px] gap-3.5 rounded-card border border-line bg-panel p-6 md:p-[26px]"
+        onSubmit={(e) => {
+          e.preventDefault();
+          void submit(token);
+        }}
+      >
+        <span aria-hidden className="grid size-10 place-items-center rounded-xl bg-fg text-sm font-bold text-white">
+          CC
+        </span>
+        <div className="grid gap-1.5">
+          <h1 className="text-xl">Vinculá este dispositivo</h1>
+          <p className="text-sm leading-normal text-muted-fg">
+            Corré <code>pair</code> en el servidor y abrí el link que imprime, o pegá el token acá.
+          </p>
+        </div>
+        <Field label="Token de vinculación">
+          <Input className="font-mono" value={token} onChange={(e) => setToken(e.target.value)} autoComplete="off" autoCapitalize="off" spellCheck={false} />
+        </Field>
+        {error && (
+          <p role="alert" className="text-fail">
+            {error}
+          </p>
+        )}
+        <Button variant="primary" type="submit" className="h-10 md:h-10" disabled={busy || !token.trim()}>
+          {busy ? "Vinculando…" : "Vincular"}
+        </Button>
+        <p className="text-xs text-muted-fg">La sesión queda abierta 180 días en este dispositivo.</p>
+      </form>
     </main>
   );
 }

@@ -110,7 +110,7 @@ export class Dispatcher extends EventEmitter<{ changed: [] }> {
   }
   #get(id: string): Task {
     const task = getTask(this.#db, id);
-    if (!task) throw new TaskError("not_found", "task not found");
+    if (!task) throw new TaskError("not_found", "No se encontró la tarea");
     return task;
   }
   #online(machineId: string) {
@@ -172,7 +172,7 @@ export class Dispatcher extends EventEmitter<{ changed: [] }> {
 
   approve(id: string, opts: { runtimeMode?: RuntimeMode }): Task {
     const task = this.#get(id);
-    if (task.status !== "pending_approval") throw new TaskError("conflict", "task is not awaiting approval");
+    if (task.status !== "pending_approval") throw new TaskError("conflict", "La tarea no está por aprobar");
     const runtimeMode = opts.runtimeMode ?? task.runtimeMode;
     if (!runtimeMode || !RUNTIME_MODES.has(runtimeMode)) throw new TaskError("invalid", "runtimeMode is required");
     const next = updateTask(this.#db, id, { status: "queued", runtimeMode });
@@ -182,7 +182,7 @@ export class Dispatcher extends EventEmitter<{ changed: [] }> {
 
   reject(id: string): Task {
     const task = this.#get(id);
-    if (task.status !== "pending_approval") throw new TaskError("conflict", "task is not awaiting approval");
+    if (task.status !== "pending_approval") throw new TaskError("conflict", "La tarea no está por aprobar");
     const next = updateTask(this.#db, id, { status: "cancelled", error: "rejected", finishedAt: this.#iso() });
     this.#changed();
     return next;
@@ -197,7 +197,7 @@ export class Dispatcher extends EventEmitter<{ changed: [] }> {
       if (row?.activeRunId && link?.state.status === "online") await link.interrupt(row.id, row.activeRunId);
       else if (task.threadId) this.#stopOnSight.add(`${task.machineId}\0${task.threadId}`);
     } else if (task.status !== "queued" && task.status !== "pending_approval") {
-      throw new TaskError("conflict", `task is ${task.status}`);
+      throw new TaskError("conflict", `La tarea está en estado ${task.status}`);
     }
     const current = this.#get(id);
     if (current.status !== task.status) return current; // finished while we interrupted
@@ -210,7 +210,7 @@ export class Dispatcher extends EventEmitter<{ changed: [] }> {
   /** Re-queues a finished task; it gets new T3 ids when it dispatches. */
   retry(id: string): Task {
     const task = this.#get(id);
-    if (task.status !== "failed" && task.status !== "cancelled") throw new TaskError("conflict", `task is ${task.status}`);
+    if (task.status !== "failed" && task.status !== "cancelled") throw new TaskError("conflict", `La tarea está en estado ${task.status}`);
     const next = updateTask(this.#db, id, {
       status: task.runtimeMode === null ? "pending_approval" : "queued",
       commandId: null,

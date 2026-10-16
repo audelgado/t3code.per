@@ -1,10 +1,18 @@
 import { useEffect, useState } from "react";
 import { disablePush, enablePush, pushState, testPush, type PushState } from "./push.ts";
 import { Button } from "./ui/Button.tsx";
-import { Badge, Card } from "./ui/fields.tsx";
+import { Chip } from "./ui/Chip.tsx";
+import { Panel } from "./ui/Panel.tsx";
+import type { Tone } from "./look.ts";
 
-const label: Record<PushState, string> = { unsupported: "not available", denied: "blocked", off: "off", on: "on" };
+const STATE: Record<PushState, { label: string; tone: Tone }> = {
+  unsupported: { label: "No disponible", tone: "queue" },
+  denied: { label: "Bloqueadas", tone: "fail" },
+  off: { label: "Desactivadas", tone: "queue" },
+  on: { label: "Activadas", tone: "ok" },
+};
 
+/** Flota / Notificaciones: avisos push de este dispositivo. The server keeps no history, so there is no inbox. */
 export function Notifications() {
   const [state, setState] = useState<PushState | null>(null);
   const [busy, setBusy] = useState(false);
@@ -21,58 +29,52 @@ export function Notifications() {
       const text = await fn();
       if (text) setNote({ text, bad: false });
     } catch (e) {
-      setNote({ text: e instanceof Error ? e.message : "Something went wrong", bad: true });
+      setNote({ text: e instanceof Error ? e.message : "Algo salió mal", bad: true });
     } finally {
       setBusy(false);
     }
   };
   const enable = run(async () => (setState(await enablePush()), null));
-  const disable = run(async () => (setState(await disablePush()), "Notifications are off on this device."));
+  const disable = run(async () => (setState(await disablePush()), "Las notificaciones están desactivadas en este dispositivo."));
   const test = run(async () => {
     const { sent } = await testPush();
-    return sent > 0 ? `Sent to ${sent} device${sent === 1 ? "" : "s"}.` : "No device received it. Turn notifications off and on again.";
+    return sent > 0 ? `Enviada a ${sent} ${sent === 1 ? "dispositivo" : "dispositivos"}.` : "Ningún dispositivo la recibió. Desactivá las notificaciones y volvé a activarlas.";
   });
 
   return (
-    <div className="grid gap-4">
-      <h1 className="text-xl font-semibold">Notifications</h1>
-      <Card className="grid gap-3">
-        <div className="flex items-center gap-2">
-          <span className="min-w-0 flex-1 font-medium">This device</span>
-          {state && <Badge>{label[state]}</Badge>}
-        </div>
-        <p className="text-muted-fg">
-          Your Command Center tasks: approvals, questions, finished and failed tasks, and machine alerts. Other T3 threads
-          notify through T3 Connect in the T3 app.
+    <div className="max-w-xl">
+      <Panel title="Este dispositivo" action={state && <Chip tone={STATE[state].tone}>{STATE[state].label}</Chip>}>
+        <p className="px-4 py-3 text-sm text-muted-fg">
+          Tus tareas del Command Center: aprobaciones, preguntas, tareas terminadas o fallidas y alertas de máquinas. Los demás hilos de T3 avisan por T3 Connect desde la app de T3.
         </p>
         {state === "unsupported" && (
-          <p className="text-warn">
-            This browser cannot receive notifications. On iPhone, add the Command Center to the Home Screen and open it from
-            there.
-          </p>
+          <p className="px-4 py-3 text-sm text-need">Este navegador no puede recibir notificaciones. En iPhone, agregá el Command Center a la pantalla de inicio y abrilo desde ahí.</p>
         )}
-        {state === "denied" && <p className="text-warn">Notifications are blocked. Allow them in the system settings for this app.</p>}
-        {state === "off" && (
-          <Button variant="primary" disabled={busy} onClick={enable}>
-            {busy ? "Turning on..." : "Turn on"}
-          </Button>
-        )}
-        {state === "on" && (
-          <div className="grid grid-cols-2 gap-2">
-            <Button disabled={busy} onClick={test}>
-              Send test
-            </Button>
-            <Button variant="danger" disabled={busy} onClick={disable}>
-              Turn off
-            </Button>
+        {state === "denied" && <p className="px-4 py-3 text-sm text-need">Las notificaciones están bloqueadas. Permitilas en los ajustes del sistema para esta app.</p>}
+        {(state === "off" || state === "on") && (
+          <div className="flex flex-wrap items-center gap-2 px-4 py-3">
+            {state === "off" ? (
+              <Button variant="primary" disabled={busy} onClick={enable}>
+                {busy ? "Activando…" : "Activar"}
+              </Button>
+            ) : (
+              <>
+                <Button disabled={busy} onClick={test}>
+                  Enviar prueba
+                </Button>
+                <Button variant="danger" disabled={busy} onClick={disable}>
+                  Desactivar
+                </Button>
+              </>
+            )}
           </div>
         )}
         {note && (
-          <p role={note.bad ? "alert" : "status"} className={note.bad ? "text-bad" : "text-muted-fg"}>
+          <p role={note.bad ? "alert" : "status"} className={note.bad ? "px-4 py-3 text-sm text-fail" : "px-4 py-3 text-sm text-muted-fg"}>
             {note.text}
           </p>
         )}
-      </Card>
+      </Panel>
     </div>
   );
 }

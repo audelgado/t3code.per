@@ -1,161 +1,190 @@
-import { useEffect, useState } from "react";
-import type { Alert, ThreadItem } from "../../server/types.ts";
+import { Check, ChevronRight, Clock, Inbox, Play } from "lucide-react";
+import { useMemo, useState, type ReactNode } from "react";
+import type { HomeView, TaskItem, ThreadItem } from "../../server/types.ts";
+import type { WorkRow } from "../../server/work.ts";
 import { useLive } from "./api.ts";
-import { homeAttention, homeThread } from "./homeQueueView.ts";
+import { homeCounts, homeNeeds, type HomeNeed } from "./homeQueueView.ts";
+import { ago, at, priorityLabel, TONES, type Tone } from "./look.ts";
+import { hashes, pages } from "./navigation.ts";
 import { paginateCollection } from "./pagination.ts";
-import { Pager } from "./ui/Pager.tsx";
-import { LinkButton } from "./ui/Button.tsx";
 import { StatusDot } from "./StatusDot.tsx";
-import { ThreadSheet } from "./ThreadSheet.tsx";
-import { ago, at } from "./ui/cn.ts";
-import { Card, Empty, Section } from "./ui/fields.tsx";
+import { Button, LinkButton } from "./ui/Button.tsx";
+import { Chip } from "./ui/Chip.tsx";
+import { EmptyState, Section } from "./ui/fields.tsx";
+import { Pager } from "./ui/Pager.tsx";
+import { Panel } from "./ui/Panel.tsx";
+import { taskCall, useAct, useProjectTitles, useWork } from "./workData.ts";
+import { ErrorNote, ProjectTag, Stepper } from "./workUi.tsx";
 
-const reasonLabel = { approval: "Approval needed", input: "Input needed", plan: "Plan ready" } as const;
+const DONE_PAGE = 5;
+const QUEUE_SHOWN = 5;
 
-function Row({ onClick, dot, title, sub, age }: { onClick: () => void; dot: ThreadItem["status"]; title: string; sub: string; age: string }) {
+function Figure({ href, tone, icon, count, label }: { href: string; tone: Tone; icon: ReactNode; count: number; label: string }) {
+  const { fg, bg } = TONES[tone];
   return (
-    <button type="button" onClick={onClick} className="w-full text-left">
-      <Card className="flex items-center gap-3 active:bg-accent">
-        <StatusDot status={dot} />
-        <span className="min-w-0 flex-1">
-          <span className="block truncate font-medium">{title}</span>
-          <span className="block truncate text-muted-fg">{sub}</span>
+    <a href={href} className="flex items-center gap-3 rounded-card border border-line bg-panel px-3.5 py-3 active:bg-soft">
+      <span aria-hidden className="grid size-8 shrink-0 place-items-center rounded-[9px]" style={{ background: bg, color: fg }}>
+        {icon}
+      </span>
+      <span>
+        <span className="block text-[22px] leading-tight font-bold tabular-nums" style={{ color: fg }}>{count}</span>
+        <span className="block text-[13px] text-muted-fg">{label}</span>
+      </span>
+    </a>
+  );
+}
+
+function NeedRow({ n }: { n: HomeNeed }) {
+  const { busy, error, act } = useAct();
+  return (
+    <div className="px-4 py-3">
+      <div className="flex items-center gap-3">
+        <span aria-hidden className="size-2 shrink-0 rounded-full" style={{ background: TONES[n.tone].fg }} />
+        <a href={n.href} className="min-w-0 flex-1">
+          <span className="block truncate font-semibold">{n.title}</span>
+          <span className="mt-0.5 flex min-w-0 items-center gap-1.5 text-[12.5px] text-muted-fg">
+            {n.projectKey && n.project ? <ProjectTag projectKey={n.projectKey} name={n.project} className="max-w-[40%] shrink-0" /> : n.project && <span className="shrink-0">{n.project}</span>}
+            {n.why && <span className="truncate" style={n.tone === "fail" && !n.alert ? { color: TONES.fail.fg } : undefined}>{(n.project ? "· " : "") + n.why}</span>}
+            <span className="shrink-0">· {ago(n.since)}</span>
+          </span>
+        </a>
+        {"retry" in n.action ? (
+          <Button size="sm" disabled={busy} onClick={() => void act("No se pudo reintentar", () => taskCall.retry((n.action as { retry: string }).retry))}>
+            {n.action.label}
+          </Button>
+        ) : (
+          <LinkButton size="sm" variant={n.alert ? "outline" : "primary"} href={n.action.href}>{n.action.label}</LinkButton>
+        )}
+      </div>
+      {error && <div className="mt-2"><ErrorNote>{error}</ErrorNote></div>}
+    </div>
+  );
+}
+
+function RunningRow({ t, name, machine, row }: { t: ThreadItem; name: string; machine: string; row: WorkRow | undefined }) {
+  const key = `${t.machineId}:${t.projectId}`;
+  return (
+    <a href={hashes.thread(t.key)} className="flex items-center gap-3 px-4 py-3 active:bg-soft">
+      <span className="min-w-0 flex-1">
+        <span className="block truncate font-semibold">{t.title}</span>
+        <span className="mt-0.5 flex min-w-0 items-center gap-1.5 text-[12.5px] text-muted-fg">
+          <ProjectTag projectKey={key} name={name} className="shrink-0 max-w-[45%]" />
+          <span className="truncate">· {t.waitingUntil ? `Esperando hasta ${at(t.waitingUntil)}` : machine} · {ago(t.updatedAt)}</span>
         </span>
-        <span className="shrink-0 text-xs text-muted-fg">{age}</span>
-      </Card>
-    </button>
+      </span>
+      {row ? <Stepper stage={row.stage} projectKey={key} tone="run" /> : <Chip tone="run">En curso</Chip>}
+    </a>
   );
 }
 
-function AlertRow({ alert }: { alert: Alert }) {
+function QueuedRow({ t, offline }: { t: TaskItem; offline: boolean }) {
+  const why = t.blockedBy.length ? `Espera a ${t.blockedBy.length} tarea${t.blockedBy.length === 1 ? "" : "s"}` : offline ? `Esperando a ${t.machineLabel}` : t.machineLabel;
   return (
-    <Card className="flex items-start gap-3 border-warn/40">
-      <StatusDot status="waiting" className="mt-1.5" />
-      <span className="min-w-0 flex-1">{alert.message}</span>
-      <span className="shrink-0 text-xs text-muted-fg">{ago(alert.since)}</span>
-    </Card>
+    <a href={hashes.task(t.id)} className="flex items-center gap-3 px-4 py-2.5 active:bg-soft">
+      <span className="min-w-0 flex-1">
+        <span className="block truncate font-medium">{t.title}</span>
+        <span className="mt-0.5 flex min-w-0 items-center gap-1.5 text-[12.5px] text-muted-fg">
+          <ProjectTag projectKey={`${t.machineId}:${t.projectId}`} name={t.projectTitle} className="shrink-0 max-w-[45%]" />
+          <span className="truncate">· {why}</span>
+        </span>
+      </span>
+      {t.priority !== 0 && <Chip tone={t.priority > 0 ? "need" : "queue"}>{priorityLabel(t.priority)}</Chip>}
+    </a>
   );
 }
 
-/** Opens a thread's sheet through the hash, so push links and the back button work. */
-const setOpen = (t: ThreadItem) => (location.hash = `#item=${encodeURIComponent(t.key)}`);
-
-/** `openKey`: a ThreadItem.key from `#item=<key>`; its sheet follows the live view. */
-export function Home({ openKey }: { openKey: string | null }) {
+/** Hoy: what needs you (never paged), what is moving, what waits, what finished (paged). Rows open the overlay through `#item=<key>`. */
+export function Home() {
   const { view } = useLive();
-  const [needsPage, setNeedsPage] = useState(1);
-  const [runningPage, setRunningPage] = useState(1);
-  const [donePage, setDonePage] = useState(1);
-  const attention = homeAttention(view?.needsYou ?? []);
-  const needs = paginateCollection(attention.actions, needsPage, 5);
-  const running = paginateCollection(view?.running ?? [], runningPage, 5);
-  const done = paginateCollection(view?.done ?? [], donePage, 5);
-  useEffect(() => {
-    if (!view) return;
-    setNeedsPage(needs.page); setRunningPage(running.page); setDonePage(done.page);
-  }, [view, needs.page, running.page, done.page]);
   if (!view) return null;
-  const open = homeThread(view, openKey);
-  const sub = (t: ThreadItem) => view.machines.find((m) => m.id === t.machineId)?.label ?? "";
+  return <Today view={view} />;
+}
+
+function Today({ view }: { view: HomeView }) {
+  const { machines: work } = useWork();
+  const titles = useProjectTitles();
+  const [donePage, setDonePage] = useState(1);
+
+  const needs = useMemo(
+    () => homeNeeds(view, { projectTitle: (k) => titles.get(k), hashes: { thread: hashes.thread, task: hashes.task, run: hashes.run, fleet: hashes.page("fleet") } }),
+    [view, titles, titles.size],
+  );
+  const counts = homeCounts(view, needs.length);
+  const rows = useMemo(() => {
+    const byUrl = new Map<string, WorkRow>();
+    const byTask = new Map<string, WorkRow>();
+    for (const m of work ?? []) for (const lane of m.lanes) for (const r of lane.rows) (byUrl.set(r.appUrl, r), r.taskId && byTask.set(r.taskId, r));
+    return (t: ThreadItem) => byUrl.get(t.appUrl) ?? (t.taskId ? byTask.get(t.taskId) : undefined);
+  }, [work]);
+
+  const machine = (id: string) => view.machines.find((m) => m.id === id);
+  const projectName = (t: ThreadItem) => titles.get(`${t.machineId}:${t.projectId}`) ?? machine(t.machineId)?.label ?? "";
+  const queued = view.queue.filter((t) => t.status === "queued");
+  const done = paginateCollection(view.done, donePage, DONE_PAGE);
 
   return (
-    <div className="grid gap-6 lg:grid-cols-2 lg:items-start">
-      <div className="grid gap-3 lg:col-span-2">
-        <h1 className="text-xl font-semibold">Home</h1>
-        <dl className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-          {[["Needs you", view.needsYou.length], ["Running", view.running.length], ["Done in 24 h", view.done.length], ["Queued", view.queue.filter((t) => t.status === "queued").length]].map(([label, count]) => (
-            <Card key={label}>
-              <dt className="text-xs text-muted-fg">{label}</dt>
-              <dd className="text-2xl font-semibold tabular-nums">{count}</dd>
-            </Card>
-          ))}
-        </dl>
-        <nav aria-label="Quick links" className="flex flex-wrap gap-2">
-          <LinkButton size="sm" variant="primary" href="#ask">Ask</LinkButton>
-          <LinkButton size="sm" href="#projects">Projects</LinkButton>
-          <LinkButton size="sm" href="#work">Work</LinkButton>
-        </nav>
-        {(view.running.length >= 50 || view.done.length >= 30) && <p className="text-xs text-muted-fg">Showing up to 50 running threads and the 30 most recent completions in the last 24 hours.</p>}
+    <div className="grid gap-4 md:gap-5">
+      <div className="grid grid-cols-2 gap-2.5 md:grid-cols-4 md:gap-3">
+        <Figure href={hashes.page("work")} tone="need" icon={<Inbox className="size-[18px]" />} count={counts.needs} label="Te necesita" />
+        <Figure href={hashes.page("board")} tone="run" icon={<Play className="size-[18px]" />} count={counts.running} label="En marcha" />
+        <Figure href={hashes.page("work")} tone="queue" icon={<Clock className="size-[18px]" />} count={counts.queued} label="En cola" />
+        <Figure href={hashes.page("work")} tone="ok" icon={<Check className="size-[18px]" />} count={counts.done} label="Terminado hoy" />
       </div>
 
-      <div className="min-w-0 lg:col-span-2">
-        <Section title="Needs you" count={view.needsYou.length}>
-          {view.needsYou.length === 0 && <Empty>Nothing waiting on you.</Empty>}
-          {attention.alerts.map((n) => <AlertRow key={n.alert.key} alert={n.alert} />)}
-          {attention.alerts.length > 0 && attention.actions.length > 0 && <p className="text-xs text-muted-fg">{attention.alerts.length} alerts always shown · {attention.actions.length} actions below</p>}
-          {needs.items.map((n) => {
-            if (n.kind === "workflow")
-              return (
-                <Row
-                  key={n.key}
-                  dot="waiting"
-                  title={n.title}
-                  sub={`Workflow · ${n.text}`}
-                  age={ago(n.since)}
-                  onClick={() => (location.hash = `#workflows?run=${encodeURIComponent(n.runId)}`)}
-                />
-              );
-            if (n.kind === "task_approval")
-              return (
-                <Row
-                  key={n.task.id}
-                  dot="waiting"
-                  title={n.task.title}
-                  sub={`Approve task · ${n.task.machineLabel}`}
-                  age={ago(n.since)}
-                  onClick={() => (location.hash = "#queue")}
-                />
-              );
-            return (
-              <Row
-                key={n.thread.key}
-                dot="waiting"
-                title={n.thread.title}
-                sub={`${reasonLabel[n.reason]} · ${sub(n.thread)}`}
-                age={ago(n.since)}
-                onClick={() => setOpen(n.thread)}
-              />
-            );
-          })}
-          <Pager page={needs} onPageChange={setNeedsPage} label="Needs you" />
-        </Section>
+      <div className="grid items-start gap-4 md:gap-5 lg:grid-cols-[1.3fr_1fr]">
+        {needs.length === 0 ? (
+          <Section title="Te necesita" count={0}>
+            <EmptyState action={<LinkButton size="sm" href={hashes.page("board")}>Ver qué está en marcha</LinkButton>}>Nada por acá</EmptyState>
+          </Section>
+        ) : (
+          <Panel title="Te necesita" count={needs.length} action={<span className="text-xs text-muted-fg">más antiguo primero</span>}>
+            {needs.map((n) => <NeedRow key={n.key} n={n} />)}
+          </Panel>
+        )}
+
+        <div className="grid gap-4 md:gap-5">
+          {view.running.length === 0 ? (
+            <Section title="En marcha" count={0}>
+              <EmptyState>Nada por acá</EmptyState>
+            </Section>
+          ) : (
+            <Panel
+              title="En marcha"
+              count={view.running.length}
+              action={<LinkButton size="sm" variant="ghost" href={hashes.page("board")}>Tablero <ChevronRight className="size-4" aria-hidden /></LinkButton>}
+            >
+              {view.running.map((t) => <RunningRow key={t.key} t={t} name={projectName(t)} machine={machine(t.machineId)?.label ?? ""} row={rows(t)} />)}
+            </Panel>
+          )}
+
+          {queued.length > 0 && (
+            <Panel title="En cola" count={queued.length}>
+              {queued.slice(0, QUEUE_SHOWN).map((t) => <QueuedRow key={t.id} t={t} offline={machine(t.machineId)?.link.status !== "online"} />)}
+              {queued.length > QUEUE_SHOWN && (
+                <a href={hashes.page("work")} className="block px-4 py-2.5 text-[13px] text-muted-fg active:bg-soft">
+                  Ver las {queued.length - QUEUE_SHOWN} restantes en {pages.work.title}
+                </a>
+              )}
+            </Panel>
+          )}
+        </div>
       </div>
 
-      <div className="min-w-0">
-        <Section title="Running" count={view.running.length}>
-          {view.running.length === 0 && <Empty>No agents running.</Empty>}
-          {running.items.map((t) => (
-            <Row
-              key={t.key}
-              dot={t.status}
-              title={t.title}
-              sub={t.waitingUntil ? `Waiting until ${at(t.waitingUntil)}` : sub(t)}
-              age={ago(t.updatedAt)}
-              onClick={() => setOpen(t)}
-            />
-          ))}
-          <Pager page={running} onPageChange={setRunningPage} label="Running" />
-        </Section>
-      </div>
-
-      <div className="min-w-0">
-        <Section title="Done, last 24 h" count={view.done.length}>
-          {view.done.length === 0 && <Empty>Nothing finished yet.</Empty>}
-          {done.items.map((t) => (
-            <Row
-              key={t.key}
-              dot={t.failed ? "failed" : "completed"}
-              title={t.title}
-              sub={t.preview ?? sub(t)}
-              age={ago(t.updatedAt)}
-              onClick={() => setOpen(t)}
-            />
-          ))}
-          <Pager page={done} onPageChange={setDonePage} label="Done" />
-        </Section>
-      </div>
-
-      {open && <ThreadSheet item={open} view={view} onClose={() => location.replace("#home")} />}
+      <Panel title="Terminado hoy" count={view.done.length}>
+        {view.done.length === 0 && <p className="px-4 py-6 text-center text-muted-fg">Nada por acá</p>}
+        {done.items.map((t) => (
+          <a key={t.key} href={hashes.thread(t.key)} className="flex items-center gap-3 px-4 py-3 active:bg-soft">
+            <StatusDot status={t.failed ? "failed" : "completed"} />
+            <span className="min-w-0 flex-1">
+              <span className="block truncate font-medium">{t.title}</span>
+              <span className="block truncate text-[12.5px] text-muted-fg">{t.preview ?? projectName(t)}</span>
+            </span>
+            <span className="shrink-0 text-xs text-muted-fg">{ago(t.updatedAt)}</span>
+          </a>
+        ))}
+        {done.pageCount > 1 && <div className="px-4 pb-3"><Pager page={done} onPageChange={setDonePage} label="Terminado hoy" /></div>}
+      </Panel>
+      {(view.running.length >= 50 || view.done.length >= 30) && <p className="text-xs text-muted-fg">Se muestran hasta 50 hilos en marcha y los 30 terminados más recientes de las últimas 24 horas.</p>}
     </div>
   );
 }

@@ -1,12 +1,65 @@
-import { ChevronLeft, ChevronRight, Plus } from "lucide-react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { Plus } from "lucide-react";
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { SECTION_STATUSES, selectSectionPage, type Section, type SectionFields, type SectionStatus } from "../../server/sections.ts";
 import { call } from "./api.ts";
+import { sectionStatusLabel, type Tone } from "./look.ts";
 import { Button } from "./ui/Button.tsx";
-import { Badge, Card, Empty, Field, Input, Select, Textarea } from "./ui/fields.tsx";
+import { Chip } from "./ui/Chip.tsx";
+import { Badge, EmptyState, Field, Input, Select, Textarea } from "./ui/fields.tsx";
+import { Pager } from "./ui/Pager.tsx";
+import { Panel } from "./ui/Panel.tsx";
 
-const label = (s: string) => s.replace("_", " ");
-const tone: Record<SectionStatus, string> = { todo: "", in_progress: "text-info", review: "text-info", blocked: "text-bad", done: "text-ok" };
+const message = (e: unknown, fallback: string) => (e instanceof Error ? e.message : fallback);
+const tone: Record<SectionStatus, Tone> = { todo: "queue", in_progress: "run", review: "pr", blocked: "fail", done: "ok" };
+const bar: Record<SectionStatus, string | undefined> = { todo: undefined, in_progress: undefined, review: undefined, blocked: "var(--fail)", done: "var(--ok)" };
+const dueFormat = new Intl.DateTimeFormat("es-AR", { day: "numeric", month: "short" });
+/** YYYY-MM-DD -> "24 oct". Parsed as local noon so the day never shifts with the time zone. */
+const dueLabel = (iso: string) => dueFormat.format(new Date(`${iso}T12:00:00`));
+
+/** One project's sections plus the edits, shared by the project detail's Resumen and Secciones tabs. */
+export function useSections() {
+  const [sections, setSections] = useState<Section[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  useEffect(() => {
+    call("GET /api/sections").then(setSections, (e) => setError(message(e, "No se pudo cargar las secciones")));
+  }, []);
+  const changed = useCallback((s: Section) => setSections((all) => (all?.some((x) => x.id === s.id) ? all.map((x) => (x.id === s.id ? s : x)) : [...(all ?? []), s])), []);
+  const deleted = useCallback((id: string) => setSections((all) => (all ?? []).filter((x) => x.id !== id).map((x) => (x.dependsOn.includes(id) ? { ...x, dependsOn: x.dependsOn.filter((d) => d !== id) } : x))), []);
+  const names = useMemo(() => new Map((sections ?? []).map((s) => [s.id, s.name])), [sections]);
+  return { sections, error, changed, deleted, names };
+}
+export type SectionsStore = ReturnType<typeof useSections>;
+
+/** Name, status, progress and the notes that matter; `extra` adds rows below (the Secciones tab uses it). */
+export function SectionLine({ s, extra }: { s: Section; extra?: ReactNode }) {
+  const pct = s.tasksTotal > 0 ? Math.min(100, Math.round((s.tasksDone / s.tasksTotal) * 100)) : 0;
+  return (
+    <div className="grid gap-1.5 md:grid-cols-[minmax(0,1fr)_200px] md:items-center md:gap-4">
+      <div className="grid min-w-0 gap-0.5">
+        <span className="flex min-w-0 items-center gap-2">
+          <span className="truncate font-semibold">{s.name}</span>
+          <Chip tone={tone[s.status]}>{sectionStatusLabel(s.status)}</Chip>
+        </span>
+        {s.blocker ? (
+          <span className="text-xs break-words text-fail">Bloqueo: {s.blocker}</span>
+        ) : s.trying ? (
+          <span className="text-xs break-words text-muted-fg">Probando: {s.trying}</span>
+        ) : s.tasksDone === 0 && s.status === "todo" ? (
+          <span className="text-xs text-muted-fg">Sin empezar</span>
+        ) : null}
+        {extra}
+      </div>
+      <div className="grid gap-1">
+        <div role="progressbar" aria-valuemin={0} aria-valuemax={s.tasksTotal} aria-valuenow={s.tasksDone} aria-label="Tareas hechas" className="h-1.5 overflow-hidden rounded-full bg-[#e8e6e0]">
+          <div className="h-full rounded-full bg-primary" style={{ width: `${pct}%`, background: bar[s.status] }} />
+        </div>
+        <span className="text-xs text-muted-fg tabular-nums">
+          {s.tasksDone}/{s.tasksTotal} tareas{s.dueDate && ` · ${dueLabel(s.dueDate)}`}
+        </span>
+      </div>
+    </div>
+  );
+}
 
 function Editor({ section, onSaved, onDeleted, onClose }: { section: Section; onSaved: (s: Section) => void; onDeleted: (id: string) => void; onClose: () => void }) {
   const [f, setF] = useState({
@@ -40,229 +93,173 @@ function Editor({ section, onSaved, onDeleted, onClose }: { section: Section; on
       onSaved(await call("PATCH /api/sections/:id", { params: { id: section.id }, body }));
       onClose();
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Could not save");
+      setError(message(e, "No se pudo guardar"));
       setBusy(false);
     }
   }
 
   async function remove() {
-    if (!confirm(`Delete "${section.name}"? Sections that wait on it stop waiting.`)) return;
+    if (!confirm(`¿Eliminar "${section.name}"? Las secciones que dependen de ella dejan de esperar.`)) return;
     setBusy(true);
     setError(null);
     try {
       await call("DELETE /api/sections/:id", { params: { id: section.id } });
       onDeleted(section.id);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Could not delete");
+      setError(message(e, "No se pudo eliminar"));
       setBusy(false);
     }
   }
 
   return (
-    <div className="mt-2 grid gap-2 border-t border-border pt-2">
-      <Field label="Name">
+    <div className="mt-3 grid gap-2 border-t border-line pt-3">
+      <Field label="Nombre">
         <Input value={f.name} maxLength={80} onChange={set("name")} />
       </Field>
       <div className="grid grid-cols-2 gap-2">
-        <Field label="Status">
+        <Field label="Estado">
           <Select value={f.status} onChange={set("status")}>
             {SECTION_STATUSES.map((s) => (
               <option key={s} value={s}>
-                {label(s)}
+                {sectionStatusLabel(s)}
               </option>
             ))}
           </Select>
         </Field>
-        <Field label="Due">
+        <Field label="Vence">
           <Input type="date" value={f.dueDate} onChange={set("dueDate")} />
         </Field>
-        <Field label="Tasks done">
+        <Field label="Tareas hechas">
           <Input inputMode="numeric" value={f.tasksDone} onChange={set("tasksDone")} />
         </Field>
-        <Field label="Tasks total">
+        <Field label="Tareas en total">
           <Input inputMode="numeric" value={f.tasksTotal} onChange={set("tasksTotal")} />
         </Field>
       </div>
-      <Field label="Trying">
+      <Field label="Probando">
         <Input value={f.trying} maxLength={500} onChange={set("trying")} />
       </Field>
-      <Field label="Blocker">
+      <Field label="Bloqueo">
         <Input value={f.blocker} maxLength={500} onChange={set("blocker")} />
       </Field>
-      <Field label="Missing (one per line)">
+      <Field label="Falta (una por línea)">
         <Textarea className="min-h-16" value={f.missing} onChange={set("missing")} />
       </Field>
       {error && (
-        <p role="alert" className="text-bad">
+        <p role="alert" className="text-fail">
           {error}
         </p>
       )}
-      <div className="grid grid-cols-2 gap-2">
+      <div className="flex flex-wrap gap-2">
+        <Button variant="danger" disabled={busy} onClick={() => void remove()}>
+          Eliminar sección
+        </Button>
+        <span className="flex-1" />
         <Button disabled={busy} onClick={onClose}>
-          Cancel
+          Cancelar
         </Button>
         <Button variant="primary" disabled={busy || !f.name.trim()} onClick={() => void save()}>
-          Save
+          Guardar
         </Button>
       </div>
-      <Button variant="danger" disabled={busy} onClick={() => void remove()}>
-        Delete section
-      </Button>
     </div>
   );
 }
 
 function SectionCard({ s, names, editing, onEdit, onSaved, onDeleted }: { s: Section; names: Map<string, string>; editing: boolean; onEdit: (id: string | null) => void; onSaved: (s: Section) => void; onDeleted: (id: string) => void }) {
+  const extra = (
+    <>
+      {s.missing.length > 0 && <span className="text-xs break-words text-muted-fg">Falta: {s.missing.join(", ")}</span>}
+      {s.dependsOn.length > 0 && <span className="text-xs text-muted-fg">Espera a {s.dependsOn.map((id) => names.get(id) ?? "una sección eliminada").join(", ")}</span>}
+    </>
+  );
   return (
-    <Card>
-      <button type="button" className="grid w-full gap-1 text-left" aria-expanded={editing} onClick={() => onEdit(editing ? null : s.id)}>
-        <span className="flex items-center gap-2">
-          <span className="min-w-0 flex-1 truncate font-medium">{s.name}</span>
-          <Badge className={tone[s.status]}>{label(s.status)}</Badge>
-        </span>
-        <span className="text-muted-fg">
-          {s.tasksDone}/{s.tasksTotal} tasks{s.dueDate && ` · due ${s.dueDate}`}
-        </span>
-        {s.trying && <span className="break-words">Trying: {s.trying}</span>}
-        {s.blocker && <span className="break-words text-bad">Blocked: {s.blocker}</span>}
-        {s.missing.length > 0 && <span className="break-words text-muted-fg">Missing: {s.missing.join(", ")}</span>}
-        {s.dependsOn.length > 0 && <span className="text-muted-fg">Waits on {s.dependsOn.map((id) => names.get(id) ?? "a removed section").join(", ")}</span>}
+    <div className="px-4 py-3">
+      <button type="button" className="block w-full text-left" aria-expanded={editing} onClick={() => onEdit(editing ? null : s.id)}>
+        <SectionLine s={s} extra={extra} />
       </button>
       {s.prUrl && (
-        <a href={s.prUrl} target="_blank" rel="noreferrer" className="mt-1 block truncate text-primary">
+        <a href={s.prUrl} target="_blank" rel="noreferrer" className="mt-1 inline-block truncate text-xs text-primary">
           Pull request
         </a>
       )}
       {editing && <Editor section={s} onSaved={onSaved} onDeleted={onDeleted} onClose={() => onEdit(null)} />}
-    </Card>
+    </div>
   );
 }
 
-function ProjectGroup({ projectId, title, sections, names, search, status, onChanged, onDeleted }: {
-  projectId: string;
-  title: string;
-  sections: Section[];
-  names: Map<string, string>;
-  search: string;
-  status: SectionStatus | "all";
-  onChanged: (s: Section) => void;
-  onDeleted: (id: string) => void;
-}) {
+/** The Secciones tab of a project: milestones with search, status filter, inline editor and paging. */
+export function ProjectSections({ projectId, store }: { projectId: string; store: SectionsStore }) {
+  const { sections, error, changed, deleted, names } = store;
+  const [search, setSearch] = useState("");
+  const [status, setStatus] = useState<SectionStatus | "all">("all");
   const [page, setPage] = useState(1);
   const [editing, setEditing] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
   const [name, setName] = useState("");
-  const [error, setError] = useState<string | null>(null);
-  const p = selectSectionPage({ sections, search, status, page, editing });
+  const [addError, setAddError] = useState<string | null>(null);
+  const mine = useMemo(() => (sections ?? []).filter((s) => s.projectId === projectId), [sections, projectId]);
+  const p = selectSectionPage({ sections: mine, search, status, page, editing });
 
   async function add() {
-    setError(null);
+    setAddError(null);
     try {
-      onChanged(await call("POST /api/sections", { body: { projectId, name } }));
+      changed(await call("POST /api/sections", { body: { projectId, name } }));
       setName("");
       setAdding(false);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Could not add");
+      setAddError(message(e, "No se pudo agregar"));
     }
   }
 
+  if (error) return <p role="alert" className="text-fail">{error}</p>;
+  if (!sections) return <p className="text-muted-fg">Cargando…</p>;
   return (
-    <section className="grid gap-2">
-      <h2 className="flex items-center gap-2 text-xs font-semibold tracking-wide text-muted-fg uppercase">
-        <span className="min-w-0 flex-1 truncate">{title}</span>
-        <span className="font-normal normal-case">{p.total}</span>
-        <Button variant="ghost" size="icon" aria-label={`Add a section to ${title}`} onClick={() => setAdding((v) => !v)}>
-          <Plus className="size-4" />
-        </Button>
-      </h2>
-      {adding && (
-        <Card className="grid gap-2">
-          <Input placeholder="Section name" value={name} maxLength={80} onChange={(e) => setName(e.target.value)} />
-          {error && (
-            <p role="alert" className="text-bad">
-              {error}
-            </p>
-          )}
-          <Button variant="primary" disabled={!name.trim()} onClick={() => void add()}>
-            Add section
-          </Button>
-        </Card>
-      )}
-      {p.visible.map((s) => (
-        <SectionCard key={s.id} s={s} names={names} editing={editing === s.id} onEdit={setEditing} onSaved={onChanged} onDeleted={onDeleted} />
-      ))}
-      {p.total === 0 && !adding && <Empty>{sections.length ? "No sections match." : "No sections yet."}</Empty>}
-      {p.pageCount > 1 && (
-        <div className="flex items-center justify-between text-muted-fg">
-          <Button variant="ghost" size="icon" aria-label="Previous page" disabled={p.page <= 1} onClick={() => setPage(p.page - 1)}>
-            <ChevronLeft className="size-4" />
-          </Button>
-          <span className="tabular-nums">
-            {p.start}-{p.end} of {p.total}
-          </span>
-          <Button variant="ghost" size="icon" aria-label="Next page" disabled={p.page >= p.pageCount} onClick={() => setPage(p.page + 1)}>
-            <ChevronRight className="size-4" />
-          </Button>
-        </div>
-      )}
-    </section>
-  );
-}
-
-/** Sections grouped by project, 10 per page. Route: `#sections`. */
-export function Sections() {
-  const [sections, setSections] = useState<Section[] | null>(null);
-  const [titles, setTitles] = useState<Map<string, string>>(new Map());
-  const [error, setError] = useState<string | null>(null);
-  const [search, setSearch] = useState("");
-  const [status, setStatus] = useState<SectionStatus | "all">("all");
-
-  useEffect(() => {
-    Promise.all([call("GET /api/sections"), call("GET /api/projects")]).then(
-      ([s, groups]) => {
-        setSections(s);
-        setTitles(new Map(groups.flatMap((g) => g.projects.map((p) => [p.id, p.title] as const))));
-      },
-      (e) => setError(e instanceof Error ? e.message : "Could not load sections"),
-    );
-  }, []);
-
-  const changed = useCallback((s: Section) => setSections((all) => (all?.some((x) => x.id === s.id) ? all.map((x) => (x.id === s.id ? s : x)) : [...(all ?? []), s])), []);
-  const deleted = useCallback((id: string) => setSections((all) => (all ?? []).filter((x) => x.id !== id).map((x) => (x.dependsOn.includes(id) ? { ...x, dependsOn: x.dependsOn.filter((d) => d !== id) } : x))), []);
-  const names = useMemo(() => new Map((sections ?? []).map((s) => [s.id, s.name])), [sections]);
-  // Every known project shows (so it can get its first section), plus any with sections of its own.
-  const projectIds = [...new Set([...titles.keys(), ...(sections ?? []).map((s) => s.projectId)])];
-
-  if (error) return <p role="alert" className="text-bad">{error}</p>;
-  if (!sections) return null;
-  return (
-    <div className="grid gap-4">
-      <h1 className="text-xl font-semibold">Sections</h1>
-      <div className="grid grid-cols-[1fr_auto] gap-2">
-        <Input type="search" placeholder="Search" value={search} onChange={(e) => setSearch(e.target.value)} />
-        <Select className="w-auto" aria-label="Status" value={status} onChange={(e) => setStatus(e.target.value as SectionStatus | "all")}>
-          <option value="all">All</option>
+    <div className="grid gap-3">
+      <div className="flex flex-wrap items-center gap-2">
+        <Input className="min-w-full flex-1 md:min-w-0 md:max-w-xs" type="search" aria-label="Buscar secciones" placeholder="Buscar" value={search} onChange={(e) => (setSearch(e.target.value), setPage(1))} />
+        <Select className="w-auto" aria-label="Estado" value={status} onChange={(e) => (setStatus(e.target.value as SectionStatus | "all"), setPage(1))}>
+          <option value="all">Todas</option>
           {SECTION_STATUSES.map((s) => (
             <option key={s} value={s}>
-              {label(s)}
+              {sectionStatusLabel(s)}
             </option>
           ))}
         </Select>
+        <span className="flex-1" />
+        <Button onClick={() => setAdding((v) => !v)} aria-expanded={adding}>
+          <Plus className="size-4" aria-hidden /> Agregar
+        </Button>
       </div>
-      {projectIds.length === 0 && <Empty>No projects yet.</Empty>}
-      {projectIds.map((id) => (
-        <ProjectGroup
-          key={id}
-          projectId={id}
-          title={titles.get(id) ?? "Unknown project"}
-          sections={sections.filter((s) => s.projectId === id)}
-          names={names}
-          search={search}
-          status={status}
-          onChanged={changed}
-          onDeleted={deleted}
-        />
-      ))}
+      {adding && (
+        <form
+          className="grid gap-2 rounded-card border border-line bg-panel p-3 md:grid-cols-[1fr_auto]"
+          onSubmit={(e) => {
+            e.preventDefault();
+            if (name.trim()) void add();
+          }}
+        >
+          <Input aria-label="Nombre de la sección" placeholder="Nombre de la sección" value={name} maxLength={80} autoFocus onChange={(e) => setName(e.target.value)} />
+          <Button variant="primary" type="submit" disabled={!name.trim()}>
+            Agregar sección
+          </Button>
+          {addError && (
+            <p role="alert" className="text-fail md:col-span-2">
+              {addError}
+            </p>
+          )}
+        </form>
+      )}
+      {p.total === 0 ? (
+        <EmptyState>{mine.length ? "Ninguna sección coincide." : "Nada por acá"}</EmptyState>
+      ) : (
+        <Panel title="Secciones" count={p.total} action={<Badge>hitos</Badge>}>
+          {p.visible.map((s) => (
+            <SectionCard key={s.id} s={s} names={names} editing={editing === s.id} onEdit={setEditing} onSaved={changed} onDeleted={deleted} />
+          ))}
+        </Panel>
+      )}
+      <Pager page={p} onPageChange={setPage} label="Secciones" />
     </div>
   );
 }

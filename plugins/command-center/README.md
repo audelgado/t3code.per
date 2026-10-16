@@ -1,16 +1,18 @@
 # Command Center
 
-The Command Center (CC) is a small phone-first app that queues work for your official T3 Code machines and runs it 24/7. Ask from the phone, pick a project on any machine, and the CC starts the thread in T3 when that machine is online and has a free slot. Home shows what needs you, what is running and what finished. "Open in T3" takes you to the thread in the official T3 app.
+The Command Center (CC) is a small phone-first app that queues work for your official T3 Code machines and runs it 24/7. Ask from the phone, pick a project on any machine, and the CC starts the thread in T3 when that machine is online and has a free slot. **Hoy** shows what needs you, what is running and what finished. **Abrir en T3** takes you to the thread in the official T3 app.
+
+The app is in Spanish and has five destinations: **Hoy**, **Trabajo** (Lista, Tablero, Flujos), **Proyectos** (Todos, Artefactos, Memoria), **Dinero** and **Flota** (Máquinas, Agentes, Notificaciones). On the phone the bottom bar has Hoy, Trabajo, a mic button, Proyectos and **Más** (which also holds Dinero and Flota). **Pedir** is not a destination: press `Ctrl/Cmd+K`, or tap the mic on the phone.
 
 The CC talks to T3 only through T3's normal client connection, with a token you issue. It never changes T3 itself.
 
 ## Find and continue work
 
-Use Projects to search by name or path and narrow the directory by machine or connection status. Pins and groups keep related projects together; manual ordering is available with filters cleared. Work searches across task names, projects and branches. Both directories paginate across machines, with separate branch pages inside each project.
+Use **Proyectos > Todos** to search by name or path and narrow the directory by machine or connection status. Pins and groups keep related projects together; manual ordering is available with filters cleared. A project opens with tabs: Resumen, Trabajo, Secciones, Artefactos and Memoria. **Trabajo > Lista** searches across task names, projects and branches. Both directories paginate across machines, with separate branch pages inside each project.
 
-Home prioritizes approvals and other actions. Queue can filter tasks by machine and status. Workflows searches both the library and recent runs. These pages show the activity currently available to the CC, rather than a complete historical archive.
+**Hoy** puts what needs you first (approvals, questions, plans, alerts) and never pages it; history is paged. **Trabajo > Lista** filters by machine and status. **Flujos** searches both the library and recent runs. These pages show the activity currently available to the CC, rather than a complete historical archive.
 
-On a keyboard, press `g` then `h`, `a`, `q`, `w`, `p`, `m` or `f` for Home, Ask, Queue, Work, Projects, Memory or Finance. `/` focuses the current search, or opens project search when the page has none. `?` shows shortcut help. Shortcuts leave text fields and open dialogs alone.
+On a keyboard, `Ctrl/Cmd+K` opens Pedir, `/` opens search and `?` shows shortcut help. Press `g` then a key to go to a page: `h` Hoy, `t` or `w` Lista, `b` Tablero, `p` Proyectos, `r` Artefactos, `m` Memoria, `d` Dinero, `f` Flota, `n` Notificaciones, `a` Pedir. Shortcuts leave text fields and open dialogs alone.
 
 ## What runs where
 
@@ -97,40 +99,36 @@ Copy the token, then on the VPS run `ccctl machine add https://<pc>.<tailnet>.ts
 
 ## Daily use
 
-- **Ask**: write the prompt, pick a machine and project, send. The task waits in **Queue** until that machine is online and has a free slot. Only one CC task runs per project and machine at a time.
-- **Home**: what needs you (approvals, questions, plans, alerts), what is running and what finished in the last day. Tap a thread to read its last message, approve or decline a command or file change, stop a run, or settle a finished thread. Questions and plans are answered in T3: **Open in T3** opens the thread in the official app.
-- **Queue**: reorder, cancel or retry tasks, and approve tasks that agents submitted. A task that depends on another starts after it finishes, with its result added to the prompt.
-- **More → Machines**: connection state, T3 version and token expiry for each machine.
+- **Pedir**: write or dictate the prompt, pick a machine and project, send. The task waits in **Trabajo** until that machine is online and has a free slot. Only one CC task runs per project and machine at a time.
+- **Hoy**: what needs you (approvals, questions, plans, alerts), what is running and what finished in the last day. Open a thread to read its last message, approve or decline a command or file change, stop a run, or settle a finished thread. Questions and plans are answered in T3: **Abrir en T3** opens the thread in the official app.
+- **Trabajo**: **Lista** and **Tablero** show every task and branch, from the queue to cleanup. Reorder, cancel or retry tasks, and approve tasks that agents submitted. A task that depends on another starts after it finishes, with its result added to the prompt. It refreshes every 30 seconds only while open.
+- **Flota > Máquinas**: connection state, T3 version, token expiry and host CPU and memory for each machine (refreshed every 30 seconds only while it is open).
 
-Ask also has three extras:
+Pedir also has three extras:
 
-- **Split into steps** breaks one request (at commas, semicolons, new lines and "and" / "y") into one task per step. Edit the steps before sending; **Run in order** makes each wait for the one before.
-- **Profile** applies one of your Profiles to the task.
-- **Dictate** fills the prompt by voice. The mic appears only in browsers that support SpeechRecognition (Chrome, Edge and Safari, not Firefox).
+- **Dividir en pasos** breaks one request (at commas, semicolons, new lines and "and" / "y") into one task per step. Edit the steps before sending; **Ejecutar en orden** makes each wait for the one before.
+- **Perfil** applies one of your Perfiles to the task.
+- **Dictar** fills the prompt by voice. The mic appears only in browsers that support SpeechRecognition (Chrome, Edge and Safari, not Firefox).
 
-## More
+## Where everything else lives
 
-The **More** tab opens everything else:
-
-- **Projects**: your projects across machines, with your own groups, pins and order. Tap one to ask for work in it.
-- **Memory**: short notes, todos, decisions, progress and handoffs that you and your agents share. Search, filter by project, mark todos done.
-- **Sections**: per-project workstreams with status, task counts, due date, what is being tried, blocker, what is missing and the pull request. Agents keep them current; deleting one is yours only, from its edit sheet.
-- **Profiles**: a named role (avatar, role prompt, default model and modes) you pick in Ask. It prefixes the prompt and fills defaults; it never creates a standing agent.
-- **Finance**: income, recurring monthly costs, and totals per client and project. The hide-amounts eye is remembered per device. Agents cannot see Finance.
-- **Infra**: host CPU and memory for each machine. It refreshes every 30 seconds only while it is open.
-- **Work**: has its own tab in the bottom bar; see [Work](#work).
-- **Workflows**, **Artifacts**, **Orca**: see their sections below. Orca appears only when it is set up.
-- **Machines**, **Agents**, **Notifications**: see [Add your machines](#add-your-machines), [Agents](#agents) and [Notifications](#notifications).
+- **Proyectos > Todos**: your projects across machines, with your own groups, pins and order. Open one to ask for work in it.
+- **Proyectos > Memoria**: short notes, todos, decisions, progress and handoffs that you and your agents share. Search, filter by project, mark todos done.
+- **Proyecto > Secciones**: per-project workstreams with status, task counts, due date, what is being tried, blocker, what is missing and the pull request. Agents keep them current; deleting one is yours only.
+- **Flota > Agentes > Perfiles**: a named role (avatar, role prompt, default model and modes) you pick in Pedir. It prefixes the prompt and fills defaults; it never creates a standing agent.
+- **Dinero**: income, recurring monthly costs, and totals per client and project. The hide-amounts eye is remembered per device. Agents cannot see Dinero.
+- **Trabajo > Flujos** and **Proyectos > Artefactos**: see their sections below.
+- **Flota > Agentes > Acceso API** and **Flota > Notificaciones**: see [Agents](#agents) and [Notifications](#notifications).
 
 ## Work
 
-**Work** (bottom bar) lists the threads and worktrees your machines are working on, grouped by project, with how far each is: created, working, committed, pushed, PR open, merged. It refreshes every 30 seconds while the Work screen is open, never in the background. Finished or merged work can be tidied from there.
+**Trabajo** lists the threads and worktrees your machines are working on, grouped by project, with how far each is: Creada, Trabajando, Commit, Push, PR abierto, Mergeada, Limpieza. It refreshes every 30 seconds while the screen is open, never in the background. Finished or merged work can be tidied from there.
 
 ## Workflows
 
-**More → Workflows** runs a saved sequence of steps (agent, skill, question, parallel and gate steps) on the task queue. Each step starts when the ones before it succeeded; questions and manual gates wait for you under Home → Needs you, with a notification. Runs you start begin at once with the permissions you pick. A run an agent starts waits there until you approve it and pick its permissions.
+**Trabajo > Flujos** runs a saved sequence of steps (agent, skill, question, parallel and gate steps) on the task queue. Each step starts when the ones before it succeeded; questions and manual gates wait for you under **Hoy > Te necesita**, with a notification. Runs you start begin at once with the permissions you pick. A run an agent starts waits there until you approve it and pick its permissions.
 
-Write workflows as JSON in your repo at `.t3/workflows/<name>.json` and tap **Import** to pull them from a project, or paste one in the app. Agents can list, save and start workflows through the CC's MCP server; their runs still wait for your approval.
+Write workflows as JSON in your repo at `.t3/workflows/<name>.json` and tap **Importar** to pull them from a project, or paste one in the app. Agents can list, save and start workflows through the CC's MCP server; their runs still wait for your approval.
 
 Import reads files through T3, so the machine's token needs the `filesystem:read` scope. Tokens issued with the commands above lack it, and import answers with T3's authorization error. Reissue the token and run `machine add` again with the same address:
 
@@ -140,38 +138,24 @@ t3 auth session issue --scope orchestration:read --scope orchestration:operate -
 
 ## Artifacts
 
-**More → Artifacts** keeps HTML pages and Markdown documents with their version history, which agents save through the `artifact_save` MCP tool. HTML runs in a sandbox with no access to the CC. They are stored in `$CC_HOME/artifacts` and included in the nightly backup.
+**Proyectos > Artefactos** keeps HTML pages and Markdown documents with their version history, which agents save through the `artifact_save` MCP tool. HTML runs in a sandbox with no access to the CC. They are stored in `$CC_HOME/artifacts` and included in the nightly backup.
 
-## Orca (optional)
+## Ordenar con IA
 
-**More → Orca** appears only when `CC_ORCA_CLI` is set in `/var/lib/cc/env`. It lists Orca worktrees and terminals, shows a terminal's screen, sends it input, and launches an agent in a new worktree. These actions are yours only; agents cannot reach them through MCP.
+**Ordenar con IA** in Pedir sends what you dictated to a coordinator agent (Claude, Codex or Hermes, picked per request) and returns a draft: a clean prompt, project, priority, profile, steps and open questions. Nothing is queued until you edit the draft and send it. The coordinator runs as a short T3 thread on the coordinator machine, in the most restrictive permission mode; if it asks to use a tool, the request fails without approving anything. A draft request gives up after about two minutes.
 
-- `CC_ORCA_CLI`: path to the `orca` binary the CC process user can run. On Windows, `orca.exe` or `orca.cmd`; the `.exe` is always the one started.
-- `CC_ORCA_ENV` (optional): an Orca environment id from `orca environment list`. The CC passes it as `--environment` so a CC on the VPS drives the Orca runtime on your PC.
+Set these in `/var/lib/cc/env` (both optional):
 
-To pair the VPS with the PC:
+- `CC_COORDINATOR_MACHINE`: machine id (from `ccctl machine list`) that runs the coordinator, normally the always-on VPS. Default: the first enabled machine that is online.
+- `CC_COORDINATOR_PROJECT`: project id on that machine for the coordinator threads. Default: its first project. The thread uses the project root and never creates a worktree.
 
-1. Keep the Orca app running on the PC and copy a pairing code from it (see Orca's documentation).
-2. On the VPS, install the Orca CLI where the `cc` user can run it, such as `/usr/local/bin/orca`, not under your home directory.
-3. Pair it as `cc` with the same XDG variables as `command-center.service`, because `cc` has no writable home:
-
-   ```sh
-   x=/var/lib/cc/data/xdg
-   sudo -u cc mkdir -p $x/config $x/state $x/data $x/cache
-   xdg="XDG_CONFIG_HOME=$x/config XDG_STATE_HOME=$x/state XDG_DATA_HOME=$x/data XDG_CACHE_HOME=$x/cache"
-   sudo -H -u cc env $xdg orca environment add --name pc --pairing-code "orca://pair?code=..."
-   sudo -H -u cc env $xdg orca environment list
-   ```
-
-4. Add `CC_ORCA_CLI=/usr/local/bin/orca` and `CC_ORCA_ENV=<id from the list>` to `/var/lib/cc/env`, then `sudo systemctl restart command-center` and open **More → Orca**.
-
-If Orca writes under `$HOME` instead of the XDG folders, add that path to `ReadWritePaths=` in `command-center.service`, then `sudo systemctl daemon-reload` and restart. If the PC is asleep or Orca is closed, the screen shows Orca's error.
+A coordinator is available when that machine has the provider enabled and installed in T3. Hermes needs to be added as a Local ACP provider (see [Agents](#agents)).
 
 ## Agents
 
-Agents can queue work for you through the CC's MCP server at `https://<vps>.<tailnet>.ts.net:8443/mcp`. **Every task an agent submits waits in Queue until you approve it**, and you pick its permissions when you do. An agent sees only its own tasks.
+Agents can queue work for you through the CC's MCP server at `https://<vps>.<tailnet>.ts.net:8443/mcp`. **Every task an agent submits waits in Trabajo until you approve it**, and you pick its permissions when you do. An agent sees only its own tasks.
 
-Give each agent its own token: **More → Agents → Create**, or `ccctl agent-token add <label>` on the VPS. The token is shown once. The app shows ready-to-copy setup for:
+Give each agent its own token: **Flota > Agentes > Acceso API > Crear**, or `ccctl agent-token add <label>` on the VPS. The token is shown once. The app shows ready-to-copy setup for:
 
 - **Claude Code**: `claude mcp add --scope user --transport http cc <url>/mcp --header "Authorization: Bearer <token>"`
 - **Codex**: an `[mcp_servers.cc]` entry with `url` and `http_headers` in `~/.codex/config.toml`
@@ -188,7 +172,7 @@ The MCP server offers these tools:
 - `workflow_list`, `workflow_get`, `workflow_save`, `workflow_run`, `workflow_answer`, `workflow_status`
 - `artifact_save`, `artifact_list`, `artifact_get`
 
-Everything else, such as Finance, Orca and deleting sections, is yours only.
+Everything else, such as Finance and deleting sections, is yours only.
 
 **Hermes in T3** (optional): install Hermes for the user that runs the T3 service (not `cc`), check it, and add it as a provider:
 
@@ -219,15 +203,15 @@ Then in the T3 app open **Settings → Providers**, add a **Local ACP** command 
    sudo loginctl enable-linger "$USER"
    ```
 
-Every task it submits waits in Queue for your approval; nothing runs on its own.
+Every task it submits waits in Trabajo for your approval; nothing runs on its own.
 
-`ccctl agent-token list` shows each token's last use. Revoke one in **More → Agents** or with `ccctl agent-token rm <label>`; its tasks stay.
+`ccctl agent-token list` shows each token's last use. Revoke one in **Flota > Agentes** or with `ccctl agent-token rm <label>`; its tasks stay.
 
 ## Notifications
 
 The CC notifies you about its own tasks: approvals, questions, plans, finished and failed tasks, and machine alerts. Tapping one opens that item. Other T3 threads notify through T3 Connect in the official T3 app.
 
-Turn them on per device in **More → Notifications**, then tap **Send test**.
+Turn them on per device in **Flota > Notificaciones**, then tap **Enviar prueba**.
 
 - **iPhone and iPad** (iOS 16.4 or newer): open the CC from its Home Screen icon first. Safari tabs cannot receive notifications.
 - **Android**: Chrome works from the browser or the installed app.
@@ -245,8 +229,8 @@ If a device stops receiving them, turn notifications off and on again there. Set
 
 The CC reconnects after a T3 restart and ignores new fields it does not know, so most T3 updates need nothing. Rarely a release changes something the CC relies on. You see it as:
 
-- a machine shown as `incompatible` or `degraded` in **More → Machines**;
-- a **contract_break** alert on Home: the CC checks each new T3 version once and names what changed;
+- a machine shown as `incompatible` or `degraded` in **Flota > Máquinas**;
+- a **contract_break** alert in **Hoy**: the CC checks each new T3 version once and names what changed;
 - a **version skew** alert: one machine runs an older T3 than another. Update that machine; the CC needs no change.
 
 Meanwhile use the official T3 app directly; nothing already queued is lost. To fix a break:
@@ -313,7 +297,7 @@ Restoring on a new VPS requires adding each machine again with `ccctl machine ad
 
 ## Troubleshooting
 
-**More → Machines** shows each machine's connection:
+**Flota > Máquinas** shows each machine's connection:
 
 | State | Meaning and what to do |
 | --- | --- |
@@ -324,7 +308,7 @@ Restoring on a new VPS requires adding each machine again with `ccctl machine ad
 | incompatible | That machine's T3 speaks a newer protocol than this CC. Nothing is sent to it and its tasks wait. Update the CC (see [When T3 changes](#when-t3-changes)); until then use T3 directly. |
 | degraded | Working, but T3 sent data this CC does not fully understand. Update the CC soon. |
 
-- **contract_break alert** (Home): a new T3 version changed something the CC relies on, and the alert names what. Tasks to that machine may fail. Follow [When T3 changes](#when-t3-changes).
+- **contract_break alert** (Hoy): a new T3 version changed something the CC relies on, and the alert names what. Tasks to that machine may fail. Follow [When T3 changes](#when-t3-changes).
 - **Version skew alert**: one machine runs an older T3 than another. Update the machine it names.
 - **The phone cannot open the CC**: check the Tailscale app is on and `tailscale serve status` on the VPS lists port 8443.
 - **The CC is down**: `systemctl status command-center` and `journalctl -u command-center -n 100`.

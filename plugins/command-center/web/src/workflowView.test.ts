@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { StepView, Workflow } from "../../server/workflows.ts";
-import { canCancel, canResume, errorLines, lastRunBySlug, newWorkflowText, nodeStates, orderNodes, orderRuns, parseDraft, progress, runInputs, slugify, threadLinks, uniqueSlug } from "./workflowView.ts";
+import { canCancel, canResume, errorLines, lastRunBySlug, newWorkflowText, nodeStates, orderNodes, orderRuns, parseDraft, progress, runInputs, runTone, slugify, threadLinks, uniqueSlug, waitingStep } from "./workflowView.ts";
 
 const step = (nodeId: string, status: StepView["status"], item: number | null = null): StepView => ({
   id: `${nodeId}${item}`, runId: "r", nodeId, item, status, taskId: null, output: null, error: null, createdAt: "", updatedAt: "", taskStatus: null, threadId: null,
@@ -27,7 +27,7 @@ test("slugs", () => {
 
 test("parseDraft reports bad JSON", () => {
   assert.deepEqual(parseDraft('{"a":1}'), { value: { a: 1 } });
-  assert.match((parseDraft("{") as { error: string }).error, /^Not valid JSON/);
+  assert.match((parseDraft("{") as { error: string }).error, /^JSON inválido/);
   assert.deepEqual(errorLines("a\n\n b \n"), ["a", " b "]);
 });
 
@@ -49,7 +49,7 @@ test("nodeStates takes the worst step per node and counts progress", () => {
   assert.equal(s.get("a")?.status, "succeeded");
   assert.equal(s.get("b")?.status, "running");
   assert.equal(s.get("c")?.status, "pending");
-  assert.equal(progress(wf, steps), "1 of 3 steps done");
+  assert.equal(progress(wf, steps), "1 de 3 pasos listos");
 });
 
 test("run actions and thread links", () => {
@@ -57,4 +57,11 @@ test("run actions and thread links", () => {
   assert.ok(canResume("cancelled") && !canResume("running"));
   assert.deepEqual(threadLinks({ id: "m", webUrl: "https://x/" }, "t"), { appUrl: "t3code://threads/m/t", webUrl: "https://x/m/t" });
   assert.equal(threadLinks({ id: "m", webUrl: null }, "t").webUrl, null);
+});
+
+test("a run waits on the first ask or manual gate with a waiting step, and statuses map to tones", () => {
+  assert.equal(waitingStep(wf, [step("a", "succeeded"), step("b", "succeeded"), step("c", "waiting")])?.node.id, "c");
+  assert.equal(waitingStep(wf, [step("a", "running")]), null);
+  assert.equal(waitingStep(wf, [step("b", "waiting", 0)]), null);
+  assert.deepEqual(["needs_you", "pending_approval", "succeeded", "failed", "running", "cancelled"].map((s) => runTone(s as "running")), ["need", "need", "ok", "fail", "run", "queue"]);
 });

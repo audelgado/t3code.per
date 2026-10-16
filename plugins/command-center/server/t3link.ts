@@ -25,7 +25,8 @@ const PING_MS = 10_000;
 const RECHECK_MS = 10 * 60_000;
 const BACKOFF_MIN_MS = 1_000;
 const BACKOFF_MAX_MS = 5 * 60_000;
-const RESULT_MAX = 4_000;
+// Callers cap further (tasks and the thread sheet keep 4000); the coordinator draft needs the whole JSON.
+const RESULT_MAX = 12_000;
 const SUMMARY_MAX = 1_000;
 
 /** The subset of the WHATWG WebSocket the link uses (global WebSocket in Node ≥22). */

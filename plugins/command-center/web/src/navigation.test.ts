@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { navigationKeys, primaryNavigationRoutes, resolveShortcut, visibleNavigation } from "./navigation.ts";
+import { destinations, destOf, hashes, navigationKeys, pages, parseRoute, phoneTab, resolveShortcut, subPages, type Page } from "./navigation.ts";
 
 test("each destination requires a fresh g prefix, and interrupted sequences expire", () => {
   for (const [key, route] of Object.entries(navigationKeys)) {
@@ -33,26 +33,63 @@ test("search and help work without a prefix, including shifted punctuation", () 
   }
 });
 
-test("shared navigation includes each destination once and only gates Orca", () => {
-  const groups = visibleNavigation(false);
-  assert.deepEqual(groups.map((group) => group.label), ["Workspace", "Business", "System"]);
-  const routes = groups.flatMap((group) => group.items.map((item) => item.route));
-  assert.deepEqual(routes, ["home", "ask", "queue", "work", "projects", "workflows", "memory", "artifacts", "sections", "finance", "profiles", "infra", "machines", "agents", "notifications"]);
-  assert.equal(new Set(routes).size, routes.length);
-  for (const route of Object.values(navigationKeys)) assert.ok(routes.includes(route));
-  assert.deepEqual(visibleNavigation(true).flatMap((group) => group.items.map((item) => item.route)).filter((route) => !routes.includes(route)), ["orca"]);
+test("Ctrl/Cmd+K opens Pedir, also while typing, but never over a dialog or with other modifiers", () => {
+  for (const mod of [{ ctrlKey: true }, { metaKey: true }]) {
+    assert.deepEqual(resolveShortcut({ key: "k", ...mod }, null, 100).action, { type: "ask" });
+    assert.deepEqual(resolveShortcut({ key: "K", editable: true, ...mod }, null, 100).action, { type: "ask" });
+    for (const blocked of [{ dialogOpen: true }, { repeat: true }, { isComposing: true }, { altKey: true }, { shiftKey: true }]) {
+      assert.equal(resolveShortcut({ key: "k", ...mod, ...blocked }, null, 100).action, undefined);
+    }
+  }
+  assert.equal(resolveShortcut({ key: "k" }, null, 100).action, undefined);
 });
 
-test("desktop keeps Ask in its primary action and More omits bottom tab destinations", () => {
-  for (const orca of [false, true]) {
-    const all = visibleNavigation(orca).flatMap((group) => group.items.map((item) => item.route));
-    const desktop = visibleNavigation(orca, "desktop").flatMap((group) => group.items.map((item) => item.route));
-    const more = visibleNavigation(orca, "more").flatMap((group) => group.items.map((item) => item.route));
-    assert.deepEqual(desktop, all.filter((route) => route !== "ask"));
-    assert.deepEqual(more, all.filter((route) => !primaryNavigationRoutes.some((primary) => primary === route)));
-    assert.deepEqual([...new Set([...primaryNavigationRoutes, ...more])].sort(), [...all].sort());
-    for (const surface of ["desktop", "more"] as const) {
-      assert.ok(visibleNavigation(orca, surface).every((group) => group.items.length > 0));
-    }
+test("five destinations own every page except Más, and sub-tabs exist only where the design has them", () => {
+  assert.deepEqual(destinations.map((d) => d.label), ["Hoy", "Trabajo", "Proyectos", "Dinero", "Flota"]);
+  const owned = destinations.flatMap((d) => d.pages);
+  assert.equal(new Set(owned).size, owned.length);
+  assert.deepEqual([...owned, "project", "more"].sort(), Object.keys(pages).sort());
+  for (const d of destinations) for (const page of d.pages) assert.equal(destOf(page), d.id);
+  assert.deepEqual(subPages("board").map((p) => pages[p].label), ["Lista", "Tablero", "Flujos"]);
+  assert.deepEqual(subPages("memory").map((p) => pages[p].label), ["Todos", "Artefactos", "Memoria"]);
+  assert.deepEqual(subPages("agents").map((p) => pages[p].label), ["Máquinas", "Agentes", "Notificaciones"]);
+  for (const page of ["home", "money", "project", "more"] as const) assert.deepEqual(subPages(page), []);
+});
+
+test("every shortcut target resolves to a page or to the Pedir overlay", () => {
+  for (const route of Object.values(navigationKeys)) {
+    const parsed = parseRoute("#" + route);
+    assert.ok(route === "ask" ? parsed.overlay?.type === "ask" : pages[parsed.page].hash === route, route);
+  }
+});
+
+test("phone tabs: Hoy, Trabajo and Proyectos own their pages; the rest lives under Más", () => {
+  const tab = (p: Page) => phoneTab(p);
+  assert.deepEqual(["home", "work", "board", "flows", "projects", "project", "artifacts", "memory"].map((p) => tab(p as Page)),
+    ["home", "work", "work", "work", "projects", "projects", "projects", "projects"]);
+  assert.deepEqual(["money", "fleet", "agents", "notifications", "more"].map((p) => tab(p as Page)), ["more", "more", "more", "more", "more"]);
+});
+
+test("hashes round-trip through parseRoute", () => {
+  for (const page of Object.keys(pages) as Page[]) if (page !== "project") assert.equal(parseRoute(hashes.page(page)).page, page);
+  const key = "m1:p/with space:1";
+  assert.deepEqual(parseRoute(hashes.project(key, "sections")), { page: "project", taskId: null, runId: null, projectKey: key, tab: "sections", overlay: null });
+  assert.equal(parseRoute(hashes.project(key)).tab, "overview");
+  assert.equal(parseRoute(hashes.project(key, "bogus" as never)).tab, "overview");
+  assert.equal(parseRoute(hashes.task("t 1")).taskId, "t 1");
+  assert.equal(parseRoute(hashes.run("r1")).runId, "r1");
+  assert.deepEqual(parseRoute(hashes.thread("env:thread 1")).overlay, { type: "thread", key: "env:thread 1" });
+  assert.deepEqual(parseRoute(hashes.ask("m:p")).overlay, { type: "ask", project: "m:p", dictate: false });
+  assert.deepEqual(parseRoute("#ask?dictate=1").overlay, { type: "ask", project: null, dictate: true });
+});
+
+test("push links and older hashes land on the new pages", () => {
+  assert.deepEqual([parseRoute("#item=task:t1").page, parseRoute("#item=task:t1").taskId], ["work", "t1"]);
+  assert.deepEqual([parseRoute("#item=workflow:r9:n1").page, parseRoute("#item=workflow:r9:n1").runId], ["flows", "r9"]);
+  assert.deepEqual([parseRoute("#item=alert:offline:m1").page, parseRoute("#item=alert:offline:m1").overlay], ["home", null]);
+  assert.equal(parseRoute("#workflows?run=r2").page, "flows");
+  assert.equal(parseRoute("#workflows?run=r2").runId, "r2");
+  for (const [old, page] of [["queue", "work"], ["finance", "money"], ["machines", "fleet"], ["infra", "fleet"], ["profiles", "agents"], ["memory", "memory"], ["artifacts", "artifacts"], ["sections", "projects"], ["", "home"], ["nope", "home"]] as const) {
+    assert.equal(parseRoute("#" + old).page, page, old);
   }
 });

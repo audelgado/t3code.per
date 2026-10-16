@@ -1,43 +1,46 @@
-// Pure view logic for the Workflows screen (the screen itself is Workflows.tsx).
+// Pure view logic for the Flujos screen (the screen itself is Workflows.tsx).
+import type { Tone } from "./look.ts";
 import type { RunStatus, RunSummary, StepStatus, StepView, Workflow, WorkflowInputDef, WorkflowNode } from "../../server/workflows.ts";
 
 export const RUN_LABEL: Record<RunStatus, string> = {
-  pending_approval: "Needs approval",
-  running: "Running",
-  needs_you: "Waiting for you",
-  succeeded: "Done",
-  failed: "Failed",
-  cancelled: "Cancelled",
+  pending_approval: "Por aprobar",
+  running: "En curso",
+  needs_you: "Te necesita",
+  succeeded: "Listo",
+  failed: "Falló",
+  cancelled: "Cancelada",
 };
 export const STEP_LABEL: Record<StepStatus | "pending", string> = {
-  pending: "Pending",
-  running: "Running",
-  waiting: "Waiting for you",
-  succeeded: "Done",
-  failed: "Failed",
-  cancelled: "Cancelled",
+  pending: "Pendiente",
+  running: "En curso",
+  waiting: "Te necesita",
+  succeeded: "Listo",
+  failed: "Falló",
+  cancelled: "Cancelada",
 };
 
-/** Text colour class per run or step status (theme tokens of index.css). */
-export function tone(status: RunStatus | StepStatus | "pending"): string {
+/** Palette tone (look.ts) of a run or step status. */
+export function runTone(status: RunStatus | StepStatus | "pending"): Tone {
   switch (status) {
     case "succeeded":
-      return "text-ok";
+      return "ok";
     case "failed":
-      return "text-bad";
+      return "fail";
     case "needs_you":
     case "waiting":
     case "pending_approval":
-      return "text-warn";
+      return "need";
     case "running":
-      return "text-info";
+      return "run";
     default:
-      return "text-muted-fg";
+      return "queue";
   }
 }
 
-export const KIND_LABEL: Record<WorkflowNode["kind"], string> = { agent: "Agent", skill: "Skill", ask: "Ask", parallel: "Parallel", gate: "Gate" };
-const GATE_LABEL = { tests: "Tests pass", typecheck: "Type check passes", manual: "You approve" } as const;
+export const KIND_LABEL: Record<WorkflowNode["kind"], string> = { agent: "Agente", skill: "Skill", ask: "Pregunta", parallel: "En paralelo", gate: "Compuerta" };
+/** Tone of a step pill by what the node is (the chain in the design). */
+export const KIND_TONE: Record<WorkflowNode["kind"], Tone> = { agent: "run", gate: "need", skill: "teal", ask: "pr", parallel: "queue" };
+const GATE_LABEL = { tests: "Pasan los tests", typecheck: "Pasa el chequeo de tipos", manual: "Vos aprobás" } as const;
 
 export const nodeTitle = (n: WorkflowNode) => n.title ?? n.id;
 
@@ -46,14 +49,14 @@ export function describeNode(n: WorkflowNode): string {
   switch (n.kind) {
     case "agent": {
       const parts = [typeof n.profile === "string" ? n.profile : n.profile?.model, n.worktree ? "worktree" : null, n.skills?.length ? `${n.skills.length} skill${n.skills.length === 1 ? "" : "s"}` : null];
-      return parts.filter(Boolean).join(" · ") || "Default model";
+      return parts.filter(Boolean).join(" · ") || "Modelo por defecto";
     }
     case "skill":
       return n.skill;
     case "ask":
       return n.question;
     case "parallel":
-      return `For each of ${n.over}: ${n.node}`;
+      return `Para cada elemento de ${n.over}: ${n.node}`;
     case "gate":
       return GATE_LABEL[n.check];
   }
@@ -100,11 +103,11 @@ export function uniqueSlug(base: string, taken: ReadonlySet<string>): string {
 export function newWorkflowText(title: string, taken: ReadonlySet<string>): string {
   const w: Workflow = {
     slug: uniqueSlug(title, taken),
-    title: title.trim() || "New workflow",
+    title: title.trim() || "Nuevo flujo",
     description: "",
-    inputs: [{ name: "topic", label: "Topic" }],
+    inputs: [{ name: "topic", label: "Tema" }],
     nodes: [
-      { id: "plan", kind: "agent", prompt: "Plan the work for: {{input:topic}}" },
+      { id: "plan", kind: "agent", prompt: "Planificá el trabajo para: {{input:topic}}" },
       { id: "review", kind: "gate", check: "manual" },
     ],
     edges: [{ from: "plan", to: "review" }],
@@ -117,7 +120,7 @@ export function parseDraft(text: string): { value: unknown } | { error: string }
   try {
     return { value: JSON.parse(text) };
   } catch (e) {
-    return { error: `Not valid JSON: ${e instanceof Error ? e.message : "parse error"}` };
+    return { error: `JSON inválido: ${e instanceof Error ? e.message : "error de lectura"}` };
   }
 }
 
@@ -170,10 +173,10 @@ export function nodeStates(nodes: readonly WorkflowNode[], steps: readonly StepV
   return out;
 }
 
-/** "3 of 5 steps done". */
+/** "3 de 5 pasos listos". */
 export function progress(workflow: Pick<Workflow, "nodes">, steps: readonly StepView[]): string {
   const done = [...nodeStates(workflow.nodes, steps).values()].filter((s) => s.status === "succeeded").length;
-  return `${done} of ${workflow.nodes.length} steps done`;
+  return `${done} de ${workflow.nodes.length} pasos listos`;
 }
 
 export const canCancel = (s: RunStatus) => s === "running" || s === "needs_you";
@@ -182,4 +185,14 @@ export const canResume = (s: RunStatus) => s === "failed" || s === "cancelled";
 /** Where a step's thread opens: the T3 app link, and the web link when the machine has a web URL. */
 export function threadLinks(machine: { id: string; webUrl: string | null }, threadId: string) {
   return { appUrl: `t3code://threads/${machine.id}/${threadId}`, webUrl: machine.webUrl ? `${machine.webUrl.replace(/\/$/, "")}/${machine.id}/${threadId}` : null };
+}
+
+/** The node a run waits on, if it waits on you at the top level (an ask or a manual gate), with its waiting step. */
+export function waitingStep(workflow: Pick<Workflow, "nodes" | "edges">, steps: readonly StepView[]): { node: WorkflowNode; step: StepView } | null {
+  const states = nodeStates(workflow.nodes, steps);
+  for (const node of orderNodes(workflow)) {
+    const step = states.get(node.id)?.steps.find((s) => s.status === "waiting" && s.item === null);
+    if (step) return { node, step };
+  }
+  return null;
 }
