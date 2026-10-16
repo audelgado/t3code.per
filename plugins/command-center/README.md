@@ -4,6 +4,14 @@ The Command Center (CC) is a small phone-first app that queues work for your off
 
 The CC talks to T3 only through T3's normal client connection, with a token you issue. It never changes T3 itself.
 
+## Find and continue work
+
+Use Projects to search by name or path and narrow the directory by machine or connection status. Pins and groups keep related projects together; manual ordering is available with filters cleared. Work searches across task names, projects and branches. Both directories paginate across machines, with separate branch pages inside each project.
+
+Home prioritizes approvals and other actions. Queue can filter tasks by machine and status. Workflows searches both the library and recent runs. These pages show the activity currently available to the CC, rather than a complete historical archive.
+
+On a keyboard, press `g` then `h`, `a`, `q`, `w`, `p`, `m` or `f` for Home, Ask, Queue, Work, Projects, Memory or Finance. `/` focuses the current search, or opens project search when the page has none. `?` shows shortcut help. Shortcuts leave text fields and open dialogs alone.
+
 ## What runs where
 
 - **VPS** (Linux, on your tailnet): official T3 as a background service, and the CC as its own system user `cc`, reachable only on the tailnet at `https://<vps>.<tailnet>.ts.net:8443`.
