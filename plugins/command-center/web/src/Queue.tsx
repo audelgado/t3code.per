@@ -2,10 +2,13 @@ import { ArrowDown, ArrowUp } from "lucide-react";
 import { useState } from "react";
 import type { RuntimeMode, TaskItem } from "../../server/types.ts";
 import { call, refresh, useLive } from "./api.ts";
+import { queueGroup, queueGroups, queueResults } from "./homeQueueView.ts";
+import { paginateCollection } from "./pagination.ts";
 import { StatusDot } from "./StatusDot.tsx";
+import { Pager } from "./ui/Pager.tsx";
 import { Button } from "./ui/Button.tsx";
 import { at } from "./ui/cn.ts";
-import { Badge, Card, Empty, Select } from "./ui/fields.tsx";
+import { Badge, Card, Empty, Field, Input, Select } from "./ui/fields.tsx";
 
 const modes: [RuntimeMode, string][] = [
   ["approval-required", "Ask before every action"],
@@ -16,21 +19,21 @@ const modes: [RuntimeMode, string][] = [
 
 const cancellable = new Set(["pending_approval", "queued", "starting", "running", "waiting", "needs_you"]);
 
-function TaskCard({ t, titles }: { t: TaskItem; titles: Map<string, string> }) {
-  const [mode, setMode] = useState<RuntimeMode>("auto-accept-edits");
-  const [error, setError] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
+type TaskCardState = { mode: RuntimeMode; error: string | null; busy: boolean };
+const initialTaskState: TaskCardState = { mode: "auto-accept-edits", error: null, busy: false };
+
+function TaskCard({ t, titles, state, update }: { t: TaskItem; titles: Map<string, string>; state: TaskCardState; update: (patch: Partial<TaskCardState>) => void }) {
+  const { mode, error, busy } = state;
 
   const act = async (fn: () => Promise<unknown>) => {
-    setBusy(true);
-    setError(null);
+    update({ busy: true, error: null });
     try {
       await fn();
       await refresh();
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Action failed");
+      update({ error: e instanceof Error ? e.message : "Action failed" });
     } finally {
-      setBusy(false);
+      update({ busy: false });
     }
   };
   const params = { id: t.id };
@@ -70,7 +73,7 @@ function TaskCard({ t, titles }: { t: TaskItem; titles: Map<string, string> }) {
         <>
           <label className="grid gap-1">
             <span className="text-xs font-medium text-muted-fg">Runtime mode</span>
-            <Select value={mode} onChange={(e) => setMode(e.target.value as RuntimeMode)}>
+            <Select value={mode} onChange={(e) => update({ mode: e.target.value as RuntimeMode })}>
               {modes.map(([v, l]) => (
                 <option key={v} value={v}>
                   {l}
@@ -120,15 +123,50 @@ function TaskCard({ t, titles }: { t: TaskItem; titles: Map<string, string> }) {
 
 export function Queue() {
   const { view } = useLive();
+  const [query, setQuery] = useState("");
+  const [machine, setMachine] = useState("");
+  const [status, setStatus] = useState("");
+  const [page, setPage] = useState(1);
+  const [size, setSize] = useState(5);
+  // Paging/filtering must not discard a pending action, its error, or approval permissions.
+  const [cardStates, setCardStates] = useState<Record<string, TaskCardState>>({});
   if (!view) return null;
   const titles = new Map(view.queue.map((t) => [t.id, t.title]));
+  const results = queueResults(view.queue, query, machine, status);
+  const visible = paginateCollection(results, page, size);
+  const machines = new Map([...view.machines.map((m) => [m.id, m.label] as const), ...view.queue.map((t) => [t.machineId, t.machineLabel] as const)]);
   return (
     <div className="grid gap-3">
       <h1 className="text-xl font-semibold">Queue</h1>
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        <Field label="Search tasks"><Input type="search" value={query} placeholder="Title, prompt, project…" onChange={(e) => { setQuery(e.target.value); setPage(1); }} /></Field>
+        <Field label="Machine"><Select value={machine} onChange={(e) => { setMachine(e.target.value); setPage(1); }}>
+          <option value="">All machines</option>
+          {[...machines].map(([id, label]) => <option key={id} value={id}>{label}</option>)}
+        </Select></Field>
+        <Field label="Status"><Select value={status} onChange={(e) => { setStatus(e.target.value); setPage(1); }}>
+          <option value="">All statuses</option>
+          {["pending_approval", "starting", "running", "waiting", "needs_you", "queued", "failed", "cancelled", "done"].map((s) => <option key={s} value={s}>{s.replaceAll("_", " ")}</option>)}
+        </Select></Field>
+        <Field label="Tasks per page"><Select value={size} onChange={(e) => { setSize(Number(e.target.value)); setPage(1); }}>
+          {[5, 10, 20, 50].map((n) => <option key={n} value={n}>{n}</option>)}
+        </Select></Field>
+      </div>
+      <p role="status" className="text-xs text-muted-fg">{results.length} of {view.queue.length} loaded tasks match. Showing {visible.start}–{visible.end}.</p>
+      {(query || machine || status) && <div><Button size="sm" variant="ghost" onClick={() => { setQuery(""); setMachine(""); setStatus(""); setPage(1); }}>Clear filters</Button></div>}
       {view.queue.length === 0 && <Empty>The queue is empty.</Empty>}
-      {view.queue.map((t) => (
-        <TaskCard key={t.id} t={t} titles={titles} />
-      ))}
+      {view.queue.length > 0 && results.length === 0 && <Empty>No tasks match these filters.</Empty>}
+      {queueGroups.map((group) => {
+        const items = visible.items.filter((t) => queueGroup(t.status) === group);
+        if (!items.length) return null;
+        return <section key={group} className="grid gap-2">
+          <h2 className="text-xs font-semibold text-muted-fg">{group} · {results.filter((t) => queueGroup(t.status) === group).length}</h2>
+          <div className="grid items-start gap-3 xl:grid-cols-2">
+            {items.map((t) => <TaskCard key={t.id} t={t} titles={titles} state={cardStates[t.id] ?? initialTaskState} update={(patch) => setCardStates((states) => ({ ...states, [t.id]: { ...(states[t.id] ?? initialTaskState), ...patch } }))} />)}
+          </div>
+        </section>;
+      })}
+      <Pager page={visible} onPageChange={setPage} label="Tasks" />
     </div>
   );
 }

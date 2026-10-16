@@ -2,6 +2,9 @@ import { useCallback, useEffect, useState } from "react";
 import type { Api, ApiRoute, MachineProjects, RuntimeMode } from "../../server/types.ts";
 import type { ImportResult, RunDetail, RunSummary, StepView, Workflow, WorkflowNode, WorkflowSummary } from "../../server/workflows.ts";
 import { call, refresh, useLive } from "./api.ts";
+import { matchesSearch } from "./homeQueueView.ts";
+import { paginateCollection } from "./pagination.ts";
+import { Pager } from "./ui/Pager.tsx";
 import { Button, LinkButton } from "./ui/Button.tsx";
 import { Sheet } from "./ui/Sheet.tsx";
 import { ago, cn } from "./ui/cn.ts";
@@ -32,6 +35,10 @@ export function Workflows({ runId = null }: { runId?: string | null }) {
   const [running, setRunning] = useState<WorkflowSummary | null>(null);
   const [importing, setImporting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [query, setQuery] = useState("");
+  const [libraryPage, setLibraryPage] = useState(1);
+  const [runsPage, setRunsPage] = useState(1);
+  const [librarySize, setLibrarySize] = useState(10);
   const { view } = useLive();
 
   // Reloads with the live view (SSE) instead of polling: a task change is what moves a run.
@@ -44,6 +51,8 @@ export function Workflows({ runId = null }: { runId?: string | null }) {
   if (open) return <RunView id={open} onBack={() => setOpen(null)} />;
 
   const last = lastRunBySlug(runs);
+  const library = paginateCollection((list ?? []).filter((w) => matchesSearch(query, w.title, w.slug, w.description)), libraryPage, librarySize);
+  const recent = paginateCollection(orderRuns(runs).filter((r) => matchesSearch(query, r.title, r.slug, RUN_LABEL[r.status])), runsPage, 5);
   const edit = async (slug: string) => {
     try {
       setEditor({ text: JSON.stringify(await api("GET /api/workflows/:slug", { params: { slug } }), null, 2), isNew: false });
@@ -78,47 +87,61 @@ export function Workflows({ runId = null }: { runId?: string | null }) {
         </p>
       )}
 
+      <div className="grid gap-3 sm:grid-cols-2">
+        <Field label="Search workflows and runs"><Input type="search" value={query} placeholder="Title, slug, description or run status…" onChange={(e) => { setQuery(e.target.value); setLibraryPage(1); setRunsPage(1); }} /></Field>
+        <Field label="Workflows per page"><Select value={librarySize} onChange={(e) => { setLibrarySize(Number(e.target.value)); setLibraryPage(1); }}>
+          {[10, 20, 50].map((n) => <option key={n} value={n}>{n}</option>)}
+        </Select></Field>
+      </div>
+      {query && <div><Button size="sm" variant="ghost" onClick={() => { setQuery(""); setLibraryPage(1); setRunsPage(1); }}>Clear search</Button></div>}
       <Section title="Library" count={list?.length}>
         {list === null && !error && <p className="text-muted-fg">Loading...</p>}
         {list?.length === 0 && <Empty>No workflows yet. Create one or import them from a project.</Empty>}
-        {list?.map((w) => {
-          const r = last.get(w.slug);
-          return (
-            <Card key={w.slug} className="grid gap-2">
-              <div className="flex items-center gap-2">
-                <span className="min-w-0 flex-1 truncate font-medium">{w.title}</span>
-                {w.updatedBy !== "user" && <Badge className="shrink-0 text-warn">edited by {w.updatedBy.replace("agent:", "")}</Badge>}
-                <Badge className="shrink-0">{w.nodeCount} steps</Badge>
-              </div>
-              {w.description && <p className="text-muted-fg">{w.description}</p>}
-              <p className="text-xs text-muted-fg">
-                {r ? (
-                  <>
-                    Last run <span className={tone(r.status)}>{RUN_LABEL[r.status]}</span> · {ago(r.createdAt)}
-                  </>
-                ) : (
-                  "Never run"
-                )}
-              </p>
-              <div className="flex gap-2">
-                <Button size="sm" variant="primary" onClick={() => setRunning(w)}>
-                  Run
-                </Button>
-                <Button size="sm" onClick={() => void edit(w.slug)}>
-                  Edit
-                </Button>
-                <Button size="sm" variant="danger" onClick={() => void remove(w)}>
-                  Delete
-                </Button>
-              </div>
-            </Card>
-          );
-        })}
+        {list !== null && <p className="text-xs text-muted-fg">{library.total} of {list.length} loaded workflows match.</p>}
+        {!!list?.length && library.total === 0 && <Empty>No workflows match this search.</Empty>}
+        <div className="grid items-start gap-3 xl:grid-cols-2">
+          {library.items.map((w) => {
+            const r = last.get(w.slug);
+            return (
+              <Card key={w.slug} className="grid gap-2">
+                <div className="flex items-center gap-2">
+                  <span className="min-w-0 flex-1 truncate font-medium">{w.title}</span>
+                  {w.updatedBy !== "user" && <Badge className="shrink-0 text-warn">edited by {w.updatedBy.replace("agent:", "")}</Badge>}
+                  <Badge className="shrink-0">{w.nodeCount} steps</Badge>
+                </div>
+                {w.description && <p className="text-muted-fg">{w.description}</p>}
+                <p className="text-xs text-muted-fg">
+                  {r ? (
+                    <>
+                      Last run <span className={tone(r.status)}>{RUN_LABEL[r.status]}</span> · {ago(r.createdAt)}
+                    </>
+                  ) : (
+                    "Never run"
+                  )}
+                </p>
+                <div className="flex gap-2">
+                  <Button size="sm" variant="primary" onClick={() => setRunning(w)}>
+                    Run
+                  </Button>
+                  <Button size="sm" onClick={() => void edit(w.slug)}>
+                    Edit
+                  </Button>
+                  <Button size="sm" variant="danger" onClick={() => void remove(w)}>
+                    Delete
+                  </Button>
+                </div>
+              </Card>
+            );
+          })}
+        </div>
+        <Pager page={library} onPageChange={setLibraryPage} label="Library" />
       </Section>
 
-      <Section title="Runs" count={runs.length}>
+      <Section title="Recent runs" count={runs.length}>
         {runs.length === 0 && <Empty>No runs yet.</Empty>}
-        {orderRuns(runs).map((r) => (
+        <p className="text-xs text-muted-fg">{recent.total} of {runs.length} loaded runs match.</p>
+        {runs.length > 0 && recent.total === 0 && <Empty>No runs match this search.</Empty>}
+        {recent.items.map((r) => (
           <button key={r.id} type="button" onClick={() => setOpen(r.id)} className="text-left">
             <Card className="flex items-center gap-2 active:bg-accent">
               <span className="min-w-0 flex-1 truncate">{r.title}</span>
@@ -127,6 +150,7 @@ export function Workflows({ runId = null }: { runId?: string | null }) {
             </Card>
           </button>
         ))}
+        <Pager page={recent} onPageChange={setRunsPage} label="Recent runs" />
       </Section>
 
       {editor && (
