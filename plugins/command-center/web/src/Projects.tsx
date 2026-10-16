@@ -1,7 +1,9 @@
 import { ArrowDown, ArrowUp, ChevronDown, ChevronRight, Pin, PinOff, Plus, Trash2 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
+import { projectDirectory, type ProjectEntry, type ProjectFilters } from "./projectDirectory.ts";
+import { Pager } from "./ui/Pager.tsx";
 import type { MachineProjects } from "../../server/types.ts";
-import { compareManual, moveProject, type ProjectSettings, type ProjectSort } from "../../server/settings.ts";
+import { moveProject, type ProjectSettings, type ProjectSort } from "../../server/settings.ts";
 import { call, useLive } from "./api.ts";
 import { StatusDot } from "./StatusDot.tsx";
 import { Button, LinkButton } from "./ui/Button.tsx";
@@ -15,17 +17,6 @@ const sorts: [ProjectSort, string][] = [
   ["manual", "Manual"],
 ];
 
-interface Entry {
-  key: string;
-  machine: MachineProjects;
-  title: string;
-  running: number;
-  needs: number;
-  queued: number;
-  /** Newest thread activity (ISO) or the project's own update time. */
-  active: string;
-}
-
 export function Projects() {
   const { view } = useLive();
   const [machines, setMachines] = useState<MachineProjects[] | null>(null);
@@ -33,6 +24,13 @@ export function Projects() {
   const [error, setError] = useState<string | null>(null);
   const [managing, setManaging] = useState(false);
   const [newGroup, setNewGroup] = useState("");
+  const [filters, setFilters] = useState<ProjectFilters>({ query: "", machineId: "", status: "all" });
+  const [page, setPage] = useState(1);
+  const [size, setSize] = useState(10);
+  const filter = (patch: Partial<ProjectFilters>) => {
+    setFilters((value) => ({ ...value, ...patch }));
+    setPage(1);
+  };
 
   useEffect(() => {
     call("GET /api/projects").then(setMachines, (e) => setError(e instanceof Error ? e.message : "Could not load projects"));
@@ -51,7 +49,7 @@ export function Projects() {
     });
   };
 
-  const entries = useMemo<Entry[]>(() => {
+  const entries = useMemo<ProjectEntry[]>(() => {
     const stat = new Map<string, { running: number; needs: number; queued: number; active: string }>();
     const bump = (key: string, f: (s: { running: number; needs: number; queued: number; active: string }) => void) => {
       const s = stat.get(key) ?? { running: 0, needs: 0, queued: 0, active: "" };
@@ -70,34 +68,21 @@ export function Projects() {
       m.projects.map((p) => {
         const key = `${m.machineId}:${p.id}`;
         const s = stat.get(key);
-        return { key, machine: m, title: p.title, running: s?.running ?? 0, needs: s?.needs ?? 0, queued: s?.queued ?? 0, active: s?.active || p.updatedAt };
+        return { key, machine: m, title: p.title, path: p.workspaceRoot, running: s?.running ?? 0, needs: s?.needs ?? 0, queued: s?.queued ?? 0, active: s?.active || p.updatedAt };
       }),
     );
   }, [machines, view]);
 
-  if (!settings || !machines) return error ? <p className="text-bad">{error}</p> : <p className="text-muted-fg">Loading...</p>;
+  const directory = settings ? projectDirectory(entries, settings, filters, page, size) : null;
+  const currentPage = directory?.pagination.page ?? 1;
+  useEffect(() => {
+    setPage(currentPage);
+  }, [currentPage]);
 
-  const sort = (list: Entry[]) => {
-    const by: Record<ProjectSort, (a: Entry, b: Entry) => number> = {
-      activity: (a, b) => b.active.localeCompare(a.active),
-      attention: (a, b) => b.needs - a.needs || b.running - a.running || b.active.localeCompare(a.active),
-      name: (a, b) => a.title.localeCompare(b.title, undefined, { sensitivity: "base" }),
-      manual: (() => {
-        const m = compareManual(settings.order);
-        return (a, b) => m(a.key, b.key);
-      })(),
-    };
-    return list.toSorted((a, b) => by[settings.sort](a, b) || a.title.localeCompare(b.title));
-  };
+  if (!settings || !machines || !directory) return error ? <p className="text-bad">{error}</p> : <p className="text-muted-fg">Loading...</p>;
 
   const pinned = new Set(settings.pinned);
-  const groupIds = new Set(settings.groups.map((g) => g.id));
-  const inGroup = (e: Entry) => (groupIds.has(settings.groupOf[e.key] ?? "") ? settings.groupOf[e.key]! : null);
-  const buckets: { id: string; title: string; groupId: string | null; items: Entry[] }[] = [
-    { id: "pinned", title: "Pinned", groupId: null, items: sort(entries.filter((e) => pinned.has(e.key))) },
-    ...settings.groups.map((g) => ({ id: g.id, title: g.name, groupId: g.id, items: sort(entries.filter((e) => !pinned.has(e.key) && inGroup(e) === g.id)) })),
-    { id: "other", title: settings.groups.length ? "Other" : "Projects", groupId: null, items: sort(entries.filter((e) => !pinned.has(e.key) && inGroup(e) === null)) },
-  ];
+  const { buckets, pagination, inGroup } = directory;
 
   const togglePin = (key: string) => save({ pinned: pinned.has(key) ? settings.pinned.filter((k) => k !== key) : [...settings.pinned, key] });
   const setGroup = (key: string, gid: string) => {
@@ -119,7 +104,7 @@ export function Projects() {
   };
   // Deleting a group only ungroups its projects; the server drops their dangling entries.
   const removeGroup = (id: string) => save({ groups: settings.groups.filter((g) => g.id !== id) });
-  const move = (items: Entry[], key: string, dir: -1 | 1) =>
+  const move = (items: ProjectEntry[], key: string, dir: -1 | 1) =>
     save({ order: moveProject(settings.order, items.map((e) => e.key), key, dir) });
 
   return (
@@ -130,13 +115,27 @@ export function Projects() {
           Groups
         </Button>
       </div>
-      <Select aria-label="Sort projects" value={settings.sort} onChange={(e) => save({ sort: e.target.value as ProjectSort })}>
-        {sorts.map(([v, l]) => (
-          <option key={v} value={v}>
-            {l}
-          </option>
-        ))}
-      </Select>
+      <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-5">
+        <Input type="search" aria-label="Search projects" placeholder="Search name or path" value={filters.query} onChange={(e) => filter({ query: e.target.value })} />
+        <Select aria-label="Filter projects by machine" value={filters.machineId} onChange={(e) => filter({ machineId: e.target.value })}>
+          <option value="">All machines</option>
+          {machines.map((m) => <option key={m.machineId} value={m.machineId}>{m.machineLabel}</option>)}
+        </Select>
+        <Select aria-label="Filter projects by status" value={filters.status} onChange={(e) => filter({ status: e.target.value as ProjectFilters["status"] })}>
+          <option value="all">All statuses</option><option value="online">Online</option><option value="offline">Offline / disconnected</option>
+        </Select>
+        <Select aria-label="Projects per page" value={size} onChange={(e) => { setSize(Number(e.target.value)); setPage(1); }}>
+          {[10, 20, 50].map((n) => <option key={n} value={n}>{n} per page</option>)}
+        </Select>
+        <Select aria-label="Sort projects" value={settings.sort} onChange={(e) => { setPage(1); save({ sort: e.target.value as ProjectSort }); }}>
+          {sorts.map(([v, l]) => (
+            <option key={v} value={v}>
+              {l}
+            </option>
+          ))}
+        </Select>
+      </div>
+      <p className="text-xs text-muted-fg">{pagination.total} of {entries.length} projects, {pagination.start}-{pagination.end} shown</p>
       {error && <p className="text-bad">{error}</p>}
 
       {managing && (
@@ -167,77 +166,78 @@ export function Projects() {
       )}
 
       {entries.length === 0 && <Empty>No projects yet. They appear once a machine is connected.</Empty>}
-      {buckets
-        .filter((b) => b.items.length > 0 || (b.groupId && managing))
-        .map((b) => {
-          const collapsed = b.groupId !== null && settings.collapsed.includes(b.groupId);
-          const Chevron = collapsed ? ChevronRight : ChevronDown;
-          return (
-            <section key={b.id} className="grid gap-2">
-              <button
-                type="button"
-                className="flex items-center gap-1 text-left text-xs font-semibold tracking-wide text-muted-fg uppercase"
-                disabled={b.groupId === null}
-                aria-expanded={b.groupId === null ? undefined : !collapsed}
-                onClick={() => b.groupId && toggleCollapsed(b.groupId)}
-              >
-                {b.groupId !== null && <Chevron className="size-4" aria-hidden />}
-                {b.title}
-                <span className="font-normal normal-case">{b.items.length}</span>
-              </button>
-              {!collapsed &&
-                b.items.map((e, i) => (
-                  <Card key={e.key} className={cn("grid gap-2", e.machine.status !== "online" && "opacity-70")}>
-                    <div className="flex items-center gap-2">
-                      <a href={`#ask?project=${encodeURIComponent(e.key)}`} className="flex min-w-0 flex-1 items-center gap-2">
-                        <StatusDot status={e.machine.status} />
-                        <span className="min-w-0 flex-1">
-                          <span className="block truncate font-medium">{e.title}</span>
-                          <span className="block truncate text-muted-fg">
-                            {e.machine.machineLabel}
-                            {e.machine.status !== "online" && ` · ${e.machine.status}`}
-                            {e.active && ` · ${ago(e.active)}`}
-                          </span>
+      {entries.length > 0 && pagination.total === 0 && <Empty>No projects match these filters.</Empty>}
+      {buckets.map((b) => {
+        const collapsed = b.groupId !== null && settings.collapsed.includes(b.groupId);
+        const Chevron = collapsed ? ChevronRight : ChevronDown;
+        return (
+          <section key={b.id} className="grid gap-2">
+            <button
+              type="button"
+              className="flex items-center gap-1 text-left text-xs font-semibold tracking-wide text-muted-fg uppercase"
+              disabled={b.groupId === null}
+              aria-expanded={b.groupId === null ? undefined : !collapsed}
+              onClick={() => b.groupId && toggleCollapsed(b.groupId)}
+            >
+              {b.groupId !== null && <Chevron className="size-4" aria-hidden />}
+              {b.title}
+              <span className="font-normal normal-case">{b.items.length}</span>
+            </button>
+            {!collapsed &&
+              b.rows.map(({ entry: e, index: i }) => (
+                <Card key={e.key} className={cn("grid gap-2 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-center", e.machine.status !== "online" && "opacity-70")}>
+                  <div className="flex min-w-0 items-center gap-2">
+                    <a href={`#ask?project=${encodeURIComponent(e.key)}`} className="flex min-w-0 flex-1 items-center gap-2">
+                      <StatusDot status={e.machine.status} />
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate font-medium">{e.title}</span>
+                        <span className="block truncate text-muted-fg">
+                          {e.machine.machineLabel}
+                          {e.machine.status !== "online" && ` · ${e.machine.status}`}
+                          {e.active && ` · ${ago(e.active)}`}
                         </span>
-                      </a>
-                      <Button variant="ghost" size="icon" aria-pressed={pinned.has(e.key)} aria-label={pinned.has(e.key) ? `Unpin ${e.title}` : `Pin ${e.title}`} onClick={() => togglePin(e.key)}>
-                        {pinned.has(e.key) ? <PinOff className="size-4" /> : <Pin className="size-4" />}
-                      </Button>
-                    </div>
-                    <div className="flex flex-wrap items-center gap-2">
-                      {e.needs > 0 && <Badge className="bg-warn/15 text-warn">{e.needs} need you</Badge>}
-                      {e.running > 0 && <Badge>{e.running} running</Badge>}
-                      {e.queued > 0 && <Badge>{e.queued} queued</Badge>}
-                      <span className="flex-1" />
-                      {settings.groups.length > 0 && (
-                        <Select className="h-9 w-auto max-w-40 py-1" aria-label={`Group of ${e.title}`} value={inGroup(e) ?? ""} onChange={(ev) => setGroup(e.key, ev.target.value)}>
-                          <option value="">No group</option>
-                          {settings.groups.map((g) => (
-                            <option key={g.id} value={g.id}>
-                              {g.name}
-                            </option>
-                          ))}
-                        </Select>
-                      )}
-                      {settings.sort === "manual" && (
-                        <>
-                          <Button variant="ghost" size="icon" aria-label={`Move ${e.title} up`} disabled={i === 0} onClick={() => move(b.items, e.key, -1)}>
-                            <ArrowUp className="size-4" />
-                          </Button>
-                          <Button variant="ghost" size="icon" aria-label={`Move ${e.title} down`} disabled={i === b.items.length - 1} onClick={() => move(b.items, e.key, 1)}>
-                            <ArrowDown className="size-4" />
-                          </Button>
-                        </>
-                      )}
-                      <LinkButton variant="outline" size="sm" href={`#ask?project=${encodeURIComponent(e.key)}`}>
-                        Ask
-                      </LinkButton>
-                    </div>
-                  </Card>
-                ))}
-            </section>
-          );
-        })}
+                        <span className="block truncate text-xs text-muted-fg" title={e.path}>{e.path}</span>
+                      </span>
+                    </a>
+                    <Button variant="ghost" size="icon" aria-pressed={pinned.has(e.key)} aria-label={pinned.has(e.key) ? `Unpin ${e.title}` : `Pin ${e.title}`} onClick={() => togglePin(e.key)}>
+                      {pinned.has(e.key) ? <PinOff className="size-4" /> : <Pin className="size-4" />}
+                    </Button>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    {e.needs > 0 && <Badge className="bg-warn/15 text-warn">{e.needs} need you</Badge>}
+                    {e.running > 0 && <Badge>{e.running} running</Badge>}
+                    {e.queued > 0 && <Badge>{e.queued} queued</Badge>}
+                    <span className="flex-1" />
+                    {settings.groups.length > 0 && (
+                      <Select className="h-9 w-auto max-w-40 py-1" aria-label={`Group of ${e.title}`} value={inGroup(e) ?? ""} onChange={(ev) => setGroup(e.key, ev.target.value)}>
+                        <option value="">No group</option>
+                        {settings.groups.map((g) => (
+                          <option key={g.id} value={g.id}>
+                            {g.name}
+                          </option>
+                        ))}
+                      </Select>
+                    )}
+                    {settings.sort === "manual" && (
+                      <>
+                        <Button variant="ghost" size="icon" aria-label={`Move ${e.title} up`} disabled={i === 0} onClick={() => move(b.items, e.key, -1)}>
+                          <ArrowUp className="size-4" />
+                        </Button>
+                        <Button variant="ghost" size="icon" aria-label={`Move ${e.title} down`} disabled={i === b.items.length - 1} onClick={() => move(b.items, e.key, 1)}>
+                          <ArrowDown className="size-4" />
+                        </Button>
+                      </>
+                    )}
+                    <LinkButton variant="outline" size="sm" href={`#ask?project=${encodeURIComponent(e.key)}`}>
+                      Ask
+                    </LinkButton>
+                  </div>
+                </Card>
+              ))}
+          </section>
+        );
+      })}
+      <Pager page={pagination} onPageChange={setPage} label="Projects" />
     </div>
   );
 }
