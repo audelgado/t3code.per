@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { openDb } from "./db.ts";
+import { kvSet, openDb } from "./db.ts";
 import { createHealth } from "./health.ts";
 import { T3_CONTRACT } from "./t3link.ts";
 import type { Machine, T3Link } from "./types.ts";
@@ -35,7 +35,7 @@ function setup(opts: { files?: (f: string) => string | null; fail?: boolean; exp
       return opts.files ? opts.files(file) : (all.get(file) ?? null);
     },
   });
-  return { health, reads, setVersion: (v: string) => (version = v), advance: (ms: number) => (clock += ms), sessions: () => sessions };
+  return { health, db, reads, setVersion: (v: string) => (version = v), advance: (ms: number) => (clock += ms), sessions: () => sessions };
 }
 
 test("contract miss gives one alert per version", async () => {
@@ -62,6 +62,17 @@ test("matching contract gives no alert", async () => {
   const s = setup();
   await s.health.tick();
   assert.deepEqual(s.health.alerts(), []);
+});
+
+test("updating contract checks refreshes stale warnings without a T3 version change", async () => {
+  const s = setup();
+  kvSet(s.db, "health:contract:m1", { version: "0.3.1", since: new Date(NOW).toISOString(), misses: ["threadLinks appUrl"] });
+  assert.equal(s.health.alerts().length, 1);
+  await s.health.tick();
+  assert.deepEqual(s.health.alerts(), []);
+  const reads = s.reads.length;
+  await s.health.tick();
+  assert.equal(s.reads.length, reads);
 });
 
 test("network error gives no alert and is retried", async () => {

@@ -1,11 +1,14 @@
+import { createHash } from "node:crypto";
 import type { DatabaseSync } from "node:sqlite";
 import { kvGet, kvSet } from "./db.ts";
-import { checkContract, githubReader } from "./t3link.ts";
+import { checkContract, githubReader, T3_CONTRACT } from "./t3link.ts";
 import type { Alert, Machine, T3Link } from "./types.ts";
 
 const DAY = 86_400_000;
+const contractSignature = createHash("sha256").update(JSON.stringify(T3_CONTRACT)).digest("hex");
 
 interface ContractState {
+  signature?: string;
   version: string;
   since: string;
   misses: string[];
@@ -37,7 +40,8 @@ export function createHealth(deps: HealthDeps) {
   async function checkMachine(machine: Machine, link: T3Link) {
     const version = link.state.serverVersion;
     const ckey = `health:contract:${machine.id}`;
-    if (version && kvGet<ContractState>(deps.db, ckey)?.version !== version) {
+    const cached = kvGet<ContractState>(deps.db, ckey);
+    if (version && (cached?.version !== version || cached.signature !== contractSignature)) {
       try {
         const read = readerFor(`v${version}`);
         let found = 0;
@@ -48,7 +52,7 @@ export function createHealth(deps: HealthDeps) {
         });
         // No file at all: the tag v<version> is not upstream (a fork or local build), so nothing to compare.
         const why = found === 0 ? [] : misses.map((m) => m.why);
-        kvSet(deps.db, ckey, { version, since: new Date(now()).toISOString(), misses: why } satisfies ContractState);
+        kvSet(deps.db, ckey, { version, signature: contractSignature, since: new Date(now()).toISOString(), misses: why } satisfies ContractState);
       } catch {
         // offline or rate limited: try again next tick
       }

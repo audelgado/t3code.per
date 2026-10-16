@@ -931,8 +931,8 @@ export const T3_CONTRACT: ContractNeedle[] = [
   { file: `${C}project.ts`, needle: "relativePath: TrimmedNonEmptyString.check(Schema.isMaxLength(PROJECT_READ_FILE_PATH_MAX_LENGTH)), });", why: "readFile() relativePath" },
   { file: `${C}project.ts`, needle: "relativePath: TrimmedNonEmptyString, contents: Schema.String, byteLength: NonNegativeInt, truncated: Schema.Boolean, });", why: "readFile() result" },
   // Deep links
-  { file: "packages/shared/src/promptLinks.ts", needle: "t3code://threads/<environmentId>/<threadId>", why: "threadLinks appUrl" },
-  { file: "packages/shared/src/promptLinks.ts", needle: "https://app.t3.codes/<environmentId>/<threadId>", why: "threadLinks webUrl" },
+  { file: "packages/shared/src/promptLinks.ts", needle: 'const thread = url.host === "threads" ? THREAD_PATH.exec(url.pathname) : null;', why: "threadLinks appUrl" },
+  { file: "packages/shared/src/promptLinks.ts", needle: 'const thread = url.searchParams.has("prompt") ? THREAD_PATH.exec(url.pathname) : null;', why: "threadLinks webUrl" },
 ];
 
 const squash = (s: string) => s.replace(/\s+/g, " ");
