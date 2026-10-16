@@ -23,8 +23,19 @@ export const navigationGroups = [
   ] },
 ] as const;
 
-export function visibleNavigation(orca: boolean) {
-  return navigationGroups.map((group) => ({ ...group, items: group.items.filter((item) => orca || item.route !== "orca") }));
+export type NavigationRoute = (typeof navigationGroups)[number]["items"][number]["route"];
+export const primaryNavigationRoutes = ["home", "ask", "queue", "work"] as const;
+export type SecondaryNavigationRoute = Exclude<NavigationRoute, (typeof primaryNavigationRoutes)[number]>;
+
+export function visibleNavigation(orca: boolean, surface: "all" | "desktop" | "more" = "all") {
+  return navigationGroups.map((group) => ({
+    ...group,
+    items: group.items.filter((item) =>
+      (orca || item.route !== "orca") &&
+      (surface !== "desktop" || item.route !== "ask") &&
+      (surface !== "more" || !primaryNavigationRoutes.some((route) => route === item.route)),
+    ),
+  })).filter((group) => group.items.length > 0);
 }
 
 export const navigationKeys = { h: "home", a: "ask", q: "queue", w: "work", p: "projects", m: "memory", f: "finance" } as const;
@@ -47,7 +58,7 @@ export type ShortcutAction = { type: "navigate"; route: string } | { type: "sear
 /** A short g-prefix sequence; interrupted or blocked input always clears it. */
 export function resolveShortcut(event: ShortcutContext, prefixAt: number | null, now: number): { prefixAt: number | null; action?: ShortcutAction } {
   const clear = { prefixAt: null };
-  if (event.defaultPrevented || event.editable || event.dialogOpen || event.repeat || event.isComposing || event.ctrlKey || event.metaKey || event.altKey || (event.shiftKey && event.key !== "?")) return clear;
+  if (event.defaultPrevented || event.editable || event.dialogOpen || event.repeat || event.isComposing || event.ctrlKey || event.metaKey || event.altKey || (event.shiftKey && event.key !== "?" && event.key !== "/")) return clear;
   if (event.key === "?") return { ...clear, action: { type: "help" } };
   if (event.key === "/") return { ...clear, action: { type: "search" } };
   if (prefixAt !== null && now >= prefixAt && now - prefixAt <= 1500 && Object.hasOwn(navigationKeys, event.key)) {

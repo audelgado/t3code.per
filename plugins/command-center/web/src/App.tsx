@@ -1,5 +1,5 @@
 import { ChevronLeft, ChevronRight, Ellipsis, GitBranch, House, Keyboard, ListTodo, Send } from "lucide-react";
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ComponentType, type ReactNode } from "react";
 import { Agents } from "./Agents.tsx";
 import { Artifacts } from "./Artifacts.tsx";
 import { Ask } from "./Ask.tsx";
@@ -20,36 +20,40 @@ import { Workflows } from "./Workflows.tsx";
 import { connect, parseHash, useHash, useLive } from "./api.ts";
 import { syncPush } from "./push.ts";
 import { cn } from "./ui/cn.ts";
-import { isShortcutEditing, navigationKeys, resolveShortcut, visibleNavigation } from "./navigation.ts";
+import { isShortcutEditing, navigationKeys, primaryNavigationRoutes, resolveShortcut, visibleNavigation, type SecondaryNavigationRoute } from "./navigation.ts";
 
+const primaryTabs = {
+  home: { label: "Home", icon: House },
+  ask: { label: "Ask", icon: Send },
+  queue: { label: "Queue", icon: ListTodo },
+  work: { label: "Work", icon: GitBranch },
+};
 const tabs = [
-  { route: "home", label: "Home", icon: House },
-  { route: "ask", label: "Ask", icon: Send },
-  { route: "queue", label: "Queue", icon: ListTodo },
-  { route: "work", label: "Work", icon: GitBranch },
+  ...primaryNavigationRoutes.map((route) => ({ route, ...primaryTabs[route] })),
   { route: "more", label: "More", icon: Ellipsis },
 ] as const;
 
 // Pages under More; their hashes (#projects, #memory, ...) are handled here, not in api.ts.
-const more = [
-  { route: "projects", label: "Projects", page: Projects },
-  { route: "memory", label: "Memory", page: Memory },
-  { route: "sections", label: "Sections", page: Sections },
-  { route: "profiles", label: "Profiles", page: Profiles },
-  { route: "finance", label: "Finance", page: Finance },
-  { route: "workflows", label: "Workflows", page: Workflows },
-  { route: "artifacts", label: "Artifacts", page: Artifacts },
-  { route: "infra", label: "Infra", page: Infra },
-  { route: "orca", label: "Orca", page: Orca },
-  { route: "machines", label: "Machines", page: Machines },
-  { route: "agents", label: "Agents", page: Agents },
-  { route: "notifications", label: "Notifications", page: Notifications },
-] as const;
+const secondaryPages = {
+  projects: Projects,
+  memory: Memory,
+  sections: Sections,
+  profiles: Profiles,
+  finance: Finance,
+  workflows: Workflows,
+  artifacts: Artifacts,
+  infra: Infra,
+  orca: Orca,
+  machines: Machines,
+  agents: Agents,
+  notifications: Notifications,
+} satisfies Record<SecondaryNavigationRoute, ComponentType>;
+const more = Object.entries(secondaryPages).map(([route, page]) => ({ route, page }));
 
 function More({ orca }: { orca: boolean }) {
   return (
     <nav aria-label="More" className="space-y-5">
-      {visibleNavigation(orca).map((group) => (
+      {visibleNavigation(orca, "more").map((group) => (
         <section key={group.label} aria-label={group.label}>
           <h2 className="mb-2 text-xs font-semibold text-muted-fg">{group.label}</h2>
           <div className="divide-y divide-border overflow-hidden rounded-xl border border-border bg-card">
@@ -93,6 +97,11 @@ function KeyboardHelp({ onClose }: { onClose: () => void }) {
       aria-describedby="shortcut-description"
       className="shortcut-dialog"
       onCancel={(event) => { event.preventDefault(); onClose(); }}
+      onClick={(event) => {
+        if (event.target !== event.currentTarget) return;
+        const bounds = event.currentTarget.getBoundingClientRect();
+        if (event.clientX < bounds.left || event.clientX > bounds.right || event.clientY < bounds.top || event.clientY > bounds.bottom) onClose();
+      }}
     >
       <div className="mb-3 flex items-center justify-between gap-4">
         <h2 id="shortcut-title" className="text-lg font-semibold">Keyboard shortcuts</h2>
@@ -244,7 +253,7 @@ export function App() {
       <nav aria-label="Pages" className="sticky top-0 hidden h-dvh w-56 shrink-0 flex-col gap-0.5 overflow-y-auto border-r border-border p-3 lg:flex">
         <span className="px-3 pt-1 pb-3 font-semibold">Command Center</span>
         <a href="#ask" aria-current={current === "ask" ? "page" : undefined} className="mb-2 flex items-center gap-2 rounded-lg bg-primary px-3 py-2 font-medium text-primary-fg hover:opacity-90"><Send className="size-4" aria-hidden />Ask an agent</a>
-        {groups.map((group) => <section key={group.label} aria-label={group.label} className="mb-2">
+        {visibleNavigation(orca, "desktop").map((group) => <section key={group.label} aria-label={group.label} className="mb-2">
           <h2 className="px-3 pt-2 pb-1 text-xs font-semibold text-muted-fg">{group.label}</h2>
           {group.items.map((item) => sideLink(item.route, item.label, tabs.find((tab) => tab.route === item.route)?.icon))}
         </section>)}
