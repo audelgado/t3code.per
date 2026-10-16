@@ -30,6 +30,13 @@ export function Work() {
   const [size, setSize] = useState(5);
   // Keep in-flight actions and feedback when filters/pages unmount a lane.
   const [tidyStates, setTidyStates] = useState<Record<string, TidyState>>({});
+  const [collapsedLanes, setCollapsedLanes] = useState<Record<string, boolean>>({});
+  const dismissTidy = (key: string) => setTidyStates((states) => {
+    if (states[key]?.busy) return states;
+    const next = { ...states };
+    delete next[key];
+    return next;
+  });
   async function askTidy(machineId: string, machineLabel: string, lane: WorkLane) {
     const key = `${machineId}:${lane.projectId}`;
     const label = `${machineLabel} / ${lane.title}`;
@@ -116,11 +123,15 @@ export function Work() {
       {Object.entries(tidyStates).map(([key, state]) => (
         <p key={key} role={state.msg && !state.msg.ok ? "alert" : "status"} className={cn("text-xs", state.msg && !state.msg.ok ? "text-bad" : "text-muted-fg")}>
           {state.label}: {state.busy ? "Queuing tidy task..." : state.msg?.text} {state.msg?.ok && <a href="#queue" className="text-primary">Open queue</a>}
+          {!state.busy && <Button variant="ghost" size="sm" aria-label={`Dismiss tidy result for ${state.label}`} onClick={() => dismissTidy(key)}>Dismiss</Button>}
         </p>
       ))}
       <div className="grid items-start gap-3 lg:grid-cols-2">
         {directory.pagination.items.map(({ machine, lane, rows }) => (
-          <Lane key={`${machine.id}:${lane.projectId}`} machineLabel={machine.label} lane={lane} rows={rows} filterKey={filterKey} busy={tidyStates[`${machine.id}:${lane.projectId}`]?.busy ?? false} onTidy={() => void askTidy(machine.id, machine.label, lane)} />
+          <Lane key={`${machine.id}:${lane.projectId}`} machineLabel={machine.label} lane={lane} rows={rows} filterKey={filterKey} collapsed={collapsedLanes[`${machine.id}:${lane.projectId}`] ?? false} onToggleCollapsed={() => setCollapsedLanes((states) => {
+            const key = `${machine.id}:${lane.projectId}`;
+            return { ...states, [key]: !states[key] };
+          })} busy={tidyStates[`${machine.id}:${lane.projectId}`]?.busy ?? false} onTidy={() => void askTidy(machine.id, machine.label, lane)} />
         ))}
       </div>
       <Pager page={directory.pagination} onPageChange={setPage} label="Work projects" />
@@ -128,10 +139,9 @@ export function Work() {
   );
 }
 
-function Lane({ machineLabel, lane, rows, filterKey, busy, onTidy }: { machineLabel: string; lane: WorkLane; rows: WorkRow[]; filterKey: string; busy: boolean; onTidy: () => void }) {
+function Lane({ machineLabel, lane, rows, filterKey, collapsed, onToggleCollapsed, busy, onTidy }: { machineLabel: string; lane: WorkLane; rows: WorkRow[]; filterKey: string; collapsed: boolean; onToggleCollapsed: () => void; busy: boolean; onTidy: () => void }) {
   const [paging, setPaging] = useState({ filterKey, page: 1 });
   const [size, setSize] = useState(5);
-  const [collapsed, setCollapsed] = useState(false);
   const page = paginateCollection(rows, paging.filterKey === filterKey ? paging.page : 1, size);
   const currentPage = page.page;
   useEffect(() => {
@@ -141,7 +151,7 @@ function Lane({ machineLabel, lane, rows, filterKey, busy, onTidy }: { machineLa
   return (
     <Card className="grid gap-3">
       <div className="flex items-center gap-2">
-        <button type="button" className="min-w-0 flex-1 text-left" aria-expanded={!collapsed} aria-label={`Toggle ${lane.title} branches`} onClick={() => setCollapsed(!collapsed)}>
+        <button type="button" className="min-w-0 flex-1 text-left" aria-expanded={!collapsed} aria-label={`Toggle ${lane.title} branches`} onClick={onToggleCollapsed}>
           <span className="block truncate font-medium">{collapsed ? <ChevronRight className="inline size-4" aria-hidden /> : <ChevronDown className="inline size-4" aria-hidden />} {lane.title}</span>
           <span className="block truncate text-xs text-muted-fg">{machineLabel}</span>
         </button>

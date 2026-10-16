@@ -82,7 +82,7 @@ export function Projects() {
   if (!settings || !machines || !directory) return error ? <p className="text-bad">{error}</p> : <p className="text-muted-fg">Loading...</p>;
 
   const pinned = new Set(settings.pinned);
-  const { buckets, pagination, inGroup } = directory;
+  const { buckets, pagination, matchingTotal, canMove, inGroup } = directory;
 
   const togglePin = (key: string) => save({ pinned: pinned.has(key) ? settings.pinned.filter((k) => k !== key) : [...settings.pinned, key] });
   const setGroup = (key: string, gid: string) => {
@@ -91,7 +91,10 @@ export function Projects() {
     else delete groupOf[key];
     save({ groupOf });
   };
-  const toggleCollapsed = (id: string) => save({ collapsed: settings.collapsed.includes(id) ? settings.collapsed.filter((c) => c !== id) : [...settings.collapsed, id] });
+  const toggleCollapsed = (id: string) => {
+    setPage(1);
+    save({ collapsed: settings.collapsed.includes(id) ? settings.collapsed.filter((c) => c !== id) : [...settings.collapsed, id] });
+  };
   const addGroup = () => {
     const name = newGroup.trim();
     if (!name || settings.groups.some((g) => g.name.toLowerCase() === name.toLowerCase())) return;
@@ -135,7 +138,7 @@ export function Projects() {
           ))}
         </Select>
       </div>
-      <p className="text-xs text-muted-fg">{pagination.total} of {entries.length} projects, {pagination.start}-{pagination.end} shown</p>
+      <p className="text-xs text-muted-fg">{matchingTotal} of {entries.length} projects match; {pagination.items.length} shown ({pagination.start}-{pagination.end} of {pagination.total} in expanded groups)</p>
       {error && <p className="text-bad">{error}</p>}
 
       {managing && (
@@ -166,9 +169,9 @@ export function Projects() {
       )}
 
       {entries.length === 0 && <Empty>No projects yet. They appear once a machine is connected.</Empty>}
-      {entries.length > 0 && pagination.total === 0 && <Empty>No projects match these filters.</Empty>}
+      {entries.length > 0 && matchingTotal === 0 && <Empty>No projects match these filters.</Empty>}
       {buckets.map((b) => {
-        const collapsed = b.groupId !== null && settings.collapsed.includes(b.groupId);
+        const collapsed = b.collapsed;
         const Chevron = collapsed ? ChevronRight : ChevronDown;
         return (
           <section key={b.id} className="grid gap-2">
@@ -181,7 +184,7 @@ export function Projects() {
             >
               {b.groupId !== null && <Chevron className="size-4" aria-hidden />}
               {b.title}
-              <span className="font-normal normal-case">{b.items.length}</span>
+              <span className="font-normal normal-case">{b.matchingCount} of {b.items.length}</span>
             </button>
             {!collapsed &&
               b.rows.map(({ entry: e, index: i }) => (
@@ -218,7 +221,7 @@ export function Projects() {
                         ))}
                       </Select>
                     )}
-                    {settings.sort === "manual" && (
+                    {canMove && (
                       <>
                         <Button variant="ghost" size="icon" aria-label={`Move ${e.title} up`} disabled={i === 0} onClick={() => move(b.items, e.key, -1)}>
                           <ArrowUp className="size-4" />

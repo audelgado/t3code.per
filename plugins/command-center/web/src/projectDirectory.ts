@@ -41,11 +41,25 @@ export function projectDirectory(entries: ProjectEntry[], settings: ProjectSetti
   const matches = (e: ProjectEntry) => (!filters.machineId || e.machine.machineId === filters.machineId)
     && (filters.status === "all" || (filters.status === "online" ? e.machine.status === "online" : e.machine.status !== "online"))
     && (!query || `${e.title} ${e.path}`.toLowerCase().includes(query));
-  // Retain full bucket indices: moving across a page/filter boundary still moves one original neighbor.
-  const rows = buckets.flatMap((bucket) => bucket.items.flatMap((entry, index) => matches(entry) ? [{ bucket, entry, index }] : []));
+  const collapsed = new Set(settings.collapsed);
+  // Retain full bucket indices for manual moves across unfiltered page boundaries.
+  const matchingBuckets = buckets.map((bucket) => ({
+    ...bucket,
+    collapsed: bucket.groupId !== null && collapsed.has(bucket.groupId),
+    matchingRows: bucket.items.flatMap((entry, index) => matches(entry) ? [{ entry, index }] : []),
+  }));
+  const rows = matchingBuckets.flatMap((bucket) => bucket.collapsed ? [] : bucket.matchingRows.map((row) => ({ bucket, ...row })));
   const pagination = paginateCollection(rows, page, size);
-  return { pagination, buckets: buckets.flatMap((bucket) => {
-    const rows = pagination.items.filter((row) => row.bucket === bucket);
-    return rows.length ? [{ ...bucket, rows }] : [];
-  }), inGroup };
+  return {
+    pagination,
+    matchingTotal: matchingBuckets.reduce((total, bucket) => total + bucket.matchingRows.length, 0),
+    canMove: settings.sort === "manual" && !query && !filters.machineId && filters.status === "all",
+    // Headers stay reachable even when their rows are collapsed or on another page.
+    buckets: matchingBuckets.filter((bucket) => bucket.groupId !== null || bucket.items.length > 0).map((bucket) => ({
+      ...bucket,
+      matchingCount: bucket.matchingRows.length,
+      rows: pagination.items.filter((row) => row.bucket === bucket),
+    })),
+    inGroup,
+  };
 }
