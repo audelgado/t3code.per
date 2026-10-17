@@ -84,14 +84,32 @@ test("machine collisions reject snapshot and application instead of crossing pro
 
 test("parser requires evidence and bounds structure, keys, paths and text", () => {
   assert.deepEqual(parseAuditReport(report()), report());
-  for (const ref of ["/etc/passwd", "C:/data/file.md", "docs/../../secret", "https://example.com", "docs\\PRD.md", "file.md\nmalicious"]) {
+  for (const ref of ["/etc/passwd", "C:/data/file.md", "docs/../../secret", "https://example.com", "docs\\PRD.md", "file.md\nmalicious", "../secret#anchor", "/etc/passwd#anchor", "docs/PRD.md#../secret", "docs/PRD.md#", "https://example.com#anchor"]) {
     assert.throws(() => parseAuditReport({ ...report(), evidence: [ref] }));
   }
-  assert.equal(parseAuditReport({ ...report(), evidence: ["commit:abcdef123", ".t3/plan.md:4"] }).evidence.length, 2);
+  assert.equal(parseAuditReport({ ...report(), evidence: ["commit:abcdef123", "git:abcdef123", "abcdef123", ".t3/plan.md:4", "docs/PRD.md#criterios-de-aceptación"] }).evidence.length, 5);
   for (const patch of [{ revision: "" }, { evidence: [] }, { questions: Array(11).fill("Question") }, { progress: "x".repeat(4001) },
     { phases: Array(21).fill(report().phases[0]) }, { todos: Array(61).fill(report().todos[0]) },
     { todos: [{ ...report().todos[0], phaseKey: "missing" }] }, { phases: [{ ...report().phases[0], status: "done", evidence: [] }] },
     { prdPath: "../PRD.md" }]) assert.throws(() => parseAuditReport({ ...report(), ...patch }));
+});
+
+test("snapshot exposes original stable keys for edited and deleted records on later runs", () => {
+  const { db, service, apply } = fixture();
+  try {
+    apply("one");
+    const first = service.snapshot("sensei");
+    assert.deepEqual(first.phases[0]?.keys, ["validation"]);
+    assert.deepEqual(first.todos[0]?.keys, ["acceptance"]);
+    db.prepare("update cc_memory set text = ? where id = ?").run("Corrección manual", first.todos[0]!.id);
+    assert.deepEqual(service.snapshot("sensei").todos[0]?.keys, ["acceptance"]);
+    db.prepare("delete from cc_memory where id = ?").run(first.todos[0]!.id);
+    assert.ok(service.snapshot("sensei").stableKeys.some((entry) => entry.key === "acceptance" && entry.id === first.todos[0]!.id));
+    const result = apply("two");
+    assert.equal(result.addedTodos, 0);
+    assert.equal(service.snapshot("sensei").todos.length, 0);
+    assert.match(result.questions.join(" "), /eliminado/);
+  } finally { db.close(); }
 });
 
 test("transaction rolls back if a storage operation fails after a phase was created", () => {

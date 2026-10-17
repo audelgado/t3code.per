@@ -33,11 +33,20 @@ const key = (value: unknown) => {
   return result;
 };
 
-/** Evidence is a repository-relative path (optionally with line numbers) or a commit hash. */
+/** Evidence is a repository-relative path (optionally with lines or an anchor) or a commit hash. */
 function reference(value: unknown, fileOnly = false): string {
   const result = text(value, "evidence reference", 300);
-  if (!fileOnly && /^(?:commit:)?[0-9a-f]{7,64}$/i.test(result)) return result;
-  const path = fileOnly ? result : result.replace(/:\d+(?:-\d+)?$/, "");
+  if (!fileOnly && /^(?:(?:commit|git):)?[0-9a-f]{7,64}$/i.test(result)) return result;
+  let path = result;
+  if (!fileOnly) {
+    const hash = result.indexOf("#");
+    if (hash >= 0) {
+      const anchor = result.slice(hash + 1);
+      if (!/^[\p{L}\p{N}_.-]{1,160}$/u.test(anchor)) throw new Error("Invalid evidence anchor");
+      path = result.slice(0, hash);
+    }
+    path = path.replace(/:\d+(?:-\d+)?$/, "");
+  }
   if (/^[\/~]/.test(path) || /[:\\\r\n?#]/.test(path) || path.split("/").some((part) => !part || part === "." || part === ".."))
     throw new Error("Evidence must reference a relative repository path or commit hash");
   return result;
@@ -98,9 +107,13 @@ export function createProjectReconciler(db: DatabaseSync) {
   return {
     snapshot(projectId: string) {
       ensureScope(projectId);
+      const stableKeys = db.prepare("select kind, stable_key, entity_id from cc_project_audit_keys where project_id = ? order by kind, stable_key limit 200")
+        .all(projectId).map((entry) => ({ kind: entry.kind as "phase" | "todo", key: entry.stable_key as string, id: entry.entity_id as string }));
+      const keys = (kind: "phase" | "todo", id: string) => stableKeys.filter((entry) => entry.kind === kind && entry.id === id).map((entry) => entry.key).slice(0, 10);
       return {
-        phases: sections.list(projectId).slice(0, 60).map((p) => ({ id: p.id, name: p.name, status: p.status, summary: p.trying })),
-        todos: listMemory(db, { projectId, kind: "todo", limit: 100 }).entries.map((t) => ({ id: t.id, text: t.text.slice(0, 2000), done: t.done, sectionId: t.sectionId })),
+        stableKeys,
+        phases: sections.list(projectId).slice(0, 60).map((p) => ({ id: p.id, keys: keys("phase", p.id), name: p.name, status: p.status, summary: p.trying })),
+        todos: listMemory(db, { projectId, kind: "todo", limit: 100 }).entries.map((t) => ({ id: t.id, keys: keys("todo", t.id), text: t.text.slice(0, 2000), done: t.done, sectionId: t.sectionId })),
         progress: listMemory(db, { projectId, kind: "progress", limit: 1 }).entries.map((p) => ({ id: p.id, text: p.text.slice(0, 4000) })),
       };
     },
