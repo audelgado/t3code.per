@@ -82,8 +82,44 @@ function setup(providers: ProviderInfo[] = [provider("claudeAgent", "claudeAgent
     updatedAt: iso(T0),
     ...patch,
   });
-  return { organize, link, rows, row, clock };
+  return { organize, link, rows, row, clock, machine, projects };
 }
+
+test("an explicit VPS destination overrides the configured PC coordinator and uses that project's providers", async () => {
+  const { link, machine, projects } = setup();
+  const pc = { ...machine, id: "pc", label: "PC" };
+  const pcLaunches: LaunchInput[] = [];
+  const pcLink = { ...link, machineId: "pc", launch: async (input: LaunchInput) => { pcLaunches.push(input); }, providers: async () => [provider("codex", "codex")] };
+  const organize = createOrganize({
+    machines: () => [pc, machine], projects: () => [...projects, { ...projects[0]!, machineId: "pc" }],
+    profiles: () => [], threads: () => [], machineId: "pc", projectId: "coord",
+    link: (id) => id === "pc" ? pcLink : id === "vps" ? link : undefined,
+  });
+  assert.equal((await organize.coordinators()).find((c) => c.coordinator.id === "claude")?.coordinator.available, false);
+  assert.equal((await organize.coordinators("vps:app")).find((c) => c.coordinator.id === "claude")?.coordinator.available, true);
+  const run = organize.create({ text: "Redactá el texto", coordinator: "claude", projectKey: "vps:app", targetProjectKey: "vps:app" });
+  await run.started;
+  assert.equal(link.launches[0]?.projectId, "app");
+  assert.equal(pcLaunches.length, 0);
+  assert.throws(() => organize.create({ text: "Texto", coordinator: "claude", targetProjectKey: "pc:missing" }), /proyecto elegido/);
+});
+
+test("an offline explicit destination never falls back to the online coordinator", async () => {
+  const { link, machine, projects } = setup();
+  const pc = { ...machine, id: "pc", label: "PC" };
+  const pcLink = { ...link, machineId: "pc" };
+  link.state = { ...link.state, status: "offline" };
+  const organize = createOrganize({
+    machines: () => [pc, machine], projects: () => [...projects, { ...projects[0]!, machineId: "pc" }],
+    profiles: () => [], threads: () => [], machineId: "pc",
+    link: (id) => id === "pc" ? pcLink : id === "vps" ? link : undefined,
+  });
+  const run = organize.create({ text: "Texto", coordinator: "claude", targetProjectKey: "vps:app" });
+  await run.started;
+  assert.equal(organize.get(run.job.id).status, "failed");
+  assert.match(organize.get(run.job.id).error!, /desconectada/);
+  assert.equal(link.launches.length, 0);
+});
 
 const known = { projectKeys: new Set(["vps:app"]), profileIds: new Set(["rev"]), hint: null };
 

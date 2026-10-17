@@ -54,7 +54,7 @@ const read = () => {
  * settles; `cancel` and unmounting (closing Pedir) stop the polling, nothing is cancelled server side.
  * `onDraft` runs with the latest closure, so it may read current state.
  */
-export function useOrganize(onDraft: (draft: OrganizeDraft, coordinator: Coordinator) => void) {
+export function useOrganize(onDraft: (draft: OrganizeDraft, coordinator: Coordinator) => void, targetProjectKey: string) {
   const [list, setList] = useState<Coordinator[] | null>(null);
   const [listError, setListError] = useState(false);
   const [picked, setPicked] = useState<CoordinatorId | null>(null);
@@ -65,9 +65,13 @@ export function useOrganize(onDraft: (draft: OrganizeDraft, coordinator: Coordin
   emit.current = onDraft;
 
   useEffect(() => {
-    call("GET /api/organize/coordinators").then(setList, () => setListError(true));
-    return () => abort.current?.abort();
-  }, []);
+    let active = true;
+    setList(null);
+    setListError(false);
+    setError(null);
+    if (targetProjectKey) call("GET /api/organize/coordinators", { query: { targetProjectKey } }).then((list) => { if (active) setList(list); }, () => { if (active) setListError(true); });
+    return () => { active = false; abort.current?.abort(); };
+  }, [targetProjectKey]);
 
   const choice = list ? (list.find((c) => c.id === picked && c.available)?.id ?? pickCoordinator(list, read())) : null;
   const coordinator = list?.find((c) => c.id === choice) ?? null;
@@ -88,7 +92,7 @@ export function useOrganize(onDraft: (draft: OrganizeDraft, coordinator: Coordin
     setError(null);
     setRunning(coordinator);
     try {
-      const first = await call("POST /api/organize", { body: { text, coordinator: coordinator.id, projectKey: projectKey || null } });
+      const first = await call("POST /api/organize", { body: { text, coordinator: coordinator.id, projectKey: projectKey || null, targetProjectKey } });
       const job = await pollJob(first, (id) => call("GET /api/organize/:id", { params: { id } }), { signal: ctl.signal });
       if (job.status === "done" && job.draft) emit.current(job.draft, coordinator);
       else setError(job.error ?? "No se pudo ordenar el pedido. Probá de nuevo o encolá tu texto original.");

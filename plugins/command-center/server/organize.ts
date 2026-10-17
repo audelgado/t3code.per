@@ -1,6 +1,6 @@
 // "Ordenar con IA": a coordinator agent turns a dictated, messy request into a reviewable draft
 // (clean prompt, project, priority, profile, steps, open questions). It runs as a short T3 thread on
-// the coordinator machine (the always-on VPS) so it works from the phone. The draft is only a
+// the selected destination, or the configured coordinator machine when none is supplied. The draft is only a
 // proposal: the user edits it in Ask and queues it through the normal task/plan routes.
 import { randomUUID } from "node:crypto";
 import { taskStatusFor } from "./dispatcher.ts";
@@ -25,6 +25,8 @@ export interface OrganizeInput {
   coordinator: CoordinatorId;
   /** "<machineId>:<projectId>" the user already picked, as a hint. */
   projectKey?: string | null;
+  /** Explicit execution destination; omission preserves the configured coordinator default. */
+  targetProjectKey?: string | null;
 }
 
 export interface OrganizeStep {
@@ -105,6 +107,7 @@ interface Target {
 interface Run {
   job: OrganizeJob;
   hint: string | null;
+  targetProjectKey: string | null;
   startedAt: number;
   machineId: string | null;
   threadId: string | null;
@@ -200,7 +203,16 @@ export function createOrganize(deps: OrganizeDeps) {
   const owned = new Set<string>();
 
   /** The coordinator machine and project, or why there is none. */
-  function target(): Target | string {
+  function target(targetProjectKey?: string | null): Target | string {
+    if (targetProjectKey) {
+      const project = deps.projects().find((p) => `${p.machineId}:${p.id}` === targetProjectKey);
+      if (!project) return "El proyecto elegido ya no está disponible";
+      const machine = deps.machines().find((m) => m.id === project.machineId && m.enabled);
+      if (!machine) return "El sistema elegido no está disponible";
+      const link = deps.link(machine.id);
+      if (link?.state.status !== "online") return `${machine.label} está desconectada`;
+      return { machine, link, projectId: project.id };
+    }
     const enabled = deps.machines().filter((m) => m.enabled);
     const machine = deps.machineId
       ? enabled.find((m) => m.id === deps.machineId)
@@ -216,8 +228,8 @@ export function createOrganize(deps: OrganizeDeps) {
     return { machine, link, projectId: project.id };
   }
 
-  async function coordinators() {
-    const t = target();
+  async function coordinators(targetProjectKey?: string | null) {
+    const t = target(targetProjectKey);
     let providers: ProviderInfo[] = [];
     let reason = typeof t === "string" ? t : null;
     if (typeof t !== "string") {
@@ -264,7 +276,7 @@ export function createOrganize(deps: OrganizeDeps) {
   }
 
   async function start(run: Run, text: string) {
-    const entry = (await coordinators()).find((c) => c.coordinator.id === run.job.coordinator)!;
+    const entry = (await coordinators(run.targetProjectKey)).find((c) => c.coordinator.id === run.job.coordinator)!;
     if (!entry.provider || !entry.target) return fail(run, entry.coordinator.reason ?? MISSING[run.job.coordinator]);
     const { machine, link, projectId } = entry.target;
     const model = entry.provider.models.find((m) => m.isDefault) ?? entry.provider.models[0]!;
@@ -354,9 +366,10 @@ export function createOrganize(deps: OrganizeDeps) {
     const coordinator = COORDINATORS.find((c) => c.id === input.coordinator)?.id;
     if (!coordinator) throw new HttpError(400, "invalid", "Coordinador desconocido");
     if (input.projectKey != null && typeof input.projectKey !== "string") throw new HttpError(400, "invalid", "projectKey inválido");
+    if (input.targetProjectKey != null && (typeof input.targetProjectKey !== "string" || !input.targetProjectKey || !deps.projects().some((p) => `${p.machineId}:${p.id}` === input.targetProjectKey))) throw new HttpError(400, "invalid", "El proyecto elegido no está disponible");
     prune();
     const job: OrganizeJob = { id: newId(), coordinator, status: "running", draft: null, error: null, createdAt: new Date(now()).toISOString() };
-    const run: Run = { job, hint: input.projectKey ?? null, startedAt: now(), machineId: null, threadId: null, seen: false, finishing: false };
+    const run: Run = { job, hint: input.projectKey ?? null, targetProjectKey: input.targetProjectKey ?? null, startedAt: now(), machineId: null, threadId: null, seen: false, finishing: false };
     runs.set(job.id, run);
     const started = start(run, text).catch(() => fail(run, "No se pudo iniciar el coordinador"));
     return { job, started };
@@ -373,7 +386,7 @@ export function createOrganize(deps: OrganizeDeps) {
       method: "GET",
       path: "/api/organize/coordinators",
       auth: "cookie",
-      handler: async (): Promise<Coordinator[]> => (await coordinators()).map((c) => c.coordinator),
+      handler: async ({ url }): Promise<Coordinator[]> => (await coordinators(url.searchParams.get("targetProjectKey"))).map((c) => c.coordinator),
     },
     { method: "POST", path: "/api/organize", auth: "cookie", handler: ({ body }) => create(body).job },
     { method: "GET", path: "/api/organize/:id", auth: "cookie", handler: ({ params }) => get(params.id!) },

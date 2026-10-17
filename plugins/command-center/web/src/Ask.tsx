@@ -14,6 +14,7 @@ import { Button } from "./ui/Button.tsx";
 import { Sheet } from "./ui/Sheet.tsx";
 import { Field, Select, Textarea, Input } from "./ui/fields.tsx";
 import { ProjectDot } from "./ui/ProjectDot.tsx";
+import { askDestination } from "./askDestination.ts";
 
 /** Lowest first, as in the design. */
 const PRIORITY_ITEMS = [...PRIORITIES].reverse().map(([id, label]) => ({ id: id as number, label }));
@@ -40,7 +41,9 @@ function Check({ checked, onChange, label, hint }: { checked: boolean; onChange:
 export function Ask({ project, onClose, autoDictate }: { project: string | null; onClose: () => void; autoDictate: boolean }) {
   const { view } = useLive();
   const [groups, setGroups] = useState<MachineProjects[]>([]);
-  const [key, setKey] = useState(project ?? "");
+  const [destination, setDestination] = useState({ machineId: "", key: project ?? "" });
+  const { key, machineId } = destination;
+  const setKey = (key: string) => setDestination((current) => askDestination(groups, current.machineId, key));
   const [providers, setProviders] = useState<ProviderInfo[]>([]);
   const [prompt, setPrompt] = useState("");
   const [model, setModel] = useState(""); // index into `models`, "" = default
@@ -67,7 +70,7 @@ export function Ask({ project, onClose, autoDictate }: { project: string | null;
   useEffect(() => {
     call("GET /api/projects").then((g) => {
       setGroups(g);
-      setKey((k) => k || (g.flatMap((m) => m.projects.map((p) => `${m.machineId}:${p.id}`))[0] ?? ""));
+      setDestination((current) => askDestination(g, current.machineId, current.key));
     }, (e) => setError(e instanceof Error ? e.message : "No se pudieron cargar los proyectos"));
   }, []);
 
@@ -92,7 +95,7 @@ export function Ask({ project, onClose, autoDictate }: { project: string | null;
     const steps = draftSteps(d);
     setDraft({ by, title: d.title, questions: d.questions });
     setPrompt(d.prompt);
-    if (d.projectKey && groups.some((g) => g.projects.some((p) => `${g.machineId}:${p.id}` === d.projectKey))) setKey(d.projectKey);
+    // A suggested project must not silently override the destination the user chose.
     setPriority(Math.max(-2, Math.min(2, Math.round(d.priority))));
     setProfileId(d.profileId && profiles.some((p) => p.id === d.profileId) ? d.profileId : "");
     setSplit(steps.length > 0);
@@ -100,7 +103,7 @@ export function Ask({ project, onClose, autoDictate }: { project: string | null;
     setOrdered(steps.length > 0);
     setOptions(true);
   };
-  const organize = useOrganize((d, c) => applyDraft(d, c.label));
+  const organize = useOrganize((d, c) => applyDraft(d, c.label), key);
   const ordering = organize.running !== null;
 
   const order = () => {
@@ -113,7 +116,6 @@ export function Ask({ project, onClose, autoDictate }: { project: string | null;
     const b = before.current;
     setDraft(null);
     setPrompt(b.prompt);
-    setKey(b.key);
     setPriority(b.priority);
     setProfileId(b.profileId);
     setSplit(false);
@@ -121,12 +123,13 @@ export function Ask({ project, onClose, autoDictate }: { project: string | null;
     organize.setError(null);
   };
 
-  const machineId = key ? splitKey(key).machineId : "";
   useEffect(() => {
+    let active = true;
     setModel("");
     setProviders([]);
     if (machineId)
-      call("GET /api/machines/:id/providers", { params: { id: machineId } }).then(setProviders, () => {});
+      call("GET /api/machines/:id/providers", { params: { id: machineId } }).then((providers) => { if (active) setProviders(providers); }, () => {});
+    return () => { active = false; };
   }, [machineId]);
 
   const models = useMemo(
@@ -145,6 +148,7 @@ export function Ask({ project, onClose, autoDictate }: { project: string | null;
   const group = groups.find((g) => g.machineId === machineId);
 
   const submit = async () => {
+    if (!group?.projects.some((p) => `${group.machineId}:${p.id}` === key)) return;
     dictation.stop();
     const { machineId, projectId } = splitKey(key);
     // Left unset, a profile's own defaults apply; the server fills the rest.
@@ -177,7 +181,7 @@ export function Ask({ project, onClose, autoDictate }: { project: string | null;
   };
 
   const openDeps = view?.queue.filter((t) => !["pending_approval", "failed", "cancelled"].includes(t.status)) ?? [];
-  const canOrder = !!prompt.trim() && !!organize.coordinator && !ordering;
+  const canOrder = !!prompt.trim() && !!key && !!organize.coordinator && !ordering;
   const link = group ? statusTone(group.status) : null;
 
   return (
@@ -211,6 +215,24 @@ export function Ask({ project, onClose, autoDictate }: { project: string | null;
           void submit();
         }}
       >
+        <div className="grid gap-2.5 sm:grid-cols-2">
+          <Field label="Sistema">
+            <Select value={machineId} required disabled={busy || ordering || groups.length === 0} onChange={(e) => setDestination(askDestination(groups, e.target.value, ""))}>
+              {groups.length === 0 && <option value="">Cargando sistemas…</option>}
+              {groups.map((g) => <option key={g.machineId} value={g.machineId}>{g.machineLabel}{g.status === "online" ? "" : ` (${statusTone(g.status).label.toLowerCase()})`}</option>)}
+            </Select>
+          </Field>
+          <Field label="Proyecto">
+            <span className="relative block">
+              {key && <ProjectDot projectKey={key} className="pointer-events-none absolute top-1/2 left-3 -translate-y-1/2" />}
+              <Select value={key} onChange={(e) => setKey(e.target.value)} required disabled={busy || ordering || !group?.projects.length} className={key ? "pl-8" : ""}>
+                {!group?.projects.length && <option value="">Sin proyectos en este sistema</option>}
+                {group?.projects.map((p) => <option key={p.id} value={`${group.machineId}:${p.id}`}>{p.title}</option>)}
+              </Select>
+            </span>
+          </Field>
+        </div>
+        {group && group.projects.length === 0 && <p role="status" className="text-sm text-need">{group.machineLabel} todavía no tiene proyectos. Agregá uno en T3 de ese sistema para poder ejecutar tareas allí.</p>}
         {draft && !ordering && (
           <ReviewBanner label={draft.by} questions={draft.questions} busy={!canOrder} onRedo={order} onDiscard={discardDraft} />
         )}
@@ -272,6 +294,7 @@ export function Ask({ project, onClose, autoDictate }: { project: string | null;
               <span className="shrink-0 text-xs text-muted-fg">Coordinador</span>
               <CoordinatorPicker o={organize} className="flex-1" />
             </div>
+            {group && key && <p className="text-xs text-muted-fg">Ordenar con IA y la tarea se ejecutan en {group.machineLabel}.</p>}
             {organize.error && (
               <p role="alert" className="text-sm text-fail">
                 {organize.error}
@@ -279,23 +302,7 @@ export function Ask({ project, onClose, autoDictate }: { project: string | null;
             )}
           </div>
         )}
-        <div className="grid grid-cols-2 gap-2.5">
-          <Field label="Proyecto">
-            <span className="relative block">
-              {key && <ProjectDot projectKey={key} className="pointer-events-none absolute top-1/2 left-3 -translate-y-1/2" />}
-              <Select value={key} onChange={(e) => setKey(e.target.value)} required className={key ? "pl-8" : ""}>
-                {groups.map((g) => (
-                  <optgroup key={g.machineId} label={g.status === "online" ? g.machineLabel : `${g.machineLabel} (${statusTone(g.status).label.toLowerCase()})`}>
-                    {g.projects.map((p) => (
-                      <option key={p.id} value={`${g.machineId}:${p.id}`}>
-                        {p.title}
-                      </option>
-                    ))}
-                  </optgroup>
-                ))}
-              </Select>
-            </span>
-          </Field>
+        <div className="grid gap-2.5">
           <Field label="Perfil">
             <Select value={profileId} onChange={(e) => setProfileId(e.target.value)} disabled={profiles.length === 0}>
               <option value="">Ninguno</option>

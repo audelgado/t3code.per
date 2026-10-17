@@ -142,9 +142,9 @@ t3 auth session issue --scope orchestration:read --scope orchestration:operate -
 
 ## Ordenar con IA
 
-**Ordenar con IA** in Pedir sends what you dictated to a coordinator agent (Claude, Codex or Hermes, picked per request) and returns a draft: a clean prompt, project, priority, profile, steps and open questions. Nothing is queued until you edit the draft and send it. The coordinator runs as a short T3 thread on the coordinator machine, in the most restrictive permission mode; if it asks to use a tool, the request fails without approving anything. A draft request gives up after about two minutes.
+**Ordenar con IA** in Pedir sends what you dictated to a coordinator agent (Claude, Codex or Hermes, picked per request) and returns a draft: a clean prompt, priority, profile, steps and open questions. Choose **Sistema** and **Proyecto** first: both the coordinator and the final task use that destination, and a draft never changes it automatically. Only providers available on that system can coordinate. A system without projects needs a project added in its own T3 first. Nothing is queued until you edit the draft and send it. The coordinator runs as a short T3 thread in the most restrictive permission mode; if it asks to use a tool, the request fails without approving anything. A draft request gives up after about two minutes.
 
-Set these in `/var/lib/cc/env` (both optional):
+For clients that do not supply an explicit coordinator destination, set these in `/var/lib/cc/env` (both optional):
 
 - `CC_COORDINATOR_MACHINE`: machine id (from `ccctl machine list`) that runs the coordinator, normally the always-on VPS. Default: the first enabled machine that is online.
 - `CC_COORDINATOR_PROJECT`: project id on that machine for the coordinator threads. Default: its first project. The thread uses the project root and never creates a worktree.
