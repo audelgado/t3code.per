@@ -20,6 +20,13 @@ test("organizer workflow remains a valid sequential evidence review on the selec
     assert.ok(node.prompt.includes("machineId: tayna; projectId: sensei; root: /repo/sensei; rf-01 existente"));
     assert.ok(node.prompt.includes("Priorizar captura de leads."));
     assert.match(node.prompt, /20 phases, 60 todos y 10 questions/);
+    assert.match(node.prompt, /revision 1–120; progress 1–4000; phase\.name 1–80; phase\.summary 1–500; todo\.text 1–2000/);
+    assert.match(node.prompt, /cada question 1–500; cada key y phaseKey 1–100/);
+    assert.match(node.prompt, /de 1 a 10 referencias, cada una de hasta 300 caracteres/);
+    assert.match(node.prompt, /24576 bytes/);
+    assert.match(node.prompt, /Buffer\.byteLength\(JSON\.stringify\(informe\), "utf8"\) <= 24576/);
+    assert.match(node.prompt, /Nunca presentes el subconjunto como una revisión completa/);
+    assert.match(node.prompt, /en progress el alcance omitido y en questions cómo continuar/);
     assert.match(node.prompt, /Todos son siempre pendientes/);
     assert.match(node.prompt, /No uses herramientas de escritura del Command Center ni solicites sus credenciales/);
     assert.match(node.prompt, /Excluí secretos, credenciales, archivos \.env/);
@@ -31,6 +38,15 @@ test("organizer workflow remains a valid sequential evidence review on the selec
   const reviewer = workflow.nodes[1];
   assert.ok(reviewer?.kind === "agent");
   assert.match(reviewer.prompt, /releé las evidencias citadas/);
+});
+
+test("maximum service context and answers still fit the workflow prompt limit", () => {
+  const workflow = projectAuditWorkflow({ slug: "audit", reportPath, context: "x".repeat(8500), answers: "a".repeat(4000) });
+  assert.deepEqual(parseWorkflow(workflow).errors, []);
+  for (const node of workflow.nodes) {
+    assert.ok(node.kind === "agent");
+    assert.ok(node.prompt.length <= 20_000, `prompt length ${node.prompt.length}`);
+  }
 });
 
 test("organizer refuses reports outside its exact run-scoped folder", () => {
