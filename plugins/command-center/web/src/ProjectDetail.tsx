@@ -10,6 +10,7 @@ import { Memory } from "./Memory.tsx";
 import { hashes, PROJECT_TABS, type ProjectTab } from "./navigation.ts";
 import { projectWork, splitProjectKey, type ProjectEntry } from "./projectDirectory.ts";
 import { ProjectSections, SectionLine, useSections } from "./Sections.tsx";
+import { ProjectPlan } from "./ProjectPlan.tsx";
 import { StatusDot } from "./StatusDot.tsx";
 import { Button, LinkButton } from "./ui/Button.tsx";
 import { Chip, StatusChip } from "./ui/Chip.tsx";
@@ -146,6 +147,8 @@ export function ProjectDetail({ entry, tab, view, pinned, onTogglePin }: { entry
       </header>
 
       <Tabs label="Secciones del proyecto" value={tab} items={PROJECT_TABS.map(([id, label]) => ({ id, label, count: counts[id], href: href(id) }))} />
+
+      {(tab === "overview" || tab === "plan") && <ProjectPlan key={entry.key} projectKey={entry.key} store={sections} compact={tab === "overview"} />}
 
       {tab === "overview" && (
         <div className="grid items-start gap-4 lg:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">

@@ -53,6 +53,7 @@ export const phoneTab = (page: Page): "home" | "work" | "projects" | "more" => {
 
 export const PROJECT_TABS = [
   ["overview", "Resumen"],
+  ["plan", "Plan y pendientes"],
   ["work", "Trabajo"],
   ["sections", "Secciones"],
   ["artifacts", "Artefactos"],

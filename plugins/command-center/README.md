@@ -313,3 +313,9 @@ Restoring on a new VPS requires adding each machine again with `ccctl machine ad
 - **The phone cannot open the CC**: check the Tailscale app is on and `tailscale serve status` on the VPS lists port 8443.
 - **The CC is down**: `systemctl status command-center` and `journalctl -u command-center -n 100`.
 - **An update failed**: `journalctl -u cc-update -n 100`, or `journalctl --user -u t3-update -n 100` for T3.
+
+## Project follow-up
+
+Open **Proyectos ? a project ? Plan y pendientes** to see its last saved progress, PRD documents, blockers, phases and checklist. Add a concrete result to the checklist, assign a phase, and mark it done after validating it; uncheck to reopen. Search, phase filters and pagination keep long lists manageable. **Actualizar avance** records the delivered scope and next step.
+
+For a new project, save the PRD in Artefactos (include `PRD` in its title), create phases in Secciones, and add acceptance criteria as pending items before implementation. Agents can maintain the same records through `artifact_*`, `section_*` and `memory_*` tools. A completed agent turn does not complete a checklist item or the project. Repository files are not automatically synchronized; record updates explicitly and identify their evidence. Phase counts are maintained separately from checklist items.
