@@ -78,7 +78,7 @@ function RunningRow({ t, name, machine, row }: { t: ThreadItem; name: string; ma
 }
 
 function QueuedRow({ t, offline }: { t: TaskItem; offline: boolean }) {
-  const why = t.blockedBy.length ? `Espera a ${t.blockedBy.length} tarea${t.blockedBy.length === 1 ? "" : "s"}` : offline ? `Esperando a ${t.machineLabel}` : t.machineLabel;
+  const why = t.queueReason ?? (t.blockedBy.length ? `Espera a ${t.blockedBy.length} tarea${t.blockedBy.length === 1 ? "" : "s"}` : offline ? `Esperando a ${t.machineLabel}` : t.machineLabel);
   return (
     <a href={hashes.task(t.id)} className="flex items-center gap-3 px-4 py-2.5 active:bg-soft">
       <span className="min-w-0 flex-1">

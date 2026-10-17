@@ -1,4 +1,4 @@
-import { Bell, Brain, ChevronRight, Ellipsis, FileText, Folder, GitBranch, House, Keyboard, LogOut, Mic, Search, Server, Sparkles, Wallet } from "lucide-react";
+import { Bell, Brain, ChevronRight, Ellipsis, FileText, Folder, GitBranch, House, Keyboard, LogOut, MessageCircle, Mic, Search, Server, Sparkles, Wallet } from "lucide-react";
 import { useEffect, useRef, type ComponentType, type ReactNode } from "react";
 import type { HomeView } from "../../server/types.ts";
 import { call, connect } from "./api.ts";
@@ -78,11 +78,12 @@ function Sidebar({ page, view, onAsk, onHelp }: { page: Page; view: HomeView | n
 }
 
 /** Page header: title, description and sub-tabs (the screens never draw these), plus search and notifications. */
-function TopBar({ page, onSearch }: { page: Page; onSearch: () => void }) {
+function TopBar({ page, onSearch, onAssistant }: { page: Page; onSearch: () => void; onAssistant: () => void }) {
   const subs = subPages(page);
   const { title, description } = pages[page];
   const actions = (
     <div className="flex items-center gap-2">
+      <button type="button" onClick={onAssistant} aria-label="Asistente CC" className="flex h-10 items-center justify-center gap-2 rounded-[9px] border border-line bg-panel px-3 text-primary md:h-[34px]"><MessageCircle className="size-4" aria-hidden /><span className="hidden md:inline">Asistente CC</span></button>
       <button type="button" onClick={onSearch} aria-label="Buscar" className="grid size-10 place-items-center rounded-[9px] border border-line bg-panel text-muted-fg md:h-[34px] md:w-[280px] md:grid-cols-[auto_1fr_auto] md:gap-2 md:px-2.5 md:text-[13px]">
         <Search className="size-4" aria-hidden />
         <span className="hidden text-left md:block">Buscar en todo</span>
@@ -232,13 +233,13 @@ export function KeyboardHelp({ onClose }: { onClose: () => void }) {
 }
 
 /** The frame every page renders in. Overlays (Pedir, Buscar, ThreadSheet) are mounted by App on top of it. */
-export function Shell({ page, view, onAsk, onSearch, onHelp, children }: { page: Page; view: HomeView | null; onAsk: (dictate: boolean) => void; onSearch: () => void; onHelp: () => void; children: ReactNode }) {
+export function Shell({ page, view, onAsk, onSearch, onHelp, onAssistant, children }: { page: Page; view: HomeView | null; onAsk: (dictate: boolean) => void; onSearch: () => void; onHelp: () => void; onAssistant: () => void; children: ReactNode }) {
   return (
     <div className="flex min-h-dvh">
       <a href="#main-content" onClick={(event) => { event.preventDefault(); document.getElementById("main-content")?.focus(); }} className="skip-link">Saltar al contenido</a>
       <Sidebar page={page} view={view} onAsk={() => onAsk(false)} onHelp={onHelp} />
       <div className="flex min-w-0 flex-1 flex-col">
-        <TopBar page={page} onSearch={onSearch} />
+        <TopBar page={page} onSearch={onSearch} onAssistant={onAssistant} />
         <main id="main-content" tabIndex={-1} className="min-w-0 flex-1 px-4 pt-2 pb-28 outline-none md:px-6 md:pb-8">{children}</main>
       </div>
       <TabBar page={page} view={view} onDictate={() => onAsk(true)} />

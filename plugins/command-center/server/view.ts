@@ -15,6 +15,7 @@ import type {
   ThreadStatus,
 } from "./types.ts";
 import type { WorkflowNeed } from "./workflows.ts";
+import { queueReason } from "./queueReason.ts";
 
 /** A provider instance on one machine hit a usage limit; the dispatcher holds its tasks until `until`. */
 export interface ProviderPause {
@@ -117,6 +118,7 @@ export function buildHomeView(input: ViewInput, now: number): HomeView {
     machineLabel: machines.get(task.machineId)?.label ?? task.machineId,
     projectTitle: projectTitles.get(`${task.machineId}:${task.projectId}`) ?? task.projectId,
     blockedBy: task.dependsOn.filter((id) => tasksById.get(id)?.status !== "done"),
+    queueReason: queueReason(task, tasksById, machines.get(task.machineId), linkOf(task.machineId).status, input.pauses),
   });
 
   const asks: { since: string; item: NeedsYouItem & { kind: "thread" } }[] = [];

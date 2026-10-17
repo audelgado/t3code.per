@@ -13,6 +13,24 @@ interface Recognition {
 }
 type Ctor = new () => Recognition;
 
+/** Result lists are cumulative and may replay final entries. Commit each index once per session. */
+export function recognitionTranscript() {
+  const committed = new Set<number>();
+  return (results: Parameters<NonNullable<Recognition["onresult"]>>[0]["results"]) => {
+    const finals: string[] = [];
+    const partial: string[] = [];
+    for (let i = 0; i < results.length; i++) {
+      const result = results[i];
+      if (!result || committed.has(i)) continue;
+      if (result.isFinal) {
+        committed.add(i);
+        finals.push(result[0].transcript.trim());
+      } else partial.push(result[0].transcript.trim());
+    }
+    return { final: finals.filter(Boolean).join(" "), interim: partial.filter(Boolean).join(" ") };
+  };
+}
+
 const ctor = (): Ctor | null => {
   const w = window as Window & { SpeechRecognition?: Ctor; webkitSpeechRecognition?: Ctor };
   return w.SpeechRecognition ?? w.webkitSpeechRecognition ?? null;
@@ -80,18 +98,14 @@ export function useDictation(onFinal: (text: string) => void) {
     r.interimResults = true;
     r.lang = lang;
     setError(null);
+    const transcript = recognitionTranscript();
     r.onresult = (e) => {
-      let partial = "";
-      const finals: string[] = [];
-      for (let i = e.resultIndex; i < e.results.length; i++) {
-        const res = e.results[i];
-        if (!res) continue;
-        if (res.isFinal) finals.push(res[0].transcript);
-        else partial += res[0].transcript;
-      }
-      if (finals.length) emit.current(finals.join(" "));
-      interimRef.current = partial;
-      setInterim(partial);
+      if (active.current !== r) return;
+      const next = transcript(e.results);
+      // Update before emitting: stop() must never flush an already committed phrase.
+      interimRef.current = next.interim;
+      setInterim(next.interim);
+      if (next.final) emit.current(next.final);
     };
     r.onerror = (e) => {
       if (e.error === "language-not-supported" && navigator.language && lang !== navigator.language) {
@@ -102,10 +116,7 @@ export function useDictation(onFinal: (text: string) => void) {
       setError(e.error in errors ? errors[e.error]! : "El dictado se detuvo. Probá de nuevo.");
     };
     r.onend = () => {
-      if (active.current === r) active.current = null;
-      interimRef.current = "";
-      setListening(false);
-      setInterim("");
+      if (active.current === r) stop();
     };
     try {
       r.start();

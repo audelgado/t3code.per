@@ -3,6 +3,7 @@
 // the selected destination, or the configured coordinator machine when none is supplied. The draft is only a
 // proposal: the user edits it in Ask and queues it through the normal task/plan routes.
 import { randomUUID } from "node:crypto";
+import { assistantPrompt, parseAssistantReply, type AssistantContext, type AssistantMessage, type AssistantReply } from "./assistant.ts";
 import { taskStatusFor } from "./dispatcher.ts";
 import { HttpError, type Route } from "./http.ts";
 import type { Profile } from "./profiles.ts";
@@ -20,6 +21,8 @@ export interface Coordinator {
 }
 
 export interface OrganizeInput {
+  purpose?: "work" | "assistant";
+  history?: AssistantMessage[];
   /** The dictated or typed request, as is. */
   text: string;
   coordinator: CoordinatorId;
@@ -50,6 +53,7 @@ export interface OrganizeDraft {
 }
 
 export interface OrganizeJob {
+  reply?: AssistantReply;
   id: string;
   coordinator: CoordinatorId;
   status: "running" | "done" | "failed";
@@ -83,6 +87,7 @@ const MISSING: Record<CoordinatorId, string> = {
 };
 
 export interface OrganizeDeps {
+  assistantContext?: () => AssistantContext;
   machines: () => Machine[];
   projects: () => ProjectRow[];
   profiles: () => Pick<Profile, "id" | "name" | "rolePrompt">[];
@@ -105,6 +110,8 @@ interface Target {
 }
 
 interface Run {
+  purpose: "work" | "assistant";
+  history: AssistantMessage[];
   job: OrganizeJob;
   hint: string | null;
   targetProjectKey: string | null;
@@ -281,7 +288,7 @@ export function createOrganize(deps: OrganizeDeps) {
     const { machine, link, projectId } = entry.target;
     const model = entry.provider.models.find((m) => m.isDefault) ?? entry.provider.models[0]!;
     const labels = new Map(deps.machines().map((m) => [m.id, m.label]));
-    const prompt = coordinatorPrompt({
+    const prompt = run.purpose === "assistant" ? assistantPrompt(text, run.history, deps.assistantContext!()) : coordinatorPrompt({
       text,
       hint: run.hint,
       projects: deps.projects().map((p) => ({ key: `${p.machineId}:${p.id}`, title: p.title, machine: labels.get(p.machineId) ?? p.machineId })),
@@ -296,7 +303,7 @@ export function createOrganize(deps: OrganizeDeps) {
         commandId: newId(),
         threadId: run.threadId,
         projectId,
-        title: `Ordenar: ${oneLine(text, 50)}`,
+        title: `${run.purpose === "assistant" ? "Asistente CC" : "Ordenar"}: ${oneLine(text, 50)}`,
         modelSelection: { instanceId: entry.provider.instanceId, model: model.slug },
         // The most restrictive mode: any tool use raises an approval request, which fails the job (see advance).
         runtimeMode: "approval-required",
@@ -320,6 +327,13 @@ export function createOrganize(deps: OrganizeDeps) {
     }
     run.finishing = false;
     if (run.job.status !== "running") return;
+    if (run.purpose === "assistant") {
+      const reply = parseAssistantReply(text, deps.assistantContext!());
+      if (!reply) return fail(run, "El asistente no devolvió una respuesta válida. Probá de nuevo.");
+      run.job = { ...run.job, status: "done", reply };
+      await stop(run);
+      return;
+    }
     const draft = parseDraft(text, {
       projectKeys: new Set(deps.projects().map((p) => `${p.machineId}:${p.id}`)),
       profileIds: new Set(deps.profiles().map((p) => p.id)),
@@ -362,6 +376,18 @@ export function createOrganize(deps: OrganizeDeps) {
   function create(body: unknown): { job: OrganizeJob; started: Promise<void> } {
     const input = (typeof body === "object" && body !== null ? body : {}) as Partial<Record<keyof OrganizeInput, unknown>>;
     const text = typeof input.text === "string" ? input.text.trim() : "";
+    if (input.purpose !== undefined && input.purpose !== "assistant" && input.purpose !== "work") throw new HttpError(400, "invalid", "Propósito desconocido");
+    const purpose = input.purpose === "assistant" ? "assistant" : "work";
+    if (purpose === "assistant" && !deps.assistantContext) throw new HttpError(409, "unavailable", "El asistente no está disponible");
+    const history: AssistantMessage[] = [];
+    if (input.history !== undefined) {
+      if (!Array.isArray(input.history) || input.history.length > 12) throw new HttpError(400, "invalid", "Historial demasiado largo");
+      for (const m of input.history) {
+        if (!m || typeof m !== "object" || !["user", "assistant"].includes(m.role) || typeof m.text !== "string" || m.text.length > 12000) throw new HttpError(400, "invalid", "Mensaje de historial inválido");
+        history.push({ role: m.role, text: m.text });
+      }
+      if (history.reduce((n, m) => n + m.text.length, 0) > 24000) throw new HttpError(400, "invalid", "Historial demasiado largo");
+    }
     if (!text || text.length > MAX_TEXT) throw new HttpError(400, "invalid", `El pedido debe tener entre 1 y ${MAX_TEXT} caracteres`);
     const coordinator = COORDINATORS.find((c) => c.id === input.coordinator)?.id;
     if (!coordinator) throw new HttpError(400, "invalid", "Coordinador desconocido");
@@ -369,7 +395,7 @@ export function createOrganize(deps: OrganizeDeps) {
     if (input.targetProjectKey != null && (typeof input.targetProjectKey !== "string" || !input.targetProjectKey || !deps.projects().some((p) => `${p.machineId}:${p.id}` === input.targetProjectKey))) throw new HttpError(400, "invalid", "El proyecto elegido no está disponible");
     prune();
     const job: OrganizeJob = { id: newId(), coordinator, status: "running", draft: null, error: null, createdAt: new Date(now()).toISOString() };
-    const run: Run = { job, hint: input.projectKey ?? null, targetProjectKey: input.targetProjectKey ?? null, startedAt: now(), machineId: null, threadId: null, seen: false, finishing: false };
+    const run: Run = { job, purpose, history, hint: input.projectKey ?? null, targetProjectKey: input.targetProjectKey ?? null, startedAt: now(), machineId: null, threadId: null, seen: false, finishing: false };
     runs.set(job.id, run);
     const started = start(run, text).catch(() => fail(run, "No se pudo iniciar el coordinador"));
     return { job, started };

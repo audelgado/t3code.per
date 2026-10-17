@@ -291,9 +291,17 @@ export class Dispatcher extends EventEmitter<{ changed: [] }> {
       this.#link(machineId)?.interrupt(row.id, row.activeRunId).catch(() => {});
     }
     const finishing: Promise<void>[] = [];
-    for (const task of listTasks(this.#db, ACTIVE)) {
+    for (const task of listTasks(this.#db, [...ACTIVE, "failed", "cancelled"])) {
       if (task.machineId !== machineId || !task.threadId || this.#finishing.has(task.id)) continue;
       const row = rows.get(task.threadId);
+      if (!ACTIVE.includes(task.status)) {
+        // A user can resume the same thread in T3 after its CC task finished unsuccessfully.
+        // Local cancellations remain final; only a newer live continuation can recover a T3 outcome.
+        if (!row || (task.status === "cancelled" && !["cancelled in T3", "interrupted in T3", "rolled_back in T3"].includes(task.error ?? "")) || !task.finishedAt || Date.parse(row.updatedAt) <= Date.parse(task.finishedAt)) continue;
+        const resumed = taskStatusFor(row, now);
+        if (!resumed || !["done", "running", "waiting", "needs_you"].includes(resumed)) continue;
+        updateTask(this.#db, task.id, { status: "running", error: null, finishedAt: null });
+      }
       if (!row) {
         // Rows are the machine's full live set, so a thread we saw before is gone (removed or archived).
         if (task.threadSeenAt) finishing.push(this.#finish(task, "cancelled", "removed in T3", false));

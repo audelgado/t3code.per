@@ -89,6 +89,17 @@ const input = (patch: Partial<ViewInput> = {}): ViewInput => ({
   ...patch,
 });
 
+test("the queue explains cancelled dependencies, connection, capacity and shared checkouts", () => {
+  const blocked = buildHomeView(input({ tasks: [task("previous", { status: "cancelled" }), task("next", { dependsOn: ["previous"] })] }), NOW);
+  assert.match(blocked.queue.find((t) => t.id === "next")!.queueReason!, /previous.*cancelada/);
+  const offline = buildHomeView(input({ tasks: [task("next")], linkStates: { m1: link({ status: "offline" }) } }), NOW);
+  assert.match(offline.queue[0]!.queueReason!, /conexión/);
+  const capacity = buildHomeView(input({ machines: [machine("m1", { maxConcurrent: 1 })], tasks: [task("active", { status: "running" }), task("next")] }), NOW);
+  assert.match(capacity.queue.find((t) => t.id === "next")!.queueReason!, /cupos ocupados/);
+  const checkout = buildHomeView(input({ tasks: [task("active", { status: "running" }), task("next")] }), NOW);
+  assert.match(checkout.queue.find((t) => t.id === "next")!.queueReason!, /carpeta/);
+});
+
 test("caps, 24 h done window, preview, forks shown, subagents hidden", () => {
   const threads = [
     ...Array.from({ length: 60 }, (_, i) => thread(`r${String(i).padStart(2, "0")}`)),

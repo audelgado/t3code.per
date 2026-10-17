@@ -153,6 +153,12 @@ A coordinator is available when that machine has the provider enabled and instal
 
 ## Agents
 
+### Asistente CC
+
+Open **Asistente CC** in the header to ask why work is waiting, review what needs your attention or plan delegation. Each consultation uses the selected coordinator with a fresh snapshot of machines, tasks and dependencies. You can type or dictate and continue the conversation inside the popup; closing it keeps that conversation until you reload the page.
+
+The assistant proposes retrying, approving, cancelling or queueing work. Review the task and instructions, choose permissions when appropriate, and use the action button to apply it. Queued tasks start automatically when their dependencies complete and the destination has capacity. A cancelled or failed prerequisite blocks the chain; continuing that same thread in T3 updates the CC when its newer result arrives.
+
 Agents can queue work for you through the CC's MCP server at `https://<vps>.<tailnet>.ts.net:8443/mcp`. **Every task an agent submits waits in Trabajo until you approve it**, and you pick its permissions when you do. An agent sees only its own tasks.
 
 Give each agent its own token: **Flota > Agentes > Acceso API > Crear**, or `ccctl agent-token add <label>` on the VPS. The token is shown once. The app shows ready-to-copy setup for:

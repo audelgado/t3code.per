@@ -103,6 +103,45 @@ function setup(t: { after(fn: () => void): void }, maxConcurrent = 2) {
   return { db, d, make, clock, link, add, task, row, shell, launchedIds };
 }
 
+test("a newer T3 continuation recovers a cancelled step and releases its chain without relaunching it", async (t) => {
+  const s = setup(t);
+  const a = s.add();
+  const b = s.add({ dependsOn: [a.id] });
+  await s.d.dispatch();
+  await s.shell([s.row(a.id, { status: "cancelled", activeRunId: null })]);
+  assert.equal(s.task(a.id).status, "cancelled");
+  assert.equal(s.task(b.id).status, "queued");
+  const launches = s.link.launches.length;
+  s.clock.now += 1000;
+  s.link.results.set(s.task(a.id).threadId!, "Recovered result");
+  await s.shell([s.row(a.id, { status: "completed", activeRunId: null, updatedAt: iso(s.clock.now) })]);
+  assert.equal(s.task(a.id).status, "done");
+  assert.equal(s.task(a.id).error, null);
+  assert.equal(s.task(b.id).status, "starting");
+  assert.equal(s.link.launches.length, launches + 1);
+  assert.match(s.link.launches.at(-1)!.prompt, /Recovered result/);
+});
+
+test("a local cancellation stays final even if T3 later completes the thread", async (t) => {
+  const s = setup(t);
+  const a = s.add();
+  await s.d.dispatch();
+  await s.d.cancel(a.id);
+  s.clock.now += 1000;
+  await s.shell([s.row(a.id, { status: "completed", activeRunId: null, updatedAt: iso(s.clock.now) })]);
+  assert.equal(s.task(a.id).status, "cancelled");
+});
+
+test("an old completed snapshot cannot undo a newer T3 cancellation", async (t) => {
+  const s = setup(t);
+  const a = s.add();
+  await s.d.dispatch();
+  s.clock.now += 1000;
+  await s.shell([s.row(a.id, { status: "cancelled", activeRunId: null, updatedAt: iso(s.clock.now) })]);
+  await s.shell([s.row(a.id, { status: "completed", activeRunId: null, updatedAt: iso(T0) })]);
+  assert.equal(s.task(a.id).status, "cancelled");
+});
+
 test("priority first, then FIFO; title from the first line", async (t) => {
   const s = setup(t, 3);
   s.link.state = { ...s.link.state, status: "offline" };

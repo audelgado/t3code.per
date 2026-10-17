@@ -222,6 +222,7 @@ export async function serve(cfg: Config, linkFactory: LinkFactory = createLink) 
     createTask: (input) => dispatcher.createTask(input, "user"),
   });
   const organize = createOrganize({
+    assistantContext: () => ({ view: view(), tasks: listTasks(db), projects: listProjects(db) }),
     machines: () => listMachines(db),
     projects: () => listProjects(db),
     profiles: () => listProfiles(db),

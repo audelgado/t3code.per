@@ -327,6 +327,7 @@ export interface TaskItem extends Task {
   projectTitle: string;
   /** Ids of dependencies that are not done yet. */
   blockedBy: string[];
+  queueReason?: string | null;
 }
 
 export type NeedsYouItem =

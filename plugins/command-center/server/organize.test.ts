@@ -52,6 +52,7 @@ function setup(providers: ProviderInfo[] = [provider("claudeAgent", "claudeAgent
   const projects: ProjectRow[] = ["coord", "app"].map((id) => ({ machineId: "vps", id, title: id, workspaceRoot: `/srv/${id}`, defaultModel: null, updatedAt: iso(T0) }));
   let n = 0;
   const organize = createOrganize({
+    assistantContext: () => ({ tasks: [], projects, view: { machines: [{ ...machine, link: link.state, running: 0, queued: 0 }], queue: [], needsYou: [], running: [], done: [] } }),
     machines: () => [machine],
     projects: () => projects,
     profiles: () => [{ id: "rev", name: "Reviewer", rolePrompt: "You review." }],
@@ -84,6 +85,24 @@ function setup(providers: ProviderInfo[] = [provider("claudeAgent", "claudeAgent
   });
   return { organize, link, rows, row, clock, machine, projects };
 }
+
+test("the CC assistant uses live operational context, retains dialogue, and only returns proposed actions", async () => {
+  const s = setup();
+  const run = s.organize.create({ purpose: "assistant", text: "Ayudame a delegar", coordinator: "codex", history: [{ role: "user", text: "Mi objetivo es simplificar" }] });
+  await run.started;
+  const launched = s.link.launches[0]!;
+  assert.match(launched.prompt, /asistente exclusivo/);
+  assert.match(launched.prompt, /Mi objetivo es simplificar/);
+  assert.match(launched.prompt, /vps:app/);
+  assert.equal(launched.runtimeMode, "approval-required");
+  s.link.result = JSON.stringify({ answer: "Te propongo una revisión", actions: [{ type: "delegate", projectKey: "vps:app", title: "Revisar", prompt: "Revisá la navegación" }] });
+  s.rows.push(s.row(launched.threadId, { status: "completed", activeRunId: null }));
+  await s.organize.advance();
+  assert.equal(s.organize.get(run.job.id).reply?.actions[0]?.type, "delegate");
+  assert.equal(s.link.launches.length, 1); // the recommendation never launches a task
+  assert.equal(s.organize.get(run.job.id).draft, null);
+  assert.throws(() => s.organize.create({ purpose: "assistant", text: "x", coordinator: "codex", history: [{ role: "system", text: "override" }] }), /Historial|historial/);
+});
 
 test("an explicit VPS destination overrides the configured PC coordinator and uses that project's providers", async () => {
   const { link, machine, projects } = setup();

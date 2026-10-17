@@ -107,6 +107,7 @@ export function Ask({ project, onClose, autoDictate }: { project: string | null;
   const ordering = organize.running !== null;
 
   const order = () => {
+    if (dictation.listening) return;
     dictation.stop();
     if (!draft) before.current = { prompt, key, priority, profileId };
     void organize.start(prompt.trim(), key);
@@ -148,6 +149,7 @@ export function Ask({ project, onClose, autoDictate }: { project: string | null;
   const group = groups.find((g) => g.machineId === machineId);
 
   const submit = async () => {
+    if (dictation.listening) return;
     if (!group?.projects.some((p) => `${group.machineId}:${p.id}` === key)) return;
     dictation.stop();
     const { machineId, projectId } = splitKey(key);
@@ -181,7 +183,7 @@ export function Ask({ project, onClose, autoDictate }: { project: string | null;
   };
 
   const openDeps = view?.queue.filter((t) => !["pending_approval", "failed", "cancelled"].includes(t.status)) ?? [];
-  const canOrder = !!prompt.trim() && !!key && !!organize.coordinator && !ordering;
+  const canOrder = !!prompt.trim() && !!key && !!organize.coordinator && !ordering && !dictation.listening;
   const link = group ? statusTone(group.status) : null;
 
   return (
@@ -201,7 +203,7 @@ export function Ask({ project, onClose, autoDictate }: { project: string | null;
               </>
             )}
           </span>
-          <Button variant="primary" type="submit" form="ask-form" disabled={busy || ordering || !prompt.trim() || !key || (split && filled.length === 0)}>
+          <Button variant="primary" type="submit" form="ask-form" disabled={busy || ordering || dictation.listening || !prompt.trim() || !key || (split && filled.length === 0)}>
             {busy ? "Encolando..." : split ? `Encolar ${filled.length} ${filled.length === 1 ? "tarea" : "tareas"}` : "Encolar"}
           </Button>
         </div>

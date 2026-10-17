@@ -38,6 +38,7 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Agents } from "./Agents.tsx";
 import { Artifacts } from "./Artifacts.tsx";
+import { Assistant } from "./Assistant.tsx";
 import { Ask } from "./Ask.tsx";
 import { Board } from "./Board.tsx";
 import { Finance } from "./Finance.tsx";
@@ -67,6 +68,7 @@ export function App() {
   const { view, authed } = useLive();
   // The pair link is /pair#token=...; a pasted token lands on #pair.
   const pairing = location.pathname === "/pair" || hash.startsWith("#pair") || new URLSearchParams(hash.slice(1)).has("token");
+  const [assistantOpen, setAssistantOpen] = useState(false);
   const [helpOpen, setHelpOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
 
@@ -151,13 +153,14 @@ export function App() {
 
   return (
     <>
-      <Shell page={route.page} view={view} onAsk={openAsk} onSearch={() => setSearchOpen(true)} onHelp={() => setHelpOpen(true)}>
+      <Shell onAssistant={() => setAssistantOpen(true)} page={route.page} view={view} onAsk={openAsk} onSearch={() => setSearchOpen(true)} onHelp={() => setHelpOpen(true)}>
         {page}
       </Shell>
       {overlay?.type === "ask" && <Ask key={overlay.project ?? ""} project={overlay.project} autoDictate={overlay.dictate} onClose={closeOverlay} />}
       {thread && view && <ThreadSheet item={thread} view={view} onClose={closeOverlay} />}
       {searchOpen && <Search onClose={() => setSearchOpen(false)} />}
       {helpOpen && <KeyboardHelp onClose={() => setHelpOpen(false)} />}
+      <Assistant open={assistantOpen} onClose={() => setAssistantOpen(false)} />
       <Toaster />
     </>
   );

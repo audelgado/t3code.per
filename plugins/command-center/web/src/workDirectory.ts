@@ -205,6 +205,7 @@ export function entryWhy(e: WorkEntry): string {
   }
   if (t?.status === "waiting") return t.limitResetAt ? `Esperando el límite de uso hasta ${at(t.limitResetAt)}` : "Esperando";
   if (t?.status === "queued") {
+    if (t.queueReason) return t.queueReason;
     if (e.blockedBy.length) return `Espera a ${e.blockedBy.join(", ")}`;
     if (e.machineStatus !== "online") return `Esperando a ${e.machineLabel}`;
     return t.priority !== 0 ? `Prioridad ${priorityLabel(t.priority).toLowerCase()}` : "";
