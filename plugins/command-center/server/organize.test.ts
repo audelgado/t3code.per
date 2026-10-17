@@ -123,6 +123,16 @@ test("an explicit VPS destination overrides the configured PC coordinator and us
   assert.throws(() => organize.create({ text: "Texto", coordinator: "claude", targetProjectKey: "pc:missing" }), /proyecto elegido/);
 });
 
+test("the automatic coordinator skips an online VPS with no projects", async () => {
+  const s = setup();
+  const empty = { ...s.machine, id: "empty", label: "Empty VPS" };
+  const organize = createOrganize({ machines: () => [empty, s.machine], projects: () => s.projects, profiles: () => [], threads: () => [], link: () => s.link });
+  assert.equal((await organize.coordinators()).find((c) => c.coordinator.id === "codex")?.coordinator.available, true);
+  const run = organize.create({ text: "Revisar", coordinator: "codex" });
+  await run.started;
+  assert.equal(s.link.launches[0]!.projectId, "coord");
+});
+
 test("an offline explicit destination never falls back to the online coordinator", async () => {
   const { link, machine, projects } = setup();
   const pc = { ...machine, id: "pc", label: "PC" };

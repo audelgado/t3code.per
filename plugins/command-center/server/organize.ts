@@ -221,9 +221,10 @@ export function createOrganize(deps: OrganizeDeps) {
       return { machine, link, projectId: project.id };
     }
     const enabled = deps.machines().filter((m) => m.enabled);
+    const withProject = enabled.filter((m) => deps.projects().some((p) => p.machineId === m.id && (!deps.projectId || p.id === deps.projectId)));
     const machine = deps.machineId
       ? enabled.find((m) => m.id === deps.machineId)
-      : (enabled.find((m) => deps.link(m.id)?.state.status === "online") ?? enabled[0]);
+      : (withProject.find((m) => deps.link(m.id)?.state.status === "online") ?? withProject[0] ?? enabled[0]);
     if (!machine)
       return deps.machineId ? "La máquina coordinadora (CC_COORDINATOR_MACHINE) no existe o está deshabilitada" : "No hay ninguna máquina para coordinar";
     const link = deps.link(machine.id);
