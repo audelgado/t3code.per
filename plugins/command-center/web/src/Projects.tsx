@@ -6,6 +6,7 @@ import { call, useLive } from "./api.ts";
 import { projectColor, statusTone, type Tone } from "./look.ts";
 import { hashes, type ProjectTab } from "./navigation.ts";
 import { ProjectDetail } from "./ProjectDetail.tsx";
+import { ProjectDiscoveryPanel } from "./ProjectDiscovery.tsx";
 import { projectDirectory, projectEntries, type ProjectEntry, type ProjectFilters } from "./projectDirectory.ts";
 import { StatusDot } from "./StatusDot.tsx";
 import { Button, LinkButton } from "./ui/Button.tsx";
@@ -144,6 +145,7 @@ export function Projects({ projectKey, tab }: { projectKey: string | null; tab: 
         {matchingTotal} de {entries.length} proyectos coinciden; se muestran {pagination.items.length} ({pagination.start}–{pagination.end} de {pagination.total} en grupos abiertos)
       </p>
       {error && <p role="alert" className="text-fail">{error}</p>}
+      <ProjectDiscoveryPanel machines={machines} />
 
       {managing && (
         <Card className="grid gap-2">

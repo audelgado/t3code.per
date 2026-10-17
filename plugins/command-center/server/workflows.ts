@@ -546,7 +546,8 @@ export function createWorkflows(deps: WorkflowDeps) {
   // -- library --
 
   function list(): WorkflowSummary[] {
-    return db.prepare("select * from cc_workflows order by slug").all().map(toSummary);
+    // This managed definition embeds one audit's context and output path; launch it from the project service.
+    return db.prepare("select * from cc_workflows where slug != 'cc-project-audit' order by slug").all().map(toSummary);
   }
   function save(raw: unknown, by: string): WorkflowSummary {
     const { workflow, errors } = parseWorkflow(raw);

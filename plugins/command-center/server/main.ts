@@ -19,6 +19,8 @@ import { createInfra } from "./infra.ts";
 import { createAgentToken, createMcp, initAgentTokens, listAgentTokens, resolveProject, revokeAgentToken, ToolError } from "./mcp.ts";
 import { memoryRoutes, memoryTools } from "./memory.ts";
 import { createOrganize } from "./organize.ts";
+import { createProjectAudits } from "./projectAudit.ts";
+import { createProjectDiscovery } from "./projectDiscovery.ts";
 import { applyProfile, createProfileRoutes, initProfiles, listProfiles, profileTools } from "./profiles.ts";
 import { createPush } from "./push.ts";
 import { createSections } from "./sections.ts";
@@ -208,7 +210,9 @@ export async function serve(cfg: Config, linkFactory: LinkFactory = createLink) 
   const artifacts = openArtifacts(db, cfg.home);
   const workflows = createWorkflows({ db, tasks, link: (id) => links.get(id)?.link, threads: () => dispatcher.threads(), onChange: pulse });
   dispatcher.on("changed", workflows.advance);
-  mcp.registerTools([...memoryTools(db), ...sections.tools, ...profileTools(db), ...artifactTools(artifacts), ...workflows.tools]);
+  const projectAudits = createProjectAudits({ db, workflows, artifacts, link: (id) => links.get(id)?.link, onChange: pulse });
+  dispatcher.on("changed", () => void projectAudits.advance());
+  mcp.registerTools([...memoryTools(db), ...sections.tools, ...profileTools(db), ...artifactTools(artifacts), ...workflows.tools, ...projectAudits.tools]);
   const work = createWork({
     machines: () => view().machines,
     projects: () => listProjects(db),
@@ -239,6 +243,8 @@ export async function serve(cfg: Config, linkFactory: LinkFactory = createLink) 
     ...work.routes,
     ...artifactRoutes(artifacts),
     ...workflows.routes,
+    ...projectAudits.routes,
+    ...createProjectDiscovery({ projects: () => listProjects(db), link: (id) => links.get(id)?.link }).routes,
     ...organize.routes,
     { method: "GET", path: "/api/settings/projects", auth: "cookie", handler: () => loadSettings(db) },
     {

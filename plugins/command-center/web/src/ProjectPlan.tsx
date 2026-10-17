@@ -6,6 +6,7 @@ import { hashes } from "./navigation.ts";
 import { splitProjectKey } from "./projectDirectory.ts";
 import { planMilestones, planTodos } from "./projectPlan.ts";
 import { SectionLine, type SectionsStore } from "./Sections.tsx";
+import { ProjectAuditPanel } from "./ProjectAudit.tsx";
 import { Button, LinkButton } from "./ui/Button.tsx";
 import { Input, Select, Textarea } from "./ui/fields.tsx";
 import { Panel } from "./ui/Panel.tsx";
@@ -62,13 +63,14 @@ export function ProjectPlan({ projectKey, store, compact = false }: { projectKey
   useEffect(() => setPage(pagination.page), [pagination.page]);
 
   return <div className="grid min-w-0 gap-4">
+    {!compact && <ProjectAuditPanel projectKey={projectKey} onApplied={() => { void load(); store.reload(); }} />}
     {error && <p role="alert" className="text-fail">{error} <Button onClick={() => void load()}>Reintentar</Button></p>}
     <Panel title="Dónde estamos" action={compact ? <LinkButton size="sm" href={hashes.project(projectKey, "plan")}>Ver plan y pendientes</LinkButton> : <Button size="sm" disabled={busy} onClick={() => setUpdate(progress?.text ?? "")}>Actualizar avance</Button>}>
       <div className="grid gap-2 px-4 py-3">
         {progress ? <><p className={cn("break-words whitespace-pre-wrap", (compact || !expanded) && "line-clamp-4")}>{progress.text}</p>{!compact && <Button size="sm" className="justify-self-start" aria-expanded={expanded} onClick={() => setExpanded(!expanded)}>{expanded ? "Ver menos" : "Ver avance completo"}</Button>}<p className="text-xs text-muted-fg">Último registro {ago(progress.updatedAt)} · {progress.source === "user" ? "vos" : "agente"}</p></>
           : <p className="text-muted-fg">Registrá el objetivo, el alcance entregado y el próximo paso. Un chat terminado no cierra el proyecto.</p>}
         <p className="text-xs text-muted-fg">{todos ? `${todos.entries.length}${todos.hasMore ? "+" : ""} registros en esta vista` : "Cargando pendientes…"} · {store.sections ? `${milestones.done} de ${milestones.sections.length} fases cerradas` : "Cargando fases…"}</p>
-        {!compact && <p className="text-xs text-muted-fg">El avance es el último registro guardado; no se sincroniza automáticamente con los archivos del repositorio.</p>}
+        {!compact && <p className="text-xs text-muted-fg">El avance es el último registro guardado. Usá Revisar y organizar para actualizarlo desde la evidencia del proyecto.</p>}
       </div>
       {update !== null && <form className="grid gap-2 px-4 py-3" onSubmit={(e) => { e.preventDefault(); void act(async () => { await call("POST /api/memory", { body: { projectId, kind: "progress", text: update } }); setUpdate(null); }); }}>
         <Textarea aria-label="Avance del proyecto" value={update} maxLength={20000} onChange={(e) => setUpdate(e.target.value)} placeholder="Objetivo, qué está validado, qué falta y próximo paso" />

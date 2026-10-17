@@ -79,7 +79,7 @@ test("start binds exact machine/project/model and reuses an active audit", async
   const first = await f.audits.start(input);
   assert.equal((await f.audits.start(input)).id, first.id);
   assert.equal(f.launches.length, 1);
-  assert.deepEqual(f.launches[0], { slug: "ordenar-proyecto", machineId: "tayna", projectId: "tayna-project", model: input.model, runtimeMode: "full-access" });
+  assert.deepEqual(f.launches[0], { slug: "cc-project-audit", machineId: "tayna", projectId: "tayna-project", model: input.model, runtimeMode: "full-access" });
   assert.match(first.reportPath, /^\.t3\/cc-audits\/[0-9a-f-]+\/proposal\.json$/);
   assert.deepEqual(f.reads, []);
 });

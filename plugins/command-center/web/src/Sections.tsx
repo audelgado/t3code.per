@@ -26,7 +26,8 @@ export function useSections() {
   const changed = useCallback((s: Section) => setSections((all) => (all?.some((x) => x.id === s.id) ? all.map((x) => (x.id === s.id ? s : x)) : [...(all ?? []), s])), []);
   const deleted = useCallback((id: string) => setSections((all) => (all ?? []).filter((x) => x.id !== id).map((x) => (x.dependsOn.includes(id) ? { ...x, dependsOn: x.dependsOn.filter((d) => d !== id) } : x))), []);
   const names = useMemo(() => new Map((sections ?? []).map((s) => [s.id, s.name])), [sections]);
-  return { sections, error, changed, deleted, names };
+  const reload = useCallback(() => { call("GET /api/sections").then(setSections, (e) => setError(message(e, "No se pudo cargar las secciones"))); }, []);
+  return { sections, error, changed, deleted, names, reload };
 }
 export type SectionsStore = ReturnType<typeof useSections>;
 
