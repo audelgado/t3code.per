@@ -336,6 +336,14 @@ test("readResult takes the last assistant text and pending request details", asy
   link.close();
 });
 
+test("session uses effective granular permissions and respects an explicitly empty grant", async () => {
+  for (const permissions of [["orchestration:read", "filesystem:read"], []]) {
+    const { link } = start({ ...healthy(), "GET /api/auth/session": { body: { authenticated: true, scopes: ["orchestration:read"], permissions } } });
+    assert.deepEqual((await link.session()).scopes, permissions);
+    link.close();
+  }
+});
+
 test("session() returns expiry and scopes", async () => {
   const { link } = start({ ...healthy(), "GET /api/auth/session": { body: { authenticated: true, scopes: ["orchestration:read"], expiresAt: "2027-01-01T00:00:00.000Z" } } });
   await flush();

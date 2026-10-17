@@ -725,7 +725,8 @@ export function createLink(machine: Machine, token: string, events: LinkEvents, 
         unauthorized("T3 no longer accepts the token.");
         throw new T3Error("fail", "T3 no longer accepts the token.");
       }
-      return { expiresAt: str(body?.expiresAt), scopes: arr(body?.scopes).filter((s) => typeof s === "string") };
+      // New servers retain broad legacy scopes for old clients; permissions is the effective granular grant.
+      return { expiresAt: str(body?.expiresAt), scopes: arr(body?.permissions === undefined ? body?.scopes : body.permissions).filter((s) => typeof s === "string") };
     },
     close() {
       closed = true;
