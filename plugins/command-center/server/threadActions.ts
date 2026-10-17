@@ -2,8 +2,9 @@
 // Wire-up: `routes.push(...threadRoutes({ links: (id) => links.get(id)?.link, threads: () => dispatcher.threads() }))`.
 import { HttpError, type Route } from "./http.ts";
 import { T3Error, type ApprovalDecision, type PendingRequest, type T3Link, type ThreadRow, type ThreadStatus } from "./types.ts";
+import { validateThreadAnswers } from "./threadAnswers.ts";
 
-/** Kinds the CC can answer with accept/decline. Everything else (questions, tools, auth) is answered in T3. */
+/** Approval decisions are separate from structured user-input answers. */
 const APPROVAL_KINDS = new Set(["command", "file-read", "file-change", "permission"]);
 const DECISIONS = new Set<string>(["accept", "acceptForSession", "decline"] satisfies ApprovalDecision[]);
 
@@ -14,6 +15,8 @@ export interface ThreadDetail {
   pending: PendingRequest | null;
   /** True when `pending` is an approval the CC can answer. */
   answerable: boolean;
+  inputAnswerable: boolean;
+  canMessage: boolean;
 }
 
 /** Type contract for the web (merge into Api when wiring). */
@@ -22,6 +25,8 @@ export interface ThreadActionApi {
   "POST /api/threads/:machine/:thread/respond": { body: { requestId: string; decision: ApprovalDecision }; res: { ok: true } };
   "POST /api/threads/:machine/:thread/stop": { body: never; res: { ok: true } };
   "POST /api/threads/:machine/:thread/settle": { body: never; res: { ok: true } };
+  "POST /api/threads/:machine/:thread/answer": { body: { requestId: string; answers: import("./types.ts").UserInputAnswers }; res: { ok: true } };
+  "POST /api/threads/:machine/:thread/message": { body: { text: string; commandId: string }; res: { ok: true } };
 }
 
 export interface ThreadActionDeps {
@@ -60,7 +65,9 @@ export function threadRoutes(deps: ThreadActionDeps): Route[] {
         const { text, pending } = await t3(link.readResult(row.id));
         // The shell row is fresher for the request id; readResult adds the summary.
         const live = row.pendingRequest && (pending?.id === row.pendingRequest.id ? pending : row.pendingRequest);
-        return { status: row.status, text: text?.slice(0, 4000) ?? null, pending: live ?? null, answerable: live ? APPROVAL_KINDS.has(live.kind) : false };
+        return { status: row.status, text: text?.slice(0, 4000) ?? null, pending: live ?? null, answerable: live ? APPROVAL_KINDS.has(live.kind) : false,
+          inputAnswerable: live?.kind === "user_input" && !!live.questions?.length && !!link.answerInput,
+          canMessage: !live && !row.activeRunId && !["preparing", "queued", "starting", "running", "waiting"].includes(row.status) && !!link.sendMessage };
       },
     },
     action("respond", async ({ row, link, body }) => {
@@ -71,6 +78,25 @@ export function threadRoutes(deps: ThreadActionDeps): Route[] {
       if (!pending || pending.id !== requestId) throw new HttpError(409, "stale", "That request is no longer pending");
       if (!APPROVAL_KINDS.has(pending.kind)) throw new HttpError(409, "unsupported", "Open in T3 to answer this request");
       await link.respond(row.id, requestId, decision as ApprovalDecision);
+    }),
+    action("answer", async ({ row, link, body }) => {
+      const input = (body ?? {}) as { requestId?: unknown; answers?: unknown };
+      if (typeof input.requestId !== "string") throw new HttpError(400, "bad_request", "requestId requerido");
+      if (row.pendingRequest?.id !== input.requestId) throw new HttpError(409, "stale", "La pregunta ya no está pendiente; actualizá el detalle");
+      if (row.pendingRequest.kind !== "user_input" || !link.answerInput) throw new HttpError(409, "unsupported", "Esta solicitud no admite respuestas de texto");
+      const fresh = await link.readResult(row.id);
+      if (fresh.pending?.id !== input.requestId || !fresh.pending.questions?.length) throw new HttpError(409, "stale", "Las preguntas cambiaron; actualizá el detalle");
+      let answers;
+      try { answers = validateThreadAnswers(fresh.pending.questions, input.answers); }
+      catch (e) { throw new HttpError(400, "bad_request", e instanceof Error ? e.message : "Respuesta inválida"); }
+      await link.answerInput(row.id, input.requestId, answers);
+    }),
+    action("message", async ({ row, link, body }) => {
+      const { text, commandId } = (body ?? {}) as { text?: unknown; commandId?: unknown };
+      if (typeof text !== "string" || !text.trim() || text.length > 20000 || typeof commandId !== "string" || !/^[0-9a-f-]{36}$/i.test(commandId)) throw new HttpError(400, "bad_request", "Escribí un mensaje de hasta 20000 caracteres");
+      if (row.pendingRequest || row.activeRunId || ["preparing", "queued", "starting", "running", "waiting"].includes(row.status)) throw new HttpError(409, "busy", "El agente sigue trabajando o espera una respuesta al formulario");
+      if (!link.sendMessage) throw new HttpError(409, "unsupported", "El sistema no admite mensajes");
+      await link.sendMessage(row.id, text.trim(), commandId);
     }),
     action("stop", async ({ row, link }) => {
       if (!row.activeRunId) throw new HttpError(409, "no_run", "No run is active");

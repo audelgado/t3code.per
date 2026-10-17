@@ -90,7 +90,20 @@ export interface PendingRequest {
   /** Shell rows carry no summary; readResult fills it when the bounded thread has one. */
   summary: string | null;
   createdAt: string;
+  questions?: UserInputQuestion[];
 }
+
+export interface UserInputQuestion {
+  id: string;
+  header: string;
+  question: string;
+  options: { label: string; description: string; value?: string }[];
+  multiSelect?: boolean;
+  allowCustomAnswer?: boolean;
+  initialAnswer?: string;
+  required?: boolean;
+}
+export type UserInputAnswers = Record<string, string | string[]>;
 
 export interface ThreadRow {
   machineId: string;
@@ -176,6 +189,8 @@ export interface T3Link {
   launch(input: LaunchInput): Promise<void>;
   interrupt(threadId: string, runId: string): Promise<void>;
   respond(threadId: string, requestId: string, decision: ApprovalDecision): Promise<void>;
+  answerInput?(threadId: string, requestId: string, answers: UserInputAnswers): Promise<void>;
+  sendMessage?(threadId: string, text: string, commandId: string): Promise<void>;
   settle(threadId: string): Promise<void>;
   providers(): Promise<ProviderInfo[]>;
   readResult(threadId: string): Promise<ThreadResult>;

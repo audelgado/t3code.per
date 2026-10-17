@@ -10,6 +10,8 @@ import { Button, LinkButton } from "./ui/Button.tsx";
 import { Chip, StatusChip } from "./ui/Chip.tsx";
 import { useAct, useProjectTitles } from "./workData.ts";
 import { ErrorNote, ProjectTag } from "./workUi.tsx";
+import { ThreadInput } from "./ThreadInput.tsx";
+import { Textarea } from "./ui/fields.tsx";
 
 // ponytail: typed through this cast until the routes are merged into Api (server/types.ts).
 const api = call as unknown as <R extends keyof ThreadActionApi>(
@@ -70,6 +72,8 @@ function Thread({ item, view, onClose }: { item: ThreadItem; view: HomeView; onC
   const [detail, setDetail] = useState<ThreadDetail | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const { busy, error, act } = useAct();
+  const [message, setMessage] = useState("");
+  const messageCommand = useRef(crypto.randomUUID());
 
   // Fetched on open (not in the view): the result text is read from T3 once per tap.
   useEffect(() => {
@@ -79,7 +83,7 @@ function Thread({ item, view, onClose }: { item: ThreadItem; view: HomeView; onC
       (e: unknown) => live && setLoadError(e instanceof Error ? e.message : "Error desconocido"),
     );
     return () => void (live = false);
-  }, [item.machineId, item.threadId]);
+  }, [item.machineId, item.threadId, item.pending?.id]);
 
   // Approvals and plans waiting on you, oldest first: what the arrows walk through.
   const queue = useMemo(
@@ -89,7 +93,7 @@ function Thread({ item, view, onClose }: { item: ThreadItem; view: HomeView; onC
   const at0 = queue.indexOf(item.key);
   const go = (to: number) => location.replace(hashes.thread(queue[to]!));
 
-  const pending = detail?.pending ?? item.pending;
+  const pending = detail ? detail.pending : item.pending;
   const text = detail?.text ?? item.preview;
   const reason = threadReason({ pending, planReady: item.planReady });
   const running = ACTIVE.has(item.status);
@@ -128,7 +132,7 @@ function Thread({ item, view, onClose }: { item: ThreadItem; view: HomeView; onC
             <Button variant="primary" disabled={busy} className="md:ml-auto" onClick={() => respond("accept")}>Aprobar</Button>
           </>
         )}
-        {!answerable && reason && (
+        {!answerable && !detail?.inputAnswerable && !detail?.canMessage && reason && (
           <LinkButton variant="primary" href={item.appUrl}>
             Abrir en T3 <ExternalLink className="size-4" aria-hidden />
           </LinkButton>
@@ -138,7 +142,7 @@ function Thread({ item, view, onClose }: { item: ThreadItem; view: HomeView; onC
         ) : (
           <Button disabled={busy} onClick={() => void act("No se pudo marcar como resuelto", async () => { await api("POST /api/threads/:machine/:thread/settle", { params }); onClose(); })}>Marcar como resuelto</Button>
         )}
-        {(answerable || !reason) && (
+        {(answerable || detail?.inputAnswerable || detail?.canMessage || !reason) && (
           <LinkButton href={item.appUrl}>Abrir en T3 <ExternalLink className="size-4" aria-hidden /></LinkButton>
         )}
         {item.webUrl && <LinkButton variant="ghost" href={item.webUrl} target="_blank" rel="noreferrer">Web</LinkButton>}
@@ -178,7 +182,14 @@ function Thread({ item, view, onClose }: { item: ThreadItem; view: HomeView; onC
         )}
 
         {loadError && !detail && <ErrorNote>No se pudo cargar el detalle. {loadError}</ErrorNote>}
-        {pending && detail && !detail.answerable && <p className="text-[13px] text-muted-fg">Esto se responde en T3.</p>}
+        {pending && detail?.inputAnswerable && pending.questions && <ThreadInput key={pending.id} questions={pending.questions} busy={busy} onSubmit={(answers) => void act("No se pudo enviar la respuesta", async () => { await api("POST /api/threads/:machine/:thread/answer", { params, body: { requestId: pending.id, answers } }); onClose(); })} />}
+        {detail?.canMessage && <form className="grid gap-2" onSubmit={(e) => { e.preventDefault(); void act("No se pudo enviar el mensaje", async () => { await api("POST /api/threads/:machine/:thread/message", { params, body: { text: message, commandId: messageCommand.current } }); onClose(); }); }}>
+          <label className="font-semibold" htmlFor="thread-reply">Responder desde el CC</label>
+          <Textarea id="thread-reply" placeholder="Escribí tu respuesta o la siguiente instrucción" value={message} maxLength={20000} disabled={busy} onChange={(e) => { setMessage(e.target.value); messageCommand.current = crypto.randomUUID(); }} />
+          <p className="text-xs text-muted-fg">Se envía a este mismo hilo en {machine}.</p>
+          <Button type="submit" variant="primary" disabled={busy || !message.trim()}>Enviar mensaje</Button>
+        </form>}
+        {pending && detail && !detail.answerable && !detail.inputAnswerable && <p className="text-[13px] text-muted-fg">Esta solicitud requiere la interfaz de T3, por ejemplo para iniciar sesión o adjuntar archivos.</p>}
       </div>
     </Overlay>
   );

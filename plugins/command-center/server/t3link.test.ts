@@ -239,6 +239,24 @@ test("launch never sends reuseExistingThread/creationSource; a retry resends ide
   link.close();
 });
 
+test("questions and continued messages dispatch on the same thread with contract payloads", async () => {
+  const { ws, link } = await online();
+  const answer = link.answerInput!("t1", "q1", { where: ["vps:tayna"] });
+  const message = link.sendMessage!("t1", "Continuar", "ced9f345-6071-4038-b77d-55a1e094d3d1");
+  const [a, m] = ws.requests("orchestration.dispatchCommand");
+  assert.equal(a!.payload.type, "runtime-request.respond");
+  assert.deepEqual(a!.payload.answers, { where: ["vps:tayna"] });
+  assert.equal(m!.payload.type, "message.dispatch");
+  assert.equal(m!.payload.createdBy, "user");
+  assert.equal(m!.payload.creationSource, "web");
+  assert.equal(m!.payload.threadId, "t1");
+  assert.equal(m!.payload.commandId, "ced9f345-6071-4038-b77d-55a1e094d3d1");
+  assert.deepEqual(m!.payload.dispatchMode, { type: "start_immediately" });
+  for (const r of [a!, m!]) ws.recv({ _tag: "Exit", requestId: r.id, exit: { _tag: "Success", value: {} } });
+  await Promise.all([answer, message]);
+  link.close();
+});
+
 test("Exit Failure rejects with T3Error; respond/interrupt/settle use fresh command ids", async () => {
   const { ws, link } = await online();
   const p = link.respond("t1", "r1", "accept");
@@ -333,6 +351,14 @@ test("readResult takes the last assistant text and pending request details", asy
   assert.equal(result.text!.length, 12000);
   assert.deepEqual(result.pending, { id: "r1", kind: "command", summary: "rm -rf build", createdAt: "b" });
   assert.equal(fetch.calls.at(-1)!.headers["x-t3-orchestration-protocol"], "2");
+  link.close();
+});
+
+test("bounded user-input questions preserve IDs, option values and editable answer settings", async () => {
+  const question = { id: "q1", header: "Destino", question: "¿Dónde seguimos?", options: [{ label: "VPS", description: "Remoto", value: "tayna" }], multiSelect: true, allowCustomAnswer: false, required: false, initialAnswer: "" };
+  const projection = { messages: [], runtimeRequests: [{ id: "r1", kind: "user_input", status: "pending", createdAt: "b" }], visibleTurnItems: [{ item: { type: "user_input_request", requestId: "r1", questions: [question] } }] };
+  const { link } = start({ ...healthy(), "GET /api/orchestration/threads/t1/bounded": { body: { projection } } });
+  assert.deepEqual((await link.readResult("t1")).pending?.questions, [question]);
   link.close();
 });
 

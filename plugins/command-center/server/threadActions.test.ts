@@ -41,6 +41,31 @@ test("respond sends the contract payload for approval kinds", async () => {
   }
 });
 
+test("question answers are validated against fresh questions on the exact thread", async () => {
+  const s = setup([row({ pendingRequest: pending("user_input", "q") })]);
+  s.link.answerInput = async (...args) => void s.calls.push(["answer", ...args]);
+  s.link.readResult = async () => ({ text: null, pending: { ...pending("user_input", "q"), questions: [{ id: "where", header: "Sistema", question: "¿Dónde?", options: [], allowCustomAnswer: true }] } });
+  await rejects(s.call("POST", "answer", { requestId: "q", answers: {} }), 400);
+  await rejects(s.call("POST", "answer", { requestId: "old", answers: { where: "Tayna" } }), 409);
+  await s.call("POST", "answer", { requestId: "q", answers: { where: "Tayna" } });
+  assert.deepEqual(s.calls, [["answer", "t1", "q", { where: "Tayna" }]]);
+  s.link.readResult = async () => ({ text: null, pending: null });
+  await rejects(s.call("POST", "answer", { requestId: "q", answers: { where: "PC" } }), 409);
+  assert.equal(s.calls.length, 1);
+});
+
+test("continuing a finished thread keeps its identity and retry command; active and pending threads reject", async () => {
+  const s = setup([row({ status: "completed", activeRunId: null })]);
+  s.link.sendMessage = async (...args) => void s.calls.push(["message", ...args]);
+  const body = { text: " Seguí con la revisión ", commandId: "ced9f345-6071-4038-b77d-55a1e094d3d1" };
+  await s.call("POST", "message", body);
+  assert.deepEqual(s.calls, [["message", "t1", "Seguí con la revisión", body.commandId]]);
+  await rejects(s.call("POST", "message", { ...body, text: " " }), 400);
+  const active = setup([row()]);
+  active.link.sendMessage = s.link.sendMessage;
+  await rejects(active.call("POST", "message", body), 409, "busy");
+});
+
 test("respond rejects unsupported kinds, stale ids and bad decisions", async () => {
   const s = setup([row({ pendingRequest: pending("user_input") })]);
   await rejects(s.call("POST", "respond", { requestId: "r1", decision: "accept" }), 409, "unsupported");

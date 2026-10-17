@@ -650,6 +650,8 @@ export function createLink(machine: Machine, token: string, events: LinkEvents, 
     interrupt: (threadId, runId) => dispatch({ type: "run.interrupt", threadId, runId }),
     respond: (threadId, requestId, decision: ApprovalDecision) =>
       dispatch({ type: "runtime-request.respond", threadId, requestId, decision }),
+    answerInput: (threadId, requestId, answers) => dispatch({ type: "runtime-request.respond", threadId, requestId, answers }),
+    sendMessage: (threadId, text, commandId) => dispatch({ type: "message.dispatch", commandId, createdBy: "user", creationSource: "web", threadId, messageId: commandId, text, attachments: [], dispatchMode: { type: "start_immediately" } }),
     settle: (threadId) => dispatch({ type: "thread.settle", threadId }),
     async providers() {
       const config = obj(await rpc("server.getConfig", {}));
@@ -716,7 +718,7 @@ export function createLink(machine: Machine, token: string, events: LinkEvents, 
       const request = latest(arr(projection?.runtimeRequests).filter((r) => obj(r)?.status === "pending"));
       return {
         text: message ? (str(message.text) ?? "").slice(0, RESULT_MAX) : null,
-        pending: request ? toPending(request, requestSummary(projection, String(request.id))) : null,
+        pending: request ? { ...toPending(request, requestSummary(projection, String(request.id))), ...(request.kind === "user_input" ? { questions: requestQuestions(projection, String(request.id)) } : {}) } : null,
       };
     },
     async session(): Promise<SessionInfo> {
@@ -752,6 +754,22 @@ function requestSummary(projection: Json | null, requestId: string): string | nu
     }
   }
   return null;
+}
+
+function requestQuestions(projection: Json | null, requestId: string) {
+  const items = [...arr(projection?.turnItems), ...arr(projection?.visibleTurnItems).map((v) => obj(v)?.item)];
+  const item = items.map(obj).find((i) => i?.type === "user_input_request" && i.requestId === requestId);
+  return arr(item?.questions).flatMap((raw) => {
+    const q = obj(raw);
+    if (!q || !str(q.id) || !str(q.question)) return [];
+    return [{ id: String(q.id), header: str(q.header) ?? "Pregunta", question: String(q.question),
+      options: arr(q.options).flatMap((raw) => { const o = obj(raw); return o && str(o.label) ? [{ label: String(o.label), description: str(o.description) ?? "", ...(typeof o.value === "string" ? { value: o.value } : {}) }] : []; }),
+      ...(typeof q.multiSelect === "boolean" ? { multiSelect: q.multiSelect } : {}),
+      ...(typeof q.allowCustomAnswer === "boolean" ? { allowCustomAnswer: q.allowCustomAnswer } : {}),
+      ...(typeof q.initialAnswer === "string" ? { initialAnswer: q.initialAnswer } : {}),
+      ...(typeof q.required === "boolean" ? { required: q.required } : {}),
+    }];
+  });
 }
 
 // ---- Contract needles ----
@@ -858,6 +876,10 @@ export const T3_CONTRACT: ContractNeedle[] = [
   },
   { file: V2, needle: 'Schema.Literals(["dynamic_tool_call", "user_input", "auth_refresh"]),', why: "RequestKind in types.ts" },
   // Commands
+  { file: V2, needle: 'answers: Schema.optional(ProviderUserInputAnswers), attachmentsByQuestionId: Schema.optional(UserInputAttachments),', why: "answerInput()" },
+  { file: V2, needle: 'type: Schema.Literal("message.dispatch"), notification: Schema.optional(OrchestrationV2Notification), ...OrchestrationV2CreationFields,', why: "sendMessage()" },
+  { file: V2, needle: 'createdBy: OrchestrationV2Actor, creationSource: OrchestrationV2CreationSource,', why: "message creation provenance" },
+  { file: V2, needle: 'Schema.Struct({ type: Schema.Literal("start_immediately") }),', why: "idle thread message delivery" },
   {
     file: V2,
     needle: 'type: Schema.Literal("runtime-request.respond"), commandId: CommandId, threadId: ThreadId, requestId: RuntimeRequestId, decision: Schema.optional(ProviderApprovalDecision),',
