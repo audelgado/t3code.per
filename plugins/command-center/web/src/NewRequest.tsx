@@ -14,7 +14,7 @@ export function NewRequest({ project, autoDictate, onClose }: { project: string 
   const [key, setKey] = useState(project ?? "");
   const [query, setQuery] = useState("");
   const [text, setText] = useState("");
-  const [mode, setMode] = useState<RuntimeMode>("auto-accept-edits");
+  const [mode, setMode] = useState<RuntimeMode>("full-access");
   const [busy, setBusy] = useState(false);
   const [listening, setListening] = useState(false);
   const [error, setError] = useState<string | null>(null);

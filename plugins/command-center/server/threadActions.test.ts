@@ -41,6 +41,14 @@ test("respond sends the contract payload for approval kinds", async () => {
   }
 });
 
+test("MCP tool permission can be approved in the same conversation", async () => {
+  const s = setup([row({ pendingRequest: pending("mcp-elicitation") })]);
+  s.link.readResult = async () => ({ text: null, pending: { ...pending("mcp-elicitation"), summary: "Allow delegate_task?" } });
+  assert.equal((await s.call("GET", "") as { answerable: boolean }).answerable, true);
+  await s.call("POST", "respond", { requestId: "r1", decision: "accept" });
+  assert.deepEqual(s.calls, [["respond", "t1", "r1", "accept"]]);
+});
+
 test("question answers are validated against fresh questions on the exact thread", async () => {
   const s = setup([row({ pendingRequest: pending("user_input", "q") })]);
   s.link.answerInput = async (...args) => void s.calls.push(["answer", ...args]);

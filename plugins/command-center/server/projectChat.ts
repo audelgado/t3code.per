@@ -60,7 +60,7 @@ export function createProjectChat(deps: { db: DatabaseSync; link: (id: string) =
           `Proyecto: ${entry.title}. Actividad existente al iniciar: ${JSON.stringify(deps.activity(machine, project))}`,
           "Pedido del usuario:", input.text.trim(),
         ].join("\n\n");
-        c = { firstText: input.text.trim(), pendingLaunch: true, launch: { commandId: input.commandId, threadId: randomUUID(), projectId: project, title: `Chat · ${entry.title}`.slice(0, 80), modelSelection: model, runtimeMode: input.runtimeMode ?? "auto-accept-edits", interactionMode: "default", workspaceStrategy: { type: "root" }, prompt } };
+        c = { firstText: input.text.trim(), pendingLaunch: true, launch: { commandId: input.commandId, threadId: randomUUID(), projectId: project, title: `Chat · ${entry.title}`.slice(0, 80), modelSelection: model, runtimeMode: input.runtimeMode ?? "full-access", interactionMode: "default", workspaceStrategy: { type: "root" }, prompt } };
         kvSet(deps.db, k, c);
       }
       if (c.launch.commandId === input.commandId) {

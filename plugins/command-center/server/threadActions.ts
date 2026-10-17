@@ -5,7 +5,7 @@ import { T3Error, type ApprovalDecision, type PendingRequest, type T3Link, type 
 import { validateThreadAnswers } from "./threadAnswers.ts";
 
 /** Approval decisions are separate from structured user-input answers. */
-const APPROVAL_KINDS = new Set(["command", "file-read", "file-change", "permission"]);
+const APPROVAL_KINDS = new Set(["command", "file-read", "file-change", "permission", "mcp-elicitation"]);
 const DECISIONS = new Set<string>(["accept", "acceptForSession", "decline"] satisfies ApprovalDecision[]);
 
 export interface ThreadDetail {

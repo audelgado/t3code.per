@@ -42,7 +42,7 @@ test("one durable orchestrator per project; follow-ups queue in the same T3 thre
   assert.deepEqual(s.messages[0], [a.threadId, "Continúa", "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb", "queue_after_active"]);
   const b = await s.make().send("m", "b", first);
   assert.notEqual(b.threadId, a.threadId);
-  assert.equal(s.launches[0]!.runtimeMode, "auto-accept-edits");
+  assert.equal(s.launches[0]!.runtimeMode, "full-access");
 });
 
 test("a transport retry reuses launch IDs and never silently replaces the first request", async (t) => {
