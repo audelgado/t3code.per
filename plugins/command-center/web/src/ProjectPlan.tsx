@@ -30,6 +30,7 @@ export function ProjectPlan({ projectKey, store, compact = false }: { projectKey
   const [query, setQuery] = useState("");
   const [section, setSection] = useState("");
   const [page, setPage] = useState(1);
+  const [expanded, setExpanded] = useState(false);
   const seq = useRef(0);
   const done = compact || filter === "open" ? false : filter === "done" ? true : undefined;
   const load = useCallback(async () => {
@@ -64,7 +65,7 @@ export function ProjectPlan({ projectKey, store, compact = false }: { projectKey
     {error && <p role="alert" className="text-fail">{error} <Button onClick={() => void load()}>Reintentar</Button></p>}
     <Panel title="Dónde estamos" action={compact ? <LinkButton size="sm" href={hashes.project(projectKey, "plan")}>Ver plan y pendientes</LinkButton> : <Button size="sm" disabled={busy} onClick={() => setUpdate(progress?.text ?? "")}>Actualizar avance</Button>}>
       <div className="grid gap-2 px-4 py-3">
-        {progress ? <><p className={cn("break-words whitespace-pre-wrap", compact && "line-clamp-4")}>{progress.text}</p><p className="text-xs text-muted-fg">Último registro {ago(progress.updatedAt)} · {progress.source === "user" ? "vos" : "agente"}</p></>
+        {progress ? <><p className={cn("break-words whitespace-pre-wrap", (compact || !expanded) && "line-clamp-4")}>{progress.text}</p>{!compact && <Button size="sm" className="justify-self-start" aria-expanded={expanded} onClick={() => setExpanded(!expanded)}>{expanded ? "Ver menos" : "Ver avance completo"}</Button>}<p className="text-xs text-muted-fg">Último registro {ago(progress.updatedAt)} · {progress.source === "user" ? "vos" : "agente"}</p></>
           : <p className="text-muted-fg">Registrá el objetivo, el alcance entregado y el próximo paso. Un chat terminado no cierra el proyecto.</p>}
         <p className="text-xs text-muted-fg">{todos ? `${todos.entries.length}${todos.hasMore ? "+" : ""} registros en esta vista` : "Cargando pendientes…"} · {store.sections ? `${milestones.done} de ${milestones.sections.length} fases cerradas` : "Cargando fases…"}</p>
         {!compact && <p className="text-xs text-muted-fg">El avance es el último registro guardado; no se sincroniza automáticamente con los archivos del repositorio.</p>}

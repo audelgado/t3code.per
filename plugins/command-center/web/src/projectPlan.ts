@@ -11,7 +11,8 @@ export function planTodos(entries: MemoryEntry[], projectId: string, filter: str
 }
 
 export function planMilestones(sections: Section[], projectId: string) {
-  const mine = sections.filter((s) => s.projectId === projectId);
+  const mine = sections.filter((s) => s.projectId === projectId)
+    .sort((a, b) => Number(a.status === "done") - Number(b.status === "done"));
   return { sections: mine, done: mine.filter((s) => s.status === "done").length,
     blocked: mine.filter((s) => s.status === "blocked" || !!s.blocker) };
 }

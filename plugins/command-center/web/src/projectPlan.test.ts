@@ -28,4 +28,5 @@ test("milestones count completed phases rather than implying whole-product compl
   assert.equal(result.done, 1);
   assert.equal(result.sections.length, 3);
   assert.equal(result.blocked.length, 2);
+  assert.equal(result.sections.at(-1)?.status, "done");
 });
