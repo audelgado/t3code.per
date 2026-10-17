@@ -64,6 +64,12 @@ test("expands the DAG: each node waits for its edges and gets their results as d
   assert.equal(wf.detail(id).run.status, "succeeded");
 });
 
+test("managed project audits cannot reuse another project's context through generic start", (t) => {
+  const { wf } = setup(t);
+  wf.save({ ...base, slug: "cc-project-audit", nodes: [agent("a")], edges: [] }, "user");
+  assert.throws(() => wf.start({ slug: "cc-project-audit", machineId: "m1", projectId: "p1" }, "user"), /managed workflow/);
+});
+
 test("rejects cycles and other graph problems", () => {
   const cyclic = parseWorkflow({ ...base, slug: "loop", nodes: [agent("a"), agent("b")], edges: [{ from: "a", to: "b" }, { from: "b", to: "a" }] });
   assert.equal(cyclic.workflow, null);

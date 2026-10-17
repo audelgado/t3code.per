@@ -637,8 +637,9 @@ export function createWorkflows(deps: WorkflowDeps) {
 
   // -- runs: commands --
 
-  function start(input: RunInput, source: TaskSource): RunDetail {
+  function start(input: RunInput, source: TaskSource, managed = false): RunDetail {
     if (!isObj(input) || typeof input.slug !== "string") throw invalid("slug required");
+    if (input.slug === "cc-project-audit" && !managed) throw invalid("Start this managed workflow from the project's Revisar y organizar action");
     const workflow = get(input.slug);
     if (typeof input.machineId !== "string" || typeof input.projectId !== "string" || !getProject(db, input.machineId, input.projectId)) throw invalid("unknown project");
     if (input.runtimeMode !== undefined && !RUNTIME_MODES.has(input.runtimeMode)) throw invalid("invalid runtimeMode");

@@ -102,7 +102,7 @@ export function createProjectAudits(deps: ProjectAuditDeps) {
       context: JSON.stringify(context),
       answers: input.answers ?? "Sin aclaraciones adicionales. Conservá como preguntas las decisiones sin evidencia." });
     workflows.save(workflow, "user");
-    const run = workflows.start({ slug: workflow.slug, machineId: machine.id, projectId: project.id, model: selected, runtimeMode: "full-access" }, source);
+    const run = workflows.start({ slug: workflow.slug, machineId: machine.id, projectId: project.id, model: selected, runtimeMode: "full-access" }, source, true);
     const now = new Date().toISOString();
     db.prepare("insert into cc_project_audits(id,machine_id,project_id,workflow_run_id,report_path,status,created_at,updated_at) values(?,?,?,?,?,'running',?,?)").run(id, machine.id, project.id, run.run.id, reportPath, now, now);
     deps.onChange?.();
