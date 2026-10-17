@@ -72,6 +72,8 @@ export function useDictation(onFinal: (text: string) => void) {
   const begin = (lang: string) => {
     const C = ctor();
     if (!C || active.current) return;
+    // A form can contain several voice fields; only one owns the microphone.
+    window.dispatchEvent(new Event("cc:dictation-start"));
     const r = new C();
     active.current = r;
     r.continuous = true;
@@ -121,9 +123,11 @@ export function useDictation(onFinal: (text: string) => void) {
     const leave = () => stopRef.current();
     const hidden = () => document.hidden && leave();
     addEventListener("blur", leave);
+    addEventListener("cc:dictation-start", leave);
     document.addEventListener("visibilitychange", hidden);
     return () => {
       removeEventListener("blur", leave);
+      removeEventListener("cc:dictation-start", leave);
       document.removeEventListener("visibilitychange", hidden);
       leave();
     };

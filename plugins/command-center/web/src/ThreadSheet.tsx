@@ -11,7 +11,7 @@ import { Chip, StatusChip } from "./ui/Chip.tsx";
 import { useAct, useProjectTitles } from "./workData.ts";
 import { ErrorNote, ProjectTag } from "./workUi.tsx";
 import { ThreadInput } from "./ThreadInput.tsx";
-import { Textarea } from "./ui/fields.tsx";
+import { DictationTextarea } from "./DictationTextarea.tsx";
 
 // ponytail: typed through this cast until the routes are merged into Api (server/types.ts).
 const api = call as unknown as <R extends keyof ThreadActionApi>(
@@ -72,6 +72,7 @@ function Thread({ item, view, onClose }: { item: ThreadItem; view: HomeView; onC
   const [detail, setDetail] = useState<ThreadDetail | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const { busy, error, act } = useAct();
+  const [listening, setListening] = useState(false);
   const [message, setMessage] = useState("");
   const messageCommand = useRef(crypto.randomUUID());
 
@@ -183,11 +184,11 @@ function Thread({ item, view, onClose }: { item: ThreadItem; view: HomeView; onC
 
         {loadError && !detail && <ErrorNote>No se pudo cargar el detalle. {loadError}</ErrorNote>}
         {pending && detail?.inputAnswerable && pending.questions && <ThreadInput key={pending.id} questions={pending.questions} busy={busy} onSubmit={(answers) => void act("No se pudo enviar la respuesta", async () => { await api("POST /api/threads/:machine/:thread/answer", { params, body: { requestId: pending.id, answers } }); onClose(); })} />}
-        {detail?.canMessage && <form className="grid gap-2" onSubmit={(e) => { e.preventDefault(); void act("No se pudo enviar el mensaje", async () => { await api("POST /api/threads/:machine/:thread/message", { params, body: { text: message, commandId: messageCommand.current } }); onClose(); }); }}>
+        {detail?.canMessage && <form className="grid gap-2" onSubmit={(e) => { e.preventDefault(); if (listening || busy) return; void act("No se pudo enviar el mensaje", async () => { await api("POST /api/threads/:machine/:thread/message", { params, body: { text: message, commandId: messageCommand.current } }); onClose(); }); }}>
           <label className="font-semibold" htmlFor="thread-reply">Responder desde el CC</label>
-          <Textarea id="thread-reply" placeholder="Escribí tu respuesta o la siguiente instrucción" value={message} maxLength={20000} disabled={busy} onChange={(e) => { setMessage(e.target.value); messageCommand.current = crypto.randomUUID(); }} />
+          <DictationTextarea id="thread-reply" placeholder="Escribí tu respuesta o la siguiente instrucción" value={message} maxLength={20000} disabled={busy} onListeningChange={setListening} onValueChange={(value) => { setMessage(value); messageCommand.current = crypto.randomUUID(); }} />
           <p className="text-xs text-muted-fg">Se envía a este mismo hilo en {machine}.</p>
-          <Button type="submit" variant="primary" disabled={busy || !message.trim()}>Enviar mensaje</Button>
+          <Button type="submit" variant="primary" disabled={busy || listening || !message.trim()}>Enviar mensaje</Button>
         </form>}
         {pending && detail && !detail.answerable && !detail.inputAnswerable && <p className="text-[13px] text-muted-fg">Esta solicitud requiere la interfaz de T3, por ejemplo para iniciar sesión o adjuntar archivos.</p>}
       </div>
