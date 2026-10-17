@@ -52,6 +52,7 @@ export const phoneTab = (page: Page): "home" | "work" | "projects" | "more" => {
 // Push links and older hashes still resolve: #item=task:<id> #item=workflow:<run>:<node> #item=alert:<key> #queue #workflows?run= ...
 
 export const PROJECT_TABS = [
+  ["chat", "Chat"],
   ["overview", "Resumen"],
   ["plan", "Plan y pendientes"],
   ["work", "Trabajo"],
@@ -75,7 +76,7 @@ export interface Route {
   overlay: Overlay | null;
 }
 
-const route = (page: Page, rest: Partial<Route> = {}): Route => ({ page, taskId: null, runId: null, projectKey: null, tab: "overview", overlay: null, ...rest });
+const route = (page: Page, rest: Partial<Route> = {}): Route => ({ page, taskId: null, runId: null, projectKey: null, tab: "chat", overlay: null, ...rest });
 
 /** First hash segment -> page; older names (queue, finance, machines ...) still resolve. */
 const aliases: Record<string, Page> = {
@@ -100,7 +101,7 @@ export function parseRoute(hash: string): Route {
   if (head === "project") {
     const key = decodeURIComponent([sub, ...tail].filter((s) => s !== undefined).join("/"));
     if (!key) return route("projects");
-    const tab = PROJECT_TABS.find(([id]) => id === query.get("tab"))?.[0] ?? "overview";
+    const tab = PROJECT_TABS.find(([id]) => id === query.get("tab"))?.[0] ?? "chat";
     return route("project", { projectKey: key, tab });
   }
 
@@ -114,7 +115,7 @@ export function parseRoute(hash: string): Route {
 
 export const hashes = {
   page: (page: Page) => "#" + pages[page].hash,
-  project: (key: string, tab?: ProjectTab) => `#project/${encodeURIComponent(key)}${tab && tab !== "overview" ? `?tab=${tab}` : ""}`,
+  project: (key: string, tab?: ProjectTab) => `#project/${encodeURIComponent(key)}${tab && tab !== "chat" ? `?tab=${tab}` : ""}`,
   task: (id: string) => `#work?task=${encodeURIComponent(id)}`,
   run: (id: string) => `#work/flows?run=${encodeURIComponent(id)}`,
   thread: (key: string) => `#item=${encodeURIComponent(key)}`,

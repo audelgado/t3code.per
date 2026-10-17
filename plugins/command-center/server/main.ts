@@ -21,6 +21,7 @@ import { memoryRoutes, memoryTools } from "./memory.ts";
 import { createOrganize } from "./organize.ts";
 import { createProjectAudits } from "./projectAudit.ts";
 import { createProjectDiscovery } from "./projectDiscovery.ts";
+import { createProjectChat } from "./projectChat.ts";
 import { applyProfile, createProfileRoutes, initProfiles, listProfiles, profileTools } from "./profiles.ts";
 import { createPush } from "./push.ts";
 import { createSections } from "./sections.ts";
@@ -234,6 +235,7 @@ export async function serve(cfg: Config, linkFactory: LinkFactory = createLink) 
   dispatcher.on("changed", () => void organize.advance());
   const infra = createInfra({ machines: () => view().machines, link: (id) => links.get(id)?.link });
   const routes: Route[] = [
+    ...createProjectChat({ db, link: (id) => links.get(id)?.link, threads: () => dispatcher.threads(), activity: (machine, project) => listTasks(db).filter((t) => t.machineId === machine && t.projectId === project).slice(-30).map((t) => ({ id: t.id, title: t.title, status: t.status, dependsOn: t.dependsOn })) }).routes,
     ...push.routes,
     ...mcp.routes,
     ...memoryRoutes(db),

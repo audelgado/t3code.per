@@ -39,7 +39,7 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Agents } from "./Agents.tsx";
 import { Artifacts } from "./Artifacts.tsx";
 import { Assistant } from "./Assistant.tsx";
-import { Ask } from "./Ask.tsx";
+import { NewRequest } from "./NewRequest.tsx";
 import { Board } from "./Board.tsx";
 import { Finance } from "./Finance.tsx";
 import { Fleet } from "./Fleet.tsx";
@@ -60,7 +60,16 @@ import { syncPush } from "./push.ts";
 import { Toaster, toast } from "./ui/Toast.tsx";
 
 const openAsk = (dictate: boolean) => {
-  location.hash = dictate ? "#ask?dictate=1" : "#ask";
+  const route = parseRoute(location.hash);
+  if (route.page === "project" && route.tab === "chat") {
+    if (dictate) dispatchEvent(new Event("cc:project-dictate"));
+    else document.querySelector<HTMLTextAreaElement>('textarea[aria-label="Mensaje al orquestador"]')?.focus();
+    return;
+  }
+  const query = new URLSearchParams();
+  if (route.projectKey) query.set("project", route.projectKey);
+  if (dictate) query.set("dictate", "1");
+  location.hash = `#ask${query.size ? `?${query}` : ""}`;
 };
 
 export function App() {
@@ -156,7 +165,7 @@ export function App() {
       <Shell onAssistant={() => setAssistantOpen(true)} page={route.page} view={view} onAsk={openAsk} onSearch={() => setSearchOpen(true)} onHelp={() => setHelpOpen(true)}>
         {page}
       </Shell>
-      {overlay?.type === "ask" && <Ask key={overlay.project ?? ""} project={overlay.project} autoDictate={overlay.dictate} onClose={closeOverlay} />}
+      {overlay?.type === "ask" && <NewRequest key={overlay.project ?? ""} project={overlay.project} autoDictate={overlay.dictate} onClose={closeOverlay} />}
       {thread && view && <ThreadSheet item={thread} view={view} onClose={closeOverlay} />}
       {searchOpen && <Search onClose={() => setSearchOpen(false)} />}
       {helpOpen && <KeyboardHelp onClose={() => setHelpOpen(false)} />}

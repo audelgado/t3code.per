@@ -36,14 +36,14 @@ const ctor = (): Ctor | null => {
   return w.SpeechRecognition ?? w.webkitSpeechRecognition ?? null;
 };
 
-const denied = "Se denegó el permiso del micrófono. Habilitalo en los ajustes del sitio del navegador.";
+const denied = "Se denegó el permiso del micrófono. Habilítalo en los ajustes del sitio del navegador.";
 const errors: Record<string, string | null> = {
   aborted: null,
   "not-allowed": denied,
   "service-not-allowed": denied,
   network: "El dictado necesita conexión a internet.",
   "audio-capture": "No se encontró un micrófono.",
-  "no-speech": "No se escuchó nada. Probá de nuevo.",
+  "no-speech": "No se escuchó nada. Prueba de nuevo.",
   "language-not-supported": "El navegador no soporta dictado en español.",
 };
 
@@ -113,7 +113,7 @@ export function useDictation(onFinal: (text: string) => void) {
         begin(navigator.language);
         return;
       }
-      setError(e.error in errors ? errors[e.error]! : "El dictado se detuvo. Probá de nuevo.");
+      setError(e.error in errors ? errors[e.error]! : "El dictado se detuvo. Prueba de nuevo.");
     };
     r.onend = () => {
       if (active.current === r) stop();
@@ -123,7 +123,7 @@ export function useDictation(onFinal: (text: string) => void) {
       setListening(true);
     } catch {
       stop();
-      setError("No se pudo iniciar el dictado. Probá de nuevo.");
+      setError("No se pudo iniciar el dictado. Prueba de nuevo.");
     }
   };
   const start = () => begin("es-AR");

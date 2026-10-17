@@ -99,16 +99,10 @@ Copy the token, then on the VPS run `ccctl machine add https://<pc>.<tailnet>.ts
 
 ## Daily use
 
-- **Pedir**: write or dictate the prompt, pick a machine and project, send. The task waits in **Trabajo** until that machine is online and has a free slot. Only one CC task runs per project and machine at a time.
+- **Pedir**: elige un proyecto y escribe o dicta un mensaje para su chat orquestador.
 - **Hoy**: what needs you (approvals, questions, plans, alerts), what is running and what finished in the last day. Open a thread to read its last message, approve or decline a command or file change, stop a run, or settle a finished thread. Questions and plans are answered in T3: **Abrir en T3** opens the thread in the official app.
 - **Trabajo**: **Lista** and **Tablero** show every task and branch, from the queue to cleanup. Reorder, cancel or retry tasks, and approve tasks that agents submitted. A task that depends on another starts after it finishes, with its result added to the prompt. It refreshes every 30 seconds only while open.
 - **Flota > Máquinas**: connection state, T3 version, token expiry and host CPU and memory for each machine (refreshed every 30 seconds only while it is open).
-
-Pedir also has three extras:
-
-- **Dividir en pasos** breaks one request (at commas, semicolons, new lines and "and" / "y") into one task per step. Edit the steps before sending; **Ejecutar en orden** makes each wait for the one before.
-- **Perfil** applies one of your Perfiles to the task.
-- **Dictar** fills the prompt by voice. The mic appears only in browsers that support SpeechRecognition (Chrome, Edge and Safari, not Firefox).
 
 ## Where everything else lives
 
@@ -140,16 +134,20 @@ t3 auth session issue --scope orchestration:read --scope orchestration:operate -
 
 **Proyectos > Artefactos** keeps HTML pages and Markdown documents with their version history, which agents save through the `artifact_save` MCP tool. HTML runs in a sandbox with no access to the CC. They are stored in `$CC_HOME/artifacts` and included in the nightly backup.
 
-## Ordenar con IA
+## Chat del proyecto
 
-**Ordenar con IA** in Pedir sends what you dictated to a coordinator agent (Claude, Codex or Hermes, picked per request) and returns a draft: a clean prompt, priority, profile, steps and open questions. Choose **Sistema** and **Proyecto** first: both the coordinator and the final task use that destination, and a draft never changes it automatically. Only providers available on that system can coordinate. A system without projects needs a project added in its own T3 first. Nothing is queued until you edit the draft and send it. The coordinator runs as a short T3 thread in the most restrictive permission mode; if it asks to use a tool, the request fails without approving anything. A draft request gives up after about two minutes.
+Abre un proyecto para continuar en **Chat**. Los pedidos nuevos usan una conversación persistente de T3: el orquestador mantiene el contexto, coordina agentes hijos y reúne los resultados en ese hilo. Puedes enviar el siguiente mensaje mientras trabaja; T3 lo deja pendiente hasta que pueda atenderlo. Las preguntas y aprobaciones aparecen dentro del chat.
 
-For clients that do not supply an explicit coordinator destination, set these in `/var/lib/cc/env` (both optional):
+Si ya tienes una conversación, elige **Continuar una conversación existente**. El historial permanece en T3; el CC muestra los mensajes recientes. Las tareas anteriores se conservan en **Actividad existente** y en Trabajo.
 
-- `CC_COORDINATOR_MACHINE`: machine id (from `ccctl machine list`) that runs the coordinator, normally the always-on VPS. Default: the first enabled machine that is online.
-- `CC_COORDINATOR_PROJECT`: project id on that machine for the coordinator threads. Default: its first project. The thread uses the project root and never creates a worktree.
+**Pedir** muestra dos pasos: proyecto y mensaje. Dentro del chat, el botón de dictado activa el micrófono directamente en el campo de escritura. Los permisos de una conversación nueva están en Ajustes.
 
-A coordinator is available when that machine has the provider enabled and installed in T3. Hermes needs to be added as a Local ACP provider (see [Agents](#agents)).
+## Coordinador de asistencia
+
+El asistente general del CC mantiene sus opciones de sistema y agente bajo **Ajustes del asistente**. Para clientes que no eligen un destino explícito, estas variables son opcionales en `/var/lib/cc/env`:
+
+- `CC_COORDINATOR_MACHINE`: identificador del sistema coordinador. Por defecto se usa un sistema conectado con proyectos.
+- `CC_COORDINATOR_PROJECT`: identificador del proyecto donde se ejecutan las consultas.
 
 ## Agents
 

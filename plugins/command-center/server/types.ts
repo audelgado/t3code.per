@@ -167,7 +167,9 @@ export interface ProviderInfo {
   models: ProviderModel[];
 }
 
+export interface ChatMessage { id: string; role: "user" | "assistant"; text: string; createdAt: string; streaming: boolean }
 export interface ThreadResult {
+  messages?: ChatMessage[];
   /** Last assistant text, ≤4000 chars. */
   text: string | null;
   pending: PendingRequest | null;
@@ -190,7 +192,7 @@ export interface T3Link {
   interrupt(threadId: string, runId: string): Promise<void>;
   respond(threadId: string, requestId: string, decision: ApprovalDecision): Promise<void>;
   answerInput?(threadId: string, requestId: string, answers: UserInputAnswers): Promise<void>;
-  sendMessage?(threadId: string, text: string, commandId: string): Promise<void>;
+  sendMessage?(threadId: string, text: string, commandId: string, mode?: "start_immediately" | "queue_after_active"): Promise<void>;
   settle(threadId: string): Promise<void>;
   providers(): Promise<ProviderInfo[]>;
   readResult(threadId: string): Promise<ThreadResult>;

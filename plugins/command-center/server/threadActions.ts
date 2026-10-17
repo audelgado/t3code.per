@@ -9,6 +9,7 @@ const APPROVAL_KINDS = new Set(["command", "file-read", "file-change", "permissi
 const DECISIONS = new Set<string>(["accept", "acceptForSession", "decline"] satisfies ApprovalDecision[]);
 
 export interface ThreadDetail {
+  messages?: import("./types.ts").ChatMessage[];
   status: ThreadStatus;
   /** Last assistant text, up to 4000 chars. */
   text: string | null;
@@ -33,6 +34,8 @@ export interface ThreadActionDeps {
   links(machineId: string): T3Link | undefined;
   threads(): ThreadRow[];
 }
+
+declare module "./types.ts" { interface Api extends ThreadActionApi {} }
 
 export function threadRoutes(deps: ThreadActionDeps): Route[] {
   /** The live row plus an online link, or the HTTP error to answer. */
@@ -62,10 +65,10 @@ export function threadRoutes(deps: ThreadActionDeps): Route[] {
       auth: "cookie",
       handler: async ({ params }): Promise<ThreadDetail> => {
         const { row, link } = target(params);
-        const { text, pending } = await t3(link.readResult(row.id));
+        const { text, pending, messages } = await t3(link.readResult(row.id));
         // The shell row is fresher for the request id; readResult adds the summary.
         const live = row.pendingRequest && (pending?.id === row.pendingRequest.id ? pending : row.pendingRequest);
-        return { status: row.status, text: text?.slice(0, 4000) ?? null, pending: live ?? null, answerable: live ? APPROVAL_KINDS.has(live.kind) : false,
+        return { status: row.status, messages, text: text?.slice(0, 4000) ?? null, pending: live ?? null, answerable: live ? APPROVAL_KINDS.has(live.kind) : false,
           inputAnswerable: live?.kind === "user_input" && !!live.questions?.length && !!link.answerInput,
           canMessage: !live && !row.activeRunId && !["preparing", "queued", "starting", "running", "waiting"].includes(row.status) && !!link.sendMessage };
       },

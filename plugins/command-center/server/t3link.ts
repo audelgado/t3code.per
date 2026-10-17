@@ -651,7 +651,7 @@ export function createLink(machine: Machine, token: string, events: LinkEvents, 
     respond: (threadId, requestId, decision: ApprovalDecision) =>
       dispatch({ type: "runtime-request.respond", threadId, requestId, decision }),
     answerInput: (threadId, requestId, answers) => dispatch({ type: "runtime-request.respond", threadId, requestId, answers }),
-    sendMessage: (threadId, text, commandId) => dispatch({ type: "message.dispatch", commandId, createdBy: "user", creationSource: "web", threadId, messageId: commandId, text, attachments: [], dispatchMode: { type: "start_immediately" } }),
+    sendMessage: (threadId, text, commandId, mode = "start_immediately") => dispatch({ type: "message.dispatch", commandId, createdBy: "user", creationSource: "web", threadId, messageId: commandId, text, attachments: [], dispatchMode: { type: mode } }),
     settle: (threadId) => dispatch({ type: "thread.settle", threadId }),
     async providers() {
       const config = obj(await rpc("server.getConfig", {}));
@@ -717,6 +717,7 @@ export function createLink(machine: Machine, token: string, events: LinkEvents, 
       const message = latest(arr(projection?.messages).filter((m) => obj(m)?.role === "assistant"));
       const request = latest(arr(projection?.runtimeRequests).filter((r) => obj(r)?.status === "pending"));
       return {
+        messages: conversationMessages(projection?.messages),
         text: message ? (str(message.text) ?? "").slice(0, RESULT_MAX) : null,
         pending: request ? { ...toPending(request, requestSummary(projection, String(request.id))), ...(request.kind === "user_input" ? { questions: requestQuestions(projection, String(request.id)) } : {}) } : null,
       };
@@ -736,6 +737,20 @@ export function createLink(machine: Machine, token: string, events: LinkEvents, 
       teardown("T3 link closed.");
     },
   };
+}
+
+/** Bounded, chronological conversation; provider/system plumbing stays outside the chat. */
+export function conversationMessages(raw: unknown): import("./types.ts").ChatMessage[] {
+  let remaining = 120000;
+  return arr(raw).flatMap((value): import("./types.ts").ChatMessage[] => {
+    const m = obj(value);
+    const role = m?.role;
+    return m && (role === "user" || role === "assistant") && str(m.id) && typeof m.text === "string" && !m.notification ? [{ id: String(m.id), role, text: m.text.slice(0, 20000), createdAt: str(m.createdAt) ?? "", streaming: m.streaming === true }] : [];
+  }).sort((a, b) => a.createdAt.localeCompare(b.createdAt)).slice(-80).reverse().flatMap((m) => {
+    if (remaining <= 0) return [];
+    const text = m.text.slice(0, remaining); remaining -= text.length;
+    return [{ ...m, text }];
+  }).reverse();
 }
 
 /** The approval prompt or input questions for a pending request, from the bounded projection's turn items. */
@@ -890,6 +905,7 @@ export const T3_CONTRACT: ContractNeedle[] = [
   { file: `${C}providerPolicy.ts`, needle: 'export const ProviderApprovalDecision = Schema.Literals([ "accept", "acceptForSession",', why: "ApprovalDecision accept/acceptForSession" },
   { file: `${C}providerPolicy.ts`, needle: '"decline",', why: "ApprovalDecision decline" },
   // readResult (bounded projection)
+  { file: V2, needle: 'Schema.Struct({ type: Schema.Literal("queue_after_active") }),', why: "project chat queues follow-ups in its orchestrator" },
   { file: V2, needle: "runtimeRequests: Schema.Array(OrchestrationV2RuntimeRequest), messages: Schema.Array(OrchestrationV2ConversationMessage),", why: "readResult reads messages and runtime requests" },
   { file: V2, needle: 'role: Schema.Literals(["user", "assistant", "system"]), text: Schema.String,', why: "last assistant message text" },
   { file: V2, needle: 'status: Schema.Literals(["pending", "resolved", "expired", "cancelled"]),', why: "pending runtime request" },

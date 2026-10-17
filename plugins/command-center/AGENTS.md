@@ -12,7 +12,7 @@ A separate app that drives official T3 Code servers through their client surface
 - `server/types.ts` is the HTTP contract; the web imports it type-only.
 - Fork-only reference sources: `git show feat/command-center:<path>`. Upstream: `git show main:<path>`.
 - Tokens never appear in logs, API responses, SSE frames or the DB. T3 tokens live in `CC_HOME/tokens/<machineId>` (0600).
-- UI strings are Spanish (rioplatense: "Elegí", "Dictá", "Pegá"); technical terms (PR, commit, push, token, MCP, worktree) stay as is. Dates and numbers use es-AR (`Intl`). Labels shared across screens live in `web/src/look.ts`. No continuously running animations.
+- UI strings use neutral Spanish ("Elige", "Dicta", "Pega"); avoid voseo and regionalisms. Technical terms (PR, commit, push, token, MCP, worktree) stay as is. Dates and numbers use es-AR (`Intl`). Labels shared across screens live in `web/src/look.ts`. No continuously running animations.
 
 ## Checks
 

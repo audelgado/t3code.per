@@ -74,8 +74,9 @@ test("hashes round-trip through parseRoute", () => {
   for (const page of Object.keys(pages) as Page[]) if (page !== "project") assert.equal(parseRoute(hashes.page(page)).page, page);
   const key = "m1:p/with space:1";
   assert.deepEqual(parseRoute(hashes.project(key, "sections")), { page: "project", taskId: null, runId: null, projectKey: key, tab: "sections", overlay: null });
-  assert.equal(parseRoute(hashes.project(key)).tab, "overview");
-  assert.equal(parseRoute(hashes.project(key, "bogus" as never)).tab, "overview");
+  assert.equal(parseRoute(hashes.project(key)).tab, "chat");
+  assert.equal(parseRoute(hashes.project(key, "bogus" as never)).tab, "chat");
+  assert.equal(parseRoute(hashes.project(key, "overview")).tab, "overview");
   assert.equal(parseRoute(hashes.task("t 1")).taskId, "t 1");
   assert.equal(parseRoute(hashes.run("r1")).runId, "r1");
   assert.deepEqual(parseRoute(hashes.thread("env:thread 1")).overlay, { type: "thread", key: "env:thread 1" });

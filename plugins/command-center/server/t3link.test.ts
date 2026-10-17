@@ -6,6 +6,7 @@ import {
   applyShellItem,
   checkContract,
   createLink,
+  conversationMessages,
   emptyShell,
   T3_CONTRACT,
   threadLinks,
@@ -330,6 +331,15 @@ test("two missed Pongs reconnect and re-subscribe", async () => {
   next.chunk(snapshot(1, [thread("t1")]));
   assert.equal(link.state.status, "online");
   link.close();
+});
+
+test("conversation history keeps both speakers in order and bounds message and total payload", () => {
+  const messages = conversationMessages([{ id: "2", role: "assistant", text: "Hola", createdAt: "b" }, { id: "1", role: "user", text: "Pedido", createdAt: "a" }, { id: "system", role: "system", text: "hidden", createdAt: "c" }]);
+  assert.deepEqual(messages.map((m) => m.id), ["1", "2"]);
+  const large = conversationMessages(Array.from({ length: 100 }, (_, i) => ({ id: String(i), role: "assistant", text: "x".repeat(30000), createdAt: String(i).padStart(3, "0") })));
+  assert.ok(large.length <= 80);
+  assert.ok(large.reduce((n, m) => n + m.text.length, 0) <= 120000);
+  assert.equal(large.at(-1)!.id, "99");
 });
 
 test("readResult takes the last assistant text and pending request details", async () => {

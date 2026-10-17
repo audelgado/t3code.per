@@ -29,6 +29,8 @@ export function Assistant({ open, onClose }: { open: boolean; onClose: () => voi
   const [error, setError] = useState<string | null>(null);
   const [applied, setApplied] = useState<Set<string>>(new Set());
   const controller = useRef<AbortController | null>(null);
+  const end = useRef<HTMLDivElement>(null);
+  useEffect(() => { if (open) end.current?.scrollIntoView({ block: "nearest" }); }, [messages.length, open]);
   const choice = coordinators.find((c) => c.id === coordinator && c.available) ?? coordinators.find((c) => c.available);
   useEffect(() => {
     if (!open) return;
@@ -81,23 +83,25 @@ export function Assistant({ open, onClose }: { open: boolean; onClose: () => voi
   };
 
   if (!open) return null;
-  return <Sheet title="Asistente CC" onClose={onClose} wide footer={<div className="flex flex-wrap gap-2"><Button onClick={onClose}>Cerrar</Button><Button variant="primary" type="submit" form="cc-assistant-form" disabled={busy || listening || !choice || !text.trim()}>Consultar</Button></div>}>
+  return <Sheet title="Asistente CC" onClose={onClose} wide footer={<form id="cc-assistant-form" className="grid gap-2" onSubmit={(e) => { e.preventDefault(); void consult(text); }}><DictationTextarea compact aria-label="Mensaje al asistente CC" placeholder="Escribe o dicta al asistente…" rows={2} className="min-h-16" value={text} maxLength={8000} onValueChange={setText} onListeningChange={setListening} disabled={busy} /><div className="flex gap-2"><Button onClick={onClose}>Cerrar</Button><Button className="ml-auto" variant="primary" type="submit" disabled={busy || listening || !choice || !text.trim()}>Enviar</Button></div></form>}>
     <div className="grid gap-4">
-      <p className="text-sm text-muted-fg">Tu ayudante para administrar el CC: explicar bloqueos, recomendar mejoras y proponer trabajos. Cada consulta usa un agente con el estado actual; las acciones se aplican cuando tocás su botón.</p>
+      {!messages.length && <p className="text-sm text-muted-fg">Consulta tu cola, pide ayuda o coordina un trabajo. Todo en esta conversación.</p>}
+      <details className="text-sm"><summary className="cursor-pointer text-muted-fg">Ajustes del asistente</summary>
       <div className="grid gap-2 sm:grid-cols-2">
         <label className="grid gap-1 text-xs">Dónde consultar<Select aria-label="Dónde consultar al asistente" value={target} disabled={busy} onChange={(e) => setTarget(e.target.value)}><option value="">Coordinador del CC</option>{groups.map((g) => <optgroup key={g.machineId} label={g.machineLabel}>{g.projects.map((p) => <option key={p.id} value={`${g.machineId}:${p.id}`}>{g.machineLabel} · {p.title}</option>)}</optgroup>)}</Select></label>
         <label className="grid gap-1 text-xs">Agente<Select aria-label="Agente del asistente" value={choice?.id ?? ""} disabled={busy || !coordinators.length} onChange={(e) => setCoordinator(e.target.value as CoordinatorId)}>{!choice && <option value="">Sin agentes disponibles</option>}{coordinators.map((c) => <option key={c.id} value={c.id} disabled={!c.available}>{c.label}{!c.available ? ` · ${c.reason}` : ""}</option>)}</Select></label>
       </div>
+      </details>
       {!!view?.queue.length && <details className="grid gap-2 rounded-ctl border border-line p-3"><summary className="cursor-pointer font-semibold">Estado de tu cola ({view.queue.filter((t) => t.status === "queued").length})</summary>{view.queue.filter((t) => t.status === "queued").slice(0, 8).map((t) => <p key={t.id} className="text-sm"><a className="font-medium text-primary" href={hashes.task(t.id)} onClick={onClose}>{t.title}</a><span className="block text-muted-fg">{t.queueReason ?? "Esperando despacho"}</span></p>)}</details>}
-      {!messages.length && <div className="flex flex-wrap gap-2">{["¿Por qué no arrancan mis trabajos?", "¿Qué necesita mi atención?", "Ayudame a delegar un trabajo"].map((prompt) => <Button key={prompt} disabled={busy || listening || !choice} onClick={() => void consult(prompt)}>{prompt}</Button>)}</div>}
-      <div className="grid gap-3" aria-live="polite" aria-busy={busy}>{messages.map((m, i) => <article key={i} className={`grid min-w-0 gap-2 rounded-ctl p-3 ${m.role === "user" ? "bg-soft" : "border border-line"}`}><h3 className="text-xs font-semibold text-muted-fg">{m.role === "user" ? "Vos" : "Asistente CC"}</h3><p className="text-sm break-words whitespace-pre-wrap">{m.text}</p>{m.reply?.actions.map((action, j) => {
+      {!messages.length && <div className="flex flex-wrap gap-2">{["¿Por qué no arrancan mis trabajos?", "¿Qué necesita mi atención?", "Ayúdame a delegar un trabajo"].map((prompt) => <Button key={prompt} disabled={busy || listening || !choice} onClick={() => void consult(prompt)}>{prompt}</Button>)}</div>}
+      <div className="grid gap-3" aria-live="polite" aria-busy={busy}>{messages.map((m, i) => <article key={i} aria-label={m.role === "user" ? "Tu mensaje" : "Mensaje del asistente"} className={`grid min-w-0 gap-2 ${m.role === "user" ? "ml-auto max-w-[90%] rounded-2xl bg-soft px-4 py-3" : "py-2"}`}><p className="text-sm break-words whitespace-pre-wrap">{m.text}</p>{m.reply?.actions.map((action, j) => {
         const key = `${i}:${j}`;
         return <div key={key} className="grid gap-2 rounded-ctl bg-soft p-3"><strong className="text-sm break-words">{action.title}</strong>{action.type === "delegate" ? <><p className="text-xs text-muted-fg">Proyecto: {groups.flatMap((g) => g.projects.map((p) => ({ key: `${g.machineId}:${p.id}`, label: `${g.machineLabel} · ${p.title}` }))).find((p) => p.key === action.projectKey)?.label ?? action.projectKey}</p><details><summary className="cursor-pointer text-sm">Revisar instrucciones</summary><p className="mt-2 text-sm break-words whitespace-pre-wrap">{action.prompt}</p></details></> : <LinkButton size="sm" href={hashes.task(action.taskId)} onClick={onClose}>Ver tarea</LinkButton>}{action.type === "retry" && <p className="text-xs text-muted-fg">Reinicia este trabajo. Sus dependientes seguirán automáticamente cuando termine bien.</p>}<Button disabled={busy || applied.has(key)} variant={action.type === "cancel" ? "danger" : "primary"} onClick={() => void apply(action, key)}>{applied.has(key) ? "Aplicada" : actionLabel(action)}</Button></div>;
       })}</article>)}</div>
       {messages.some((m) => m.reply?.actions.some((a) => a.type === "delegate" || a.type === "approve")) && <label className="grid gap-1 text-xs">Permisos para aprobar o delegar<Select aria-label="Permisos de tareas propuestas" value={mode} disabled={busy} onChange={(e) => setMode(e.target.value as RuntimeMode)}><option value="approval-required">Pedir aprobación</option><option value="auto-accept-edits">Aceptar ediciones</option><option value="full-access">Acceso completo</option></Select></label>}
-      {busy && <p role="status" className="text-sm text-muted-fg">Consultando o aplicando la acción… Podés cerrar y volver a abrir el asistente.</p>}
+      {busy && <p role="status" className="text-sm text-muted-fg">Consultando o aplicando la acción… Puedes cerrar y volver a abrir el asistente.</p>}
       {error && <p role="alert" className="text-sm text-fail">{error}</p>}
-      <form id="cc-assistant-form" onSubmit={(e) => { e.preventDefault(); void consult(text); }}><DictationTextarea aria-label="Mensaje al asistente CC" placeholder="Contame qué pasa o qué querés organizar…" value={text} maxLength={8000} onValueChange={setText} onListeningChange={setListening} disabled={busy} /></form>
+      <div ref={end} />
     </div>
   </Sheet>;
 }

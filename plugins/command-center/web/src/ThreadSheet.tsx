@@ -10,6 +10,7 @@ import { Button, LinkButton } from "./ui/Button.tsx";
 import { Chip, StatusChip } from "./ui/Chip.tsx";
 import { useAct, useProjectTitles } from "./workData.ts";
 import { ErrorNote, ProjectTag } from "./workUi.tsx";
+import { ChatHistory } from "./ChatHistory.tsx";
 import { ThreadInput } from "./ThreadInput.tsx";
 import { DictationTextarea } from "./DictationTextarea.tsx";
 
@@ -169,7 +170,7 @@ function Thread({ item, view, onClose }: { item: ThreadItem; view: HomeView; onC
         )}
         {item.waitingUntil && <p className="text-[13px] text-need">Esperando el límite de uso hasta {at(item.waitingUntil)}</p>}
 
-        {steps ? (
+        {detail?.messages?.length ? <ChatHistory messages={detail.messages} /> : steps ? (
           <ol className="divide-y divide-soft overflow-hidden rounded-[10px] border border-line">
             {steps.map((s, i) => (
               <li key={i} className="flex items-start gap-3 px-3 py-2.5 text-[13.5px]">

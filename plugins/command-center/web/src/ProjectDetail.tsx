@@ -10,6 +10,7 @@ import { Memory } from "./Memory.tsx";
 import { hashes, PROJECT_TABS, type ProjectTab } from "./navigation.ts";
 import { projectWork, splitProjectKey, type ProjectEntry } from "./projectDirectory.ts";
 import { ProjectSections, SectionLine, useSections } from "./Sections.tsx";
+import { ProjectChat } from "./ProjectChat.tsx";
 import { ProjectPlan } from "./ProjectPlan.tsx";
 import { StatusDot } from "./StatusDot.tsx";
 import { Button, LinkButton } from "./ui/Button.tsx";
@@ -142,12 +143,14 @@ export function ProjectDetail({ entry, tab, view, pinned, onTogglePin }: { entry
           </p>
           {!online && <p className="text-xs text-need">La máquina no está en línea: se muestra lo último que informó.</p>}
         </div>
-        <LinkButton variant="primary" className="w-full md:w-auto" href={hashes.ask(entry.key)}>
-          <Sparkles className="size-4" aria-hidden /> Pedir en este proyecto
-        </LinkButton>
+        {tab !== "chat" && <LinkButton variant="primary" className="w-full md:w-auto" href={hashes.project(entry.key, "chat")}>
+          <Sparkles className="size-4" aria-hidden /> Abrir chat
+        </LinkButton>}
       </header>
 
       <Tabs label="Secciones del proyecto" value={tab} items={PROJECT_TABS.map(([id, label]) => ({ id, label, count: counts[id], href: href(id) }))} />
+
+      {tab === "chat" && <ProjectChat key={entry.key} projectKey={entry.key} />}
 
       {(tab === "overview" || tab === "plan") && <ProjectPlan key={entry.key} projectKey={entry.key} store={sections} compact={tab === "overview"} onChanged={() => setRevision((r) => r + 1)} />}
 
