@@ -17,7 +17,7 @@ import { ago, cn } from "./ui/cn.ts";
 const message = (e: unknown) => e instanceof Error ? e.message : "No se pudo guardar el seguimiento";
 
 /** Durable project plan, using the same memory and sections exposed to agents. No task is launched here. */
-export function ProjectPlan({ projectKey, store, compact = false }: { projectKey: string; store: SectionsStore; compact?: boolean }) {
+export function ProjectPlan({ projectKey, store, compact = false, onChanged }: { projectKey: string; store: SectionsStore; compact?: boolean; onChanged?: () => void }) {
   const { projectId } = splitProjectKey(projectKey);
   const [todos, setTodos] = useState<MemoryPage | null>(null);
   const [progress, setProgress] = useState<MemoryEntry | null>(null);
@@ -63,7 +63,7 @@ export function ProjectPlan({ projectKey, store, compact = false }: { projectKey
   useEffect(() => setPage(pagination.page), [pagination.page]);
 
   return <div className="grid min-w-0 gap-4">
-    {!compact && <ProjectAuditPanel projectKey={projectKey} onApplied={() => { void load(); store.reload(); }} />}
+    {!compact && <ProjectAuditPanel projectKey={projectKey} onApplied={() => { void load(); store.reload(); onChanged?.(); }} />}
     {error && <p role="alert" className="text-fail">{error} <Button onClick={() => void load()}>Reintentar</Button></p>}
     <Panel title="Dónde estamos" action={compact ? <LinkButton size="sm" href={hashes.project(projectKey, "plan")}>Ver plan y pendientes</LinkButton> : <Button size="sm" disabled={busy} onClick={() => setUpdate(progress?.text ?? "")}>Actualizar avance</Button>}>
       <div className="grid gap-2 px-4 py-3">

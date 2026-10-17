@@ -134,7 +134,7 @@ export function createProjectAudits(deps: ProjectAuditDeps) {
         saveArtifact(deps.artifacts, { projectId: project.id, title: `PRD · ${project.title}`, kind: "markdown", content: prd.contents }, "equipo-organizador");
       }
       const applied = reconcile.apply({ id: audit.id, machineId: audit.machineId, projectId: audit.projectId, report });
-      db.prepare("update cc_project_audits set status=?,questions=?,summary=?,artifact_id=?,error=null,updated_at=? where id=?").run(applied.questions.length ? "needs_you" : "applied", JSON.stringify(applied.questions), `${applied.addedPhases} fases y ${applied.addedTodos} pendientes agregados. Revisión ${report.revision}.`, artifact.id, new Date().toISOString(), audit.id);
+      db.prepare("update cc_project_audits set status=?,questions=?,summary=?,artifact_id=?,error=null,updated_at=? where id=?").run(applied.questions.length ? "needs_you" : "applied", JSON.stringify(applied.questions), `Avance registrado; ${applied.addedPhases} fases y ${applied.addedTodos} pendientes agregados. Revisión ${report.revision}.`, artifact.id, new Date().toISOString(), audit.id);
       deps.onChange?.();
     } catch (e) { patch(audit.id, "failed", e instanceof Error ? e.message : "No se pudo validar el informe"); }
     finally { collecting.delete(audit.id); }

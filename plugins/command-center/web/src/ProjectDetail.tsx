@@ -103,12 +103,13 @@ function seeAll(href: string) {
 export function ProjectDetail({ entry, tab, view, pinned, onTogglePin }: { entry: ProjectEntry; tab: ProjectTab; view: HomeView | null; pinned: boolean; onTogglePin: () => void }) {
   const { projectId } = splitProjectKey(entry.key);
   const sections = useSections();
+  const [revision, setRevision] = useState(0);
   const [memory, setMemory] = useState<{ entries: MemoryEntry[]; hasMore: boolean } | null>(null);
   const [artifacts, setArtifacts] = useState<{ artifacts: Artifact[]; hasMore: boolean } | null>(null);
   useEffect(() => {
     call("POST /api/memory/list", { body: { projectId, limit: 50 } }).then(setMemory, () => {});
     call("POST /api/artifacts/list", { body: { projectId, archived: false, limit: 50 } }).then(setArtifacts, () => {});
-  }, [projectId, tab]);
+  }, [projectId, tab, revision]);
 
   const work = useMemo(() => projectWork(view, entry.key), [view, entry.key]);
   const mine = useMemo(() => (sections.sections ?? []).filter((s) => s.projectId === projectId), [sections.sections, projectId]);
@@ -148,7 +149,7 @@ export function ProjectDetail({ entry, tab, view, pinned, onTogglePin }: { entry
 
       <Tabs label="Secciones del proyecto" value={tab} items={PROJECT_TABS.map(([id, label]) => ({ id, label, count: counts[id], href: href(id) }))} />
 
-      {(tab === "overview" || tab === "plan") && <ProjectPlan key={entry.key} projectKey={entry.key} store={sections} compact={tab === "overview"} />}
+      {(tab === "overview" || tab === "plan") && <ProjectPlan key={entry.key} projectKey={entry.key} store={sections} compact={tab === "overview"} onChanged={() => setRevision((r) => r + 1)} />}
 
       {tab === "overview" && (
         <div className="grid items-start gap-4 lg:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">
