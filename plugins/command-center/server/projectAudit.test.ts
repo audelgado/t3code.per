@@ -51,7 +51,7 @@ function setup(t: { after(fn: () => void): void }) {
     machineId, state: state(),
     async launch() { throw new Error("audit must use workflow dispatch"); }, async interrupt() {}, async respond() {}, async settle() {}, close() {},
     async providers() { return [{ instanceId: `${machineId}-codex`, driver: "codex", displayName: "Codex", enabled: true, installed: true, models: [{ slug: "model", name: "Model", isDefault: true }] }]; },
-    async readResult() { return { text: null, pending: null }; }, async session() { return { expiresAt: null, scopes: [] }; },
+    async readResult() { return { text: null, pending: null }; }, async session() { return { expiresAt: null, scopes: ["filesystem:read"] }; },
     async readFile(cwd: string, path: string) { reads.push({ machineId, cwd, path }); return path.endsWith("proposal.json") ? { ...file } : { contents: "# PRD\nCapturar leads", truncated: false }; },
   } satisfies T3Link & Pick<NonNullable<ReturnType<ProjectAuditDeps["link"]>>, "readFile">);
   const links = { pc: makeLink("pc"), tayna: makeLink("tayna") };
@@ -63,6 +63,13 @@ function setup(t: { after(fn: () => void): void }) {
   };
   return { db, artifacts, audits, links, launches, requested, file, reads, complete };
 }
+
+test("missing file scope fails before spending an agent run", async (t) => {
+  const f = setup(t);
+  f.links.tayna.session = async () => ({ expiresAt: null, scopes: [] });
+  await assert.rejects(f.audits.start({ machineId: "tayna", projectId: "tayna-project" }), /filesystem:read/);
+  assert.equal(f.launches.length, 0);
+});
 
 test("offline requested VPS never falls back to the online PC", async (t) => {
   const f = setup(t);

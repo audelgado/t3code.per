@@ -81,6 +81,7 @@ export function createProjectAudits(deps: ProjectAuditDeps) {
     if (input.answers !== undefined && (typeof input.answers !== "string" || input.answers.length > 4000)) throw new HttpError(400, "bad_request", "Las aclaraciones deben tener hasta 4000 caracteres");
     const link = deps.link(machine.id);
     if (link?.state.status !== "online" || !link.readFile) throw new HttpError(409, "conflict", "El sistema debe estar en línea y permitir lectura de archivos");
+    if (!(await link.session()).scopes.includes("filesystem:read")) throw new HttpError(409, "conflict", "La conexión del CC con este sistema necesita el permiso filesystem:read para recoger el informe");
     const available = (await link.providers()).filter((p) => p.enabled && p.installed);
     const selected = input.model ?? project.defaultModel ?? (() => {
       const p = available[0]; const m = p?.models.find((m) => m.isDefault) ?? p?.models[0];

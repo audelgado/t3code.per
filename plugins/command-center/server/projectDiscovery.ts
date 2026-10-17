@@ -28,7 +28,9 @@ export function createProjectDiscovery(deps: { projects: () => ProjectRow[]; lin
     if (link?.state.status !== "online" || !link.listEntries) throw new HttpError(409, "conflict", "El sistema debe estar en línea y permitir lectura de carpetas");
     const list = link.listEntries.bind(link);
     const result: DiscoveryResult = { projects: [], hasMore: false, errors: [] };
-    const children = await list(root, "");
+    let children;
+    try { children = await list(root, ""); }
+    catch (e) { throw new HttpError(409, "conflict", `No se pudo leer la carpeta: ${e instanceof Error ? e.message : "revisá acceso y permiso filesystem:read"}`); }
     const names = [...new Set(children.filter((entry) => entry.kind === "directory" && !entry.path.startsWith(".") && !/[\\/\x00-\x1f]/.test(entry.path) && entry.path !== "..").map((entry) => entry.path))];
     result.hasMore = names.length > 40;
     const bounded = names.slice(0, 40);
