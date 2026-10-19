@@ -3,7 +3,7 @@
 // the selected destination, or the configured coordinator machine when none is supplied. The draft is only a
 // proposal: the user edits it in Ask and queues it through the normal task/plan routes.
 import { randomUUID } from "node:crypto";
-import { assistantPrompt, parseAssistantReply, type AssistantContext, type AssistantMessage, type AssistantReply } from "./assistant.ts";
+import { assistantPrompt, parseAssistantReply, scopeAssistantContext, type AssistantContext, type AssistantMessage, type AssistantReply } from "./assistant.ts";
 import { taskStatusFor } from "./dispatcher.ts";
 import { HttpError, type Route } from "./http.ts";
 import type { Profile } from "./profiles.ts";
@@ -289,7 +289,7 @@ export function createOrganize(deps: OrganizeDeps) {
     const { machine, link, projectId } = entry.target;
     const model = entry.provider.models.find((m) => m.isDefault) ?? entry.provider.models[0]!;
     const labels = new Map(deps.machines().map((m) => [m.id, m.label]));
-    const prompt = run.purpose === "assistant" ? assistantPrompt(text, run.history, deps.assistantContext!()) : coordinatorPrompt({
+    const prompt = run.purpose === "assistant" ? assistantPrompt(text, run.history, scopeAssistantContext(deps.assistantContext!(), run.targetProjectKey)) : coordinatorPrompt({
       text,
       hint: run.hint,
       projects: deps.projects().map((p) => ({ key: `${p.machineId}:${p.id}`, title: p.title, machine: labels.get(p.machineId) ?? p.machineId })),
@@ -329,7 +329,7 @@ export function createOrganize(deps: OrganizeDeps) {
     run.finishing = false;
     if (run.job.status !== "running") return;
     if (run.purpose === "assistant") {
-      const reply = parseAssistantReply(text, deps.assistantContext!());
+      const reply = parseAssistantReply(text, scopeAssistantContext(deps.assistantContext!(), run.targetProjectKey));
       if (!reply) return fail(run, "El asistente no devolvió una respuesta válida. Probá de nuevo.");
       run.job = { ...run.job, status: "done", reply };
       await stop(run);

@@ -140,11 +140,11 @@ Abre un proyecto para continuar en **Chat**. Los pedidos nuevos usan una convers
 
 Si ya tienes una conversación, elige **Continuar una conversación existente**. El historial permanece en T3; el CC muestra los mensajes recientes. Las tareas anteriores se conservan en **Actividad existente** y en Trabajo.
 
-**Pedir** muestra dos pasos: proyecto y mensaje. Dentro del chat, el botón de dictado activa el micrófono directamente en el campo de escritura. Los permisos de una conversación nueva están en Ajustes.
+**Pedir** muestra dos pasos: proyecto y mensaje. Si ya estás dentro de un proyecto, abre directamente su chat. El botón de dictado activa el micrófono en el campo de escritura. Los permisos de una conversación nueva están en Ajustes.
 
 ## Coordinador de asistencia
 
-El asistente general del CC mantiene sus opciones de sistema y agente bajo **Ajustes del asistente**. Para clientes que no eligen un destino explícito, estas variables son opcionales en `/var/lib/cc/env`:
+El asistente muestra el **Alcance** junto al campo de escritura. El agente se elige en **Ajustes del asistente**. Para consultas de todo el CC, estas variables son opcionales en `/var/lib/cc/env`:
 
 - `CC_COORDINATOR_MACHINE`: identificador del sistema coordinador. Por defecto se usa un sistema conectado con proyectos.
 - `CC_COORDINATOR_PROJECT`: identificador del proyecto donde se ejecutan las consultas.
@@ -153,7 +153,9 @@ El asistente general del CC mantiene sus opciones de sistema y agente bajo **Aju
 
 ### Asistente CC
 
-Open **Asistente CC** in the header to ask why work is waiting, review what needs your attention or plan delegation. Each consultation uses the selected coordinator with a fresh snapshot of machines, tasks and dependencies. You can type or dictate and continue the conversation inside the popup; closing it keeps that conversation until you reload the page.
+Abre **Asistente CC** para consultar bloqueos, revisar lo que necesita tu atención o proponer trabajo. Dentro de un proyecto comienza con ese alcance; **Todo el CC** permite consultar un resumen general. Cada alcance y agente conserva su conversación, incluso al recargar. Las consultas sobre un proyecto incluyen solo sus trabajos y la información necesaria de sus dependencias. El resumen general muestra una muestra acotada; elige un proyecto para profundizar.
+
+Si un envío no se confirma, usa **Reintentar envío guardado**. El CC conserva el mensaje y evita iniciar otra consulta por el mismo envío.
 
 The assistant proposes retrying, approving, cancelling or queueing work. Review the task and instructions, choose permissions when appropriate, and use the action button to apply it. Queued tasks start automatically when their dependencies complete and the destination has capacity. A cancelled or failed prerequisite blocks the chain; continuing that same thread in T3 updates the CC when its newer result arrives.
 

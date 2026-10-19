@@ -19,6 +19,7 @@ import { createInfra } from "./infra.ts";
 import { createAgentToken, createMcp, initAgentTokens, listAgentTokens, resolveProject, revokeAgentToken, ToolError } from "./mcp.ts";
 import { memoryRoutes, memoryTools } from "./memory.ts";
 import { createOrganize } from "./organize.ts";
+import { createAssistantChat } from "./assistantChat.ts";
 import { createProjectAudits } from "./projectAudit.ts";
 import { createProjectDiscovery } from "./projectDiscovery.ts";
 import { createProjectChat } from "./projectChat.ts";
@@ -142,7 +143,8 @@ export async function serve(cfg: Config, linkFactory: LinkFactory = createLink) 
   }
 
   // Coordinator threads of "Ordenar con IA" are plumbing: out of the view, push and Work. `organize` is set before any call.
-  const visibleThreads = () => dispatcher.threads().filter((r) => !organize.owns(r.machineId, r.id));
+  const visibleThreads = () => dispatcher.threads().filter((r) => !organize.owns(r.machineId, r.id) && !assistantChat.owns(r.machineId, r.id));
+  let assistantVersion = 0;
   function view(): HomeView {
     const machines = listMachines(db);
     const linkStates: Record<string, LinkState> = {};
@@ -161,10 +163,10 @@ export async function serve(cfg: Config, linkFactory: LinkFactory = createLink) 
     const known = new Set(machines.filter((m) => m.tokenExpiresAt).map((m) => `token_expiring:${m.id}`));
     const extraAlerts = health.alerts().filter((a) => !known.has(a.key));
     // ponytail: every task on each build (blockedBy needs old deps); add a history cutoff if tasks reach tens of thousands.
-    return buildHomeView(
+    return { ...buildHomeView(
       { machines, linkStates, projects: listProjects(db), threads: visibleThreads(), tasks: listTasks(db), pauses: dispatcher.pauses(), extraAlerts, workflowNeeds: workflows.needs(), threadLinks },
       Date.now(),
-    );
+    ), assistantVersion };
   }
 
   // SSE: whole view, only when its hash changes, at most once per second.
@@ -233,8 +235,24 @@ export async function serve(cfg: Config, linkFactory: LinkFactory = createLink) 
     projectId: cfg.coordinatorProject,
   });
   dispatcher.on("changed", () => void organize.advance());
+  const assistantChat = createAssistantChat({
+    db, context: () => ({ view: view(), tasks: listTasks(db), projects: listProjects(db) }),
+    onChange: () => { assistantVersion++; pulse(); },
+    coordinators: organize.coordinators, link: (id) => links.get(id)?.link, threads: () => dispatcher.threads(),
+    apply: async (action, runtimeMode) => {
+      if (action.type === "delegate") {
+        const i = action.projectKey.indexOf(":");
+        return tasks.createTask({ machineId: action.projectKey.slice(0, i), projectId: action.projectKey.slice(i + 1), title: action.title, prompt: action.prompt, runtimeMode }, "user").id;
+      }
+      if (action.type === "retry") return task(() => dispatcher.retry(action.taskId)).id;
+      if (action.type === "approve") return task(() => dispatcher.approve(action.taskId, { runtimeMode })).id;
+      return (await dispatcher.cancel(action.taskId)).id;
+    },
+  });
+  dispatcher.on("changed", () => void assistantChat.advance());
   const infra = createInfra({ machines: () => view().machines, link: (id) => links.get(id)?.link });
   const routes: Route[] = [
+    ...assistantChat.routes,
     ...createProjectChat({ db, link: (id) => links.get(id)?.link, threads: () => dispatcher.threads(), activity: (machine, project) => listTasks(db).filter((t) => t.machineId === machine && t.projectId === project).slice(-30).map((t) => ({ id: t.id, title: t.title, status: t.status, dependsOn: t.dependsOn })) }).routes,
     ...push.routes,
     ...mcp.routes,

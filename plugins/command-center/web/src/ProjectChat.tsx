@@ -5,6 +5,7 @@ import { ChatHistory } from "./ChatHistory.tsx";
 import { DictationTextarea } from "./DictationTextarea.tsx";
 import { hashes } from "./navigation.ts";
 import { splitProjectKey } from "./projectDirectory.ts";
+import { projectChatRevision } from "./projectChatUpdates.ts";
 import { ThreadInput } from "./ThreadInput.tsx";
 import { Button, LinkButton } from "./ui/Button.tsx";
 
@@ -20,17 +21,26 @@ export function ProjectChat({ projectKey }: { projectKey: string }) {
   const command = useRef(crypto.randomUUID());
   const sending = useRef(false);
   const fetching = useRef(false);
+  const reloadRequested = useRef(false);
+  const lastLoaded = useRef(0);
   const end = useRef<HTMLDivElement>(null);
   const active = !!chat && ["preparing", "queued", "starting", "running", "waiting"].includes(chat.status);
-  const load = useCallback(async () => {
-    if (fetching.current) return;
+  const load = useCallback(async (): Promise<void> => {
+    if (fetching.current) { reloadRequested.current = true; return; }
     fetching.current = true;
-    try { setChat(await call("GET /api/project-chat/:machine/:project", { params: { machine: machineId, project: projectId } })); setError(null); }
+    try { setChat(await call("GET /api/project-chat/:machine/:project", { params: { machine: machineId, project: projectId } })); setError(null); lastLoaded.current = Date.now(); }
     catch (e) { setError(e instanceof Error ? e.message : "No se pudo cargar el chat"); }
-    finally { fetching.current = false; }
+    finally { fetching.current = false; if (reloadRequested.current) { reloadRequested.current = false; void load(); } }
   }, [machineId, projectId]);
-  useEffect(() => { void load(); }, [load, view]);
-  useEffect(() => { if (!active) return; const timer = setInterval(() => { if (!document.hidden) void load(); }, 4000); return () => clearInterval(timer); }, [active, load]);
+  const revision = projectChatRevision(view, machineId, projectId);
+  useEffect(() => { void load(); }, [load, revision]);
+  useEffect(() => {
+    const visible = () => { if (!document.hidden) void load(); };
+    document.addEventListener("visibilitychange", visible);
+    // Keep streaming as responsive when the shell has no new frame; skip redundant reads after SSE.
+    const timer = active ? setInterval(() => { if (!document.hidden && Date.now() - lastLoaded.current >= 3500) void load(); }, 4000) : undefined;
+    return () => { clearInterval(timer); document.removeEventListener("visibilitychange", visible); };
+  }, [active, load]);
   useEffect(() => { end.current?.scrollIntoView({ block: "nearest" }); }, [chat?.messages.at(-1)?.id]);
   const act = async (run: () => Promise<unknown>) => {
     if (sending.current) return;

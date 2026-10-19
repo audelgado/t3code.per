@@ -35,7 +35,7 @@
  *   Ask({ project: string | null, onClose, autoDictate })   Overlay; renders its own Sheet
  *   ThreadSheet({ item: ThreadItem, view: HomeView, onClose })   Overlay; renders its own Sheet
  */
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { Agents } from "./Agents.tsx";
 import { Artifacts } from "./Artifacts.tsx";
 import { Assistant } from "./Assistant.tsx";
@@ -55,22 +55,9 @@ import { Work } from "./Work.tsx";
 import { Workflows } from "./Workflows.tsx";
 import { connect, useHash, useLive } from "./api.ts";
 import { homeThread } from "./homeQueueView.ts";
-import { isShortcutEditing, parseRoute, resolveShortcut } from "./navigation.ts";
+import { hashes, isShortcutEditing, parseRoute, resolveShortcut } from "./navigation.ts";
 import { syncPush } from "./push.ts";
 import { Toaster, toast } from "./ui/Toast.tsx";
-
-const openAsk = (dictate: boolean) => {
-  const route = parseRoute(location.hash);
-  if (route.page === "project" && route.tab === "chat") {
-    if (dictate) dispatchEvent(new Event("cc:project-dictate"));
-    else document.querySelector<HTMLTextAreaElement>('textarea[aria-label="Mensaje al orquestador"]')?.focus();
-    return;
-  }
-  const query = new URLSearchParams();
-  if (route.projectKey) query.set("project", route.projectKey);
-  if (dictate) query.set("dictate", "1");
-  location.hash = `#ask${query.size ? `?${query}` : ""}`;
-};
 
 export function App() {
   const hash = useHash();
@@ -78,6 +65,8 @@ export function App() {
   // The pair link is /pair#token=...; a pasted token lands on #pair.
   const pairing = location.pathname === "/pair" || hash.startsWith("#pair") || new URLSearchParams(hash.slice(1)).has("token");
   const [assistantOpen, setAssistantOpen] = useState(false);
+  const [assistantProject, setAssistantProject] = useState<string | null>(null);
+  const [inputRequest, setInputRequest] = useState<boolean | null>(null);
   const [helpOpen, setHelpOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
 
@@ -87,6 +76,24 @@ export function App() {
   if (!parsed.overlay) base.current = hash || "#home";
   const route = parsed.overlay ? parseRoute(base.current) : parsed;
   const closeOverlay = () => location.replace(base.current);
+
+  const openAsk = useCallback((dictate: boolean) => {
+    const route = parseRoute(location.hash);
+    if (route.page === "project" && route.projectKey) {
+      setInputRequest(dictate);
+      location.hash = hashes.project(route.projectKey, "chat");
+      return;
+    }
+    const query = new URLSearchParams();
+    if (dictate) query.set("dictate", "1");
+    location.hash = `#ask${query.size ? `?${query}` : ""}`;
+  }, []);
+  useEffect(() => {
+    if (inputRequest === null || route.page !== "project" || route.tab !== "chat") return;
+    if (inputRequest) dispatchEvent(new Event("cc:project-dictate"));
+    else document.querySelector<HTMLTextAreaElement>('textarea[aria-label="Mensaje al orquestador"]')?.focus();
+    setInputRequest(null);
+  }, [inputRequest, route.page, route.tab]);
 
   useEffect(connect, []);
   useEffect(() => {
@@ -129,7 +136,7 @@ export function App() {
       removeEventListener("blur", reset);
       removeEventListener("hashchange", reset);
     };
-  }, [authed, pairing]);
+  }, [authed, pairing, openAsk]);
 
   const overlay = parsed.overlay;
   const thread = overlay?.type === "thread" && view ? homeThread(view, overlay.key) : undefined;
@@ -162,14 +169,14 @@ export function App() {
 
   return (
     <>
-      <Shell onAssistant={() => setAssistantOpen(true)} page={route.page} view={view} onAsk={openAsk} onSearch={() => setSearchOpen(true)} onHelp={() => setHelpOpen(true)}>
+      <Shell onAssistant={() => { setAssistantProject(route.projectKey); setAssistantOpen(true); }} page={route.page} view={view} onAsk={openAsk} onSearch={() => setSearchOpen(true)} onHelp={() => setHelpOpen(true)}>
         {page}
       </Shell>
       {overlay?.type === "ask" && <NewRequest key={overlay.project ?? ""} project={overlay.project} autoDictate={overlay.dictate} onClose={closeOverlay} />}
       {thread && view && <ThreadSheet item={thread} view={view} onClose={closeOverlay} />}
       {searchOpen && <Search onClose={() => setSearchOpen(false)} />}
       {helpOpen && <KeyboardHelp onClose={() => setHelpOpen(false)} />}
-      <Assistant open={assistantOpen} onClose={() => setAssistantOpen(false)} />
+      <Assistant key={assistantProject ?? "global"} projectKey={assistantProject} open={assistantOpen} onClose={() => setAssistantOpen(false)} />
       <Toaster />
     </>
   );

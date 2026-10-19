@@ -340,6 +340,8 @@ export type NeedsYouItem =
   | { kind: "alert"; since: string; alert: Alert };
 
 export interface HomeView {
+  /** Invalidates the assistant display over the existing SSE connection. */
+  assistantVersion?: number;
   machines: MachineView[];
   needsYou: NeedsYouItem[];
   running: ThreadItem[];

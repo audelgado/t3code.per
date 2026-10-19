@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { assistantPrompt, parseAssistantReply, type AssistantContext } from "./assistant.ts";
+import { assistantPrompt, assistantState, parseAssistantReply, scopeAssistantContext, type AssistantContext } from "./assistant.ts";
 import type { Task } from "./types.ts";
 
 const task = (id: string, status: Task["status"]): Task => ({
@@ -30,4 +30,32 @@ test("assistant proposals reject invented IDs, arbitrary operations, completed t
   assert.equal(delegates.actions.length, 2);
   assert.equal(parseAssistantReply("invalid", context()), null);
   assert.equal(parseAssistantReply('{"actions":[]}', context()), null);
+});
+
+test("a project excludes unrelated work but preserves cross-project dependency states", () => {
+  const c = context();
+  c.tasks.push({ ...task("external", "failed"), projectId: "other", title: "UNRELATED_TITLE" });
+  c.tasks[1]!.dependsOn = ["external"];
+  c.projects.push({ ...c.projects[0]!, id: "other", title: "UNRELATED_PROJECT" });
+  const scoped = scopeAssistantContext(c, "pc:app");
+  const state = assistantState(scoped);
+  assert.equal(state.dependencies.find((d) => d.id === "external")?.status, "failed");
+  assert.match(state.tasks.find((t) => t.id === "queued")!.reason!, /falló/);
+  assert.doesNotMatch(JSON.stringify(state), /UNRELATED/);
+  const reply = parseAssistantReply(JSON.stringify({ answer: "Propuesta", actions: [{ type: "retry", taskId: "external" }] }), scoped);
+  assert.deepEqual(reply?.actions, []);
+});
+
+test("large installations send a bounded operational sample and retain accurate totals", () => {
+  const c = context();
+  c.projects = Array.from({ length: 150 }, (_, i) => ({ ...c.projects[0]!, id: `p${i}`, title: `Project ${i}` }));
+  c.tasks = Array.from({ length: 150 }, (_, i) => ({ ...task(`t${i}`, "queued"), projectId: `p${i}` }));
+  c.tasks[149]!.status = "needs_you";
+  const state = assistantState(c);
+  assert.equal(state.totals.projects, 150);
+  assert.equal(state.totals.activeTasks, 150);
+  assert.equal(state.tasks.length, 30);
+  assert.ok(state.projects.length <= 30);
+  assert.equal(state.tasks[0]?.id, "t149");
+  assert.ok(JSON.stringify(state).length < 18000);
 });
