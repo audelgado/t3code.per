@@ -13,7 +13,7 @@ const button = cva(
         danger: "border-line bg-panel text-fail hover:bg-fail-bg active:bg-fail-bg",
       },
       // Phone targets stay 40px; desktop is the denser 30px of the design.
-      size: { default: "h-10 px-4 text-sm md:h-[30px] md:px-3", sm: "h-9 px-3 text-sm md:h-[26px] md:px-2.5 md:text-xs", icon: "size-10 md:size-[30px]" },
+      size: { default: "h-10 px-4 text-sm md:h-[30px] md:px-3", sm: "h-9 px-3 text-sm md:h-[26px] md:px-2.5 md:text-xs", icon: "size-10 md:size-[30px]", composer: "size-[44px] rounded-full" },
     },
     defaultVariants: { variant: "outline", size: "default" },
   },

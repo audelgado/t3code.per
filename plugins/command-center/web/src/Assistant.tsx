@@ -99,9 +99,8 @@ export function Assistant({ open, onClose, projectKey }: { open: boolean; onClos
 
   if (!open) return null;
   return <Sheet title="Asistente CC" onClose={onClose} wide footer={<form id="cc-assistant-form" className="grid gap-2" onSubmit={(e) => { e.preventDefault(); if (!locked) void consult(text); }}>
-    <label className="grid gap-1 text-xs">Alcance<Select aria-label="Alcance del asistente" value={target} disabled={busy || listening} onChange={(e) => { setTarget(e.target.value); setError(null); }}><option value="">Todo el CC</option>{groups.map((g) => <optgroup key={g.machineId} label={g.machineLabel}>{g.projects.map((p) => <option key={p.id} value={`${g.machineId}:${p.id}`}>Este proyecto: {p.title} · {g.machineLabel}</option>)}</optgroup>)}</Select></label>
-    <DictationTextarea compact aria-label="Mensaje al asistente CC" placeholder="Escribe o dicta al asistente…" rows={2} className="min-h-16" value={text} maxLength={8000} onValueChange={setText} onListeningChange={setListening} disabled={locked || !chat} />
-    <div className="flex gap-2"><Button onClick={onClose}>Cerrar</Button><Button className="ml-auto" variant="primary" type="submit" disabled={locked || !chat || listening || !choice || !text.trim()}>Enviar</Button></div>
+    <label className="flex min-w-0 items-center gap-3 text-xs text-muted-fg">Alcance<Select className="min-w-0 flex-1" aria-label="Alcance del asistente" value={target} disabled={busy || listening} onChange={(e) => { setTarget(e.target.value); setError(null); }}><option value="">Todo el CC</option>{groups.map((g) => <optgroup key={g.machineId} label={g.machineLabel}>{g.projects.map((p) => <option key={p.id} value={`${g.machineId}:${p.id}`}>Este proyecto: {p.title} · {g.machineLabel}</option>)}</optgroup>)}</Select></label>
+    <DictationTextarea compact aria-label="Mensaje al asistente CC" placeholder="Escribe al asistente…" value={text} maxLength={8000} onValueChange={setText} onListeningChange={setListening} disabled={locked || !chat} send={{ busy, disabled: !choice, label: "Enviar al asistente" }} />
   </form>}>
     <div className="grid gap-4">
       {!chat && <p role="status" className="text-sm text-muted-fg">Cargando conversación…</p>}

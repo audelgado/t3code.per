@@ -154,9 +154,8 @@ function Thread({ item, view, onClose }: { item: ThreadItem; view: HomeView; onC
         {pending && detail?.inputAnswerable && pending.questions && <ThreadInput key={pending.id} draftScope={JSON.stringify([item.machineId, item.threadId, pending.id])} questions={pending.questions} busy={busy} onSubmit={(answers) => act("No se pudo enviar la respuesta", async () => { await api("POST /api/threads/:machine/:thread/answer", { params, body: { requestId: pending.id, answers } }); onClose(); })} />}
         {detail?.canMessage && <form className="grid gap-2" onSubmit={(e) => { e.preventDefault(); if (listening || busy || !message.trim()) return; void act("No se pudo enviar el mensaje", async () => { await api("POST /api/threads/:machine/:thread/message", { params, body: { text: message, commandId } }); clearSent(); onClose(); }); }}>
           <label className="font-semibold" htmlFor="thread-reply">Responder desde el CC</label>
-          <DictationTextarea id="thread-reply" placeholder="Escribe tu respuesta o la siguiente instrucción…" value={message} maxLength={20000} disabled={busy} onListeningChange={setListening} onValueChange={setMessage} />
+          <DictationTextarea compact id="thread-reply" placeholder="Escribe una respuesta…" value={message} maxLength={20000} disabled={busy} onListeningChange={setListening} onValueChange={setMessage} send={{ busy }} />
           <p className="text-xs text-muted-fg">Se envía a este mismo hilo en {machine}.</p>
-          <Button type="submit" variant="primary" disabled={busy || listening || !message.trim()}>Enviar mensaje</Button>
         </form>}
         {pending && detail && !detail.answerable && !detail.inputAnswerable && <p className="text-[13px] text-muted-fg">Esta solicitud requiere la interfaz de T3, por ejemplo para iniciar sesión o adjuntar archivos.</p>}
       </div>

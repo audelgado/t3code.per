@@ -66,7 +66,6 @@ function ProjectChatContent({ projectKey }: { projectKey: string }) {
       {!chat && !error && <p role="status" className="py-8 text-center text-sm text-muted-fg">Cargando la conversación…</p>}
       {chat && !chat.messages.length && <div className="py-8 text-center"><h2 className="text-lg font-semibold">¿Qué hacemos en este proyecto?</h2><p className="mx-auto mt-2 max-w-sm text-sm text-muted-fg">Escribe o dicta. El orquestador coordina los agentes y reúne sus avances en esta conversación.</p></div>}
       {chat && <ChatHistory messages={chat.messages} />}
-      {active && <p role="status" className="mt-4 text-sm text-muted-fg">El orquestador está trabajando. Puedes dejarle el próximo mensaje.</p>}
       <div ref={end} />
     </div>
     {pending && <div className="rounded-ctl border border-line p-3">
@@ -74,9 +73,8 @@ function ProjectChatContent({ projectKey }: { projectKey: string }) {
     </div>}
     {error && <p role="alert" className="text-sm text-fail">{error}</p>}
     {chat?.retry && <Button disabled={busy} onClick={() => void act(() => call("POST /api/project-chat/:machine/:project", { params, body: chat.retry! }))}>Reintentar envío pendiente</Button>}
-    <form className="sticky bottom-20 grid gap-2 rounded-card border border-line bg-panel p-3 md:bottom-3" onSubmit={(e) => { e.preventDefault(); if (listening || !text.trim()) return; void act(async () => { await call("POST /api/project-chat/:machine/:project", { params, body: { text, commandId } }); clearSent(); }); }}>
-      <DictationTextarea compact activateEvent={busy || pending || chat?.retry ? undefined : "cc:project-dictate"} aria-label="Mensaje al orquestador" placeholder="Escribe o dicta tu pedido…" rows={2} className="min-h-16" value={text} maxLength={20000} disabled={busy || !!pending || !!chat?.retry} onValueChange={setText} onListeningChange={setListening} />
-      <div className="flex justify-end gap-2">{active && chat?.threadId && <Button disabled={busy} onClick={() => { if (confirm(STOP_AGENT_CONFIRMATION)) void act(() => call("POST /api/threads/:machine/:thread/stop", { params: threadParams })); }}>Detener agente</Button>}<Button type="submit" variant="primary" disabled={busy || listening || !!pending || !!chat?.retry || !text.trim()}>{active ? "Enviar después" : "Enviar"}</Button></div>
+    <form className="sticky bottom-20 z-10 md:bottom-3" onSubmit={(e) => { e.preventDefault(); if (listening || !text.trim()) return; void act(async () => { await call("POST /api/project-chat/:machine/:project", { params, body: { text, commandId } }); clearSent(); }); }}>
+      <DictationTextarea compact activateEvent={busy || pending || chat?.retry ? undefined : "cc:project-dictate"} aria-label="Mensaje al orquestador" placeholder="Escribe un mensaje…" value={text} maxLength={20000} disabled={busy || !!pending || !!chat?.retry} onValueChange={setText} onListeningChange={setListening} send={{ busy, label: active ? "Enviar después del mensaje actual" : "Enviar mensaje" }} footer={active && chat?.threadId ? <div className="flex items-center gap-2 px-2"><p role="status" className="min-w-0 flex-1 text-xs text-muted-fg">El agente está trabajando. Tu mensaje se enviará después.</p><Button size="sm" variant="ghost" disabled={busy} onClick={() => { if (confirm(STOP_AGENT_CONFIRMATION)) void act(() => call("POST /api/threads/:machine/:thread/stop", { params: threadParams })); }}>Detener agente</Button></div> : undefined} />
     </form>
   </section>;
 }

@@ -12,9 +12,9 @@ export const Input = ({ className, autoFocus, name, autoComplete = "off", ...p }
   const label = useContext(FieldName);
   return <input className={cn(field, className)} name={name ?? fieldName(p["aria-label"] ?? label) ?? p.id} autoComplete={autoComplete} autoFocus={desktopFocus(autoFocus)} {...p} />;
 };
-export const Textarea = ({ className, autoFocus, name, autoComplete = "off", ...p }: ComponentProps<"textarea">) => {
+export const Textarea = ({ className, autoFocus, name, autoComplete = "off", variant = "default", ...p }: ComponentProps<"textarea"> & { variant?: "default" | "composer" }) => {
   const label = useContext(FieldName);
-  return <textarea className={cn(field, "min-h-28 resize-y", className)} name={name ?? fieldName(p["aria-label"] ?? label) ?? p.id} autoComplete={autoComplete} autoFocus={desktopFocus(autoFocus)} {...p} />;
+  return <textarea className={cn(variant === "composer" ? "min-h-[44px] w-full min-w-0 resize-none border-0 bg-transparent px-2 py-2.5 leading-6 text-fg placeholder:text-muted-fg focus-visible:outline-none" : `${field} min-h-28 resize-y`, className)} name={name ?? fieldName(p["aria-label"] ?? label) ?? p.id} autoComplete={autoComplete} autoFocus={desktopFocus(autoFocus)} {...p} />;
 };
 export const Select = ({ className, name, autoComplete = "off", ...p }: ComponentProps<"select">) => {
   const label = useContext(FieldName);
