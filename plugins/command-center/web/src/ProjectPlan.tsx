@@ -1,4 +1,4 @@
-import { useCollectionState } from "./collectionHooks.ts";
+import { clearCollectionDraft, useCollectionDraft, useCollectionState } from "./collectionHooks.ts";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { MemoryEntry, MemoryPage } from "../../server/memory.ts";
 import type { Artifact } from "../../server/artifacts.ts";
@@ -25,8 +25,10 @@ export function ProjectPlan({ projectKey, store, compact = false, onChanged }: {
   const [docs, setDocs] = useState<Artifact[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const [draft, setDraft] = useState("");
-  const [draftSection, setDraftSection] = useState("");
+  const [pendingDraft, setPendingDraft] = useCollectionDraft(`plan.${projectKey}`, { text: "", section: "" });
+  const { text: draft, section: draftSection } = pendingDraft;
+  const setDraft = (text: string) => setPendingDraft((current) => ({ ...current, text }));
+  const setDraftSection = (section: string) => setPendingDraft((current) => ({ ...current, section }));
   const [update, setUpdate] = useState<string | null>(null);
   const [filter, setFilter] = useCollectionState("plan.filter", "open", (v) => ["open", "done", "all"].includes(v));
   const [query, setQuery] = useCollectionState("plan.query", "");
@@ -62,7 +64,7 @@ export function ProjectPlan({ projectKey, store, compact = false, onChanged }: {
     } catch (e) { if (n === seq.current) setError(message(e)); }
   }, [projectId, done, compact]);
   useEffect(() => {
-    setTodos(null); setProgress(null); setDocs([]); setDraft(""); setUpdate(null); setDraftSection("");
+    setTodos(null); setProgress(null); setDocs([]); setUpdate(null);
   }, [projectId]);
   useEffect(() => {
     void load();
@@ -102,9 +104,9 @@ export function ProjectPlan({ projectKey, store, compact = false, onChanged }: {
     <Panel title="Pendientes" count={todos && !todos.hasMore ? matches.length : undefined} action={!compact ? <Button size="sm" disabled={busy} onClick={() => void load()}>Actualizar</Button> : undefined}>
       {!compact && <div className="grid gap-3 px-4 py-3">
         <p className="text-xs text-muted-fg">Marcar hecho registra el resultado. No ejecuta agentes; puedes reabrirlo desmarcando.</p>
-        <form className="grid gap-2" onSubmit={(e) => { e.preventDefault(); void act(async () => { await call("POST /api/memory", { body: { projectId, kind: "todo", text: draft, sectionId: draftSection || null } }); setDraft(""); }); }}>
-          <Input aria-label="Nuevo pendiente" placeholder="Resultado concreto que falta y cómo validarlo…" maxLength={20000} value={draft} onChange={(e) => setDraft(e.target.value)} />
-          <div className="flex gap-2"><Select aria-label="Fase del nuevo pendiente" value={draftSection} onChange={(e) => setDraftSection(e.target.value)}><option value="">Sin fase</option>{milestones.sections.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}</Select><Button type="submit" variant="primary" disabled={busy || !draft.trim()}>Agregar</Button></div>
+        <form className="grid gap-2" onSubmit={(e) => { e.preventDefault(); if (busy) return; void act(async () => { await call("POST /api/memory", { body: { projectId, kind: "todo", text: draft, sectionId: draftSection || null } }); setPendingDraft({ text: "", section: "" }); clearCollectionDraft(`plan.${projectKey}`); }); }}>
+          <Input disabled={busy} aria-label="Nuevo pendiente" placeholder="Resultado concreto que falta y cómo validarlo…" maxLength={20000} value={draft} onChange={(e) => setDraft(e.target.value)} />
+          <div className="flex gap-2"><Select disabled={busy} aria-label="Fase del nuevo pendiente" value={draftSection} onChange={(e) => setDraftSection(e.target.value)}><option value="">Sin fase</option>{milestones.sections.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}</Select><Button type="submit" variant="primary" disabled={busy || !draft.trim()}>Agregar</Button></div>
         </form>
         <div className="grid gap-2 sm:grid-cols-3">
           <Select aria-label="Estado de pendientes" value={filter} onChange={(e) => { setFilter(e.target.value); setPage(1, true); }}><option value="open">Pendientes</option><option value="done">Hechos</option><option value="all">Todos</option></Select>

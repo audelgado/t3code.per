@@ -1,3 +1,4 @@
+import { collectCollectionPages, needsCollectionPage } from "./collectionPages.ts";
 import { useCollectionDraft, useCollectionState } from "./collectionHooks.ts";
 import { paginateCollection } from "./pagination.ts";
 import { Pager } from "./ui/Pager.tsx";
@@ -61,11 +62,15 @@ export function Memory({ projectKey }: { projectKey?: string }) {
   const [todos, setTodos] = useState<MemoryEntry[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const [draft, setDraft] = useCollectionDraft<{ kind: MemoryKind; text: string } | null>(`memory.${projectKey ?? project}`, null);
+  const [draft, setDraft] = useCollectionDraft<{ kind: MemoryKind; text: string } | null>(`memory.${projectKey ?? project}`, null, (value) => value === null || (typeof value === "object" && value !== null && "kind" in value && kinds.includes(value.kind as MemoryKind) && "text" in value && typeof value.text === "string"));
   const cancelDraft = () => {
     if (!busy && (!draft || confirm("¿Descartar el borrador sin guardar?"))) setDraft(null);
   };
   const seq = useRef(0);
+  const cached = useRef({ items: [] as MemoryEntry[], hasMore: false });
+  const inFlight = useRef(false);
+  const requestedPage = useRef(pageNumber);
+  requestedPage.current = pageNumber;
 
   useEffect(() => {
     const id = setTimeout(() => setQuery(search.trim()), 250);
@@ -73,36 +78,43 @@ export function Memory({ projectKey }: { projectKey?: string }) {
   }, [search]);
 
   const scope = { projectId: project === "all" ? undefined : project === "none" ? null : project };
-  const load = async (after?: MemoryEntry) => {
+  const load = async (after?: MemoryEntry, advance = true) => {
     const n = ++seq.current; // a slower, older response must not overwrite a newer filter
+    inFlight.current = true;
     setLoading(true);
     try {
-      let [page, open] = await Promise.all([
+      const [page, open] = await Promise.all([
         call("POST /api/memory/list", {
           body: { ...scope, kind: kind === "all" ? undefined : kind, query: query || undefined, limit: PAGE, before: after?.id, beforeCreatedAt: after?.createdAt },
         }),
         after ? null : call("POST /api/memory/list", { body: { ...scope, kind: "todo", done: false, query: query || undefined, limit: 50 } }),
       ]);
       if (n !== seq.current) return;
-      const loaded = [...page.entries];
-      while (!after && page.hasMore && loaded.length < pageNumber * PAGE) {
-        const last = loaded.at(-1);
-        if (!last) break;
-        page = await call("POST /api/memory/list", { body: { ...scope, kind: kind === "all" ? undefined : kind, query: query || undefined, limit: PAGE, before: last.id, beforeCreatedAt: last.createdAt } });
-        if (n !== seq.current) return;
-        if (!page.entries.length) break;
-        loaded.push(...page.entries);
-      }
-      setEntries((prev) => (after && prev ? [...prev, ...loaded] : loaded));
-      if (after) setPageNumber((p) => p + 1);
-      setMore(page.hasMore);
+      const loaded = await collectCollectionPages(
+        after ? cached.current.items : [],
+        { items: page.entries, hasMore: page.hasMore },
+        () => (after && advance ? 0 : requestedPage.current * PAGE),
+        async (last) => { const next = await call("POST /api/memory/list", { body: { ...scope, kind: kind === "all" ? undefined : kind, query: query || undefined, limit: PAGE, before: last.id, beforeCreatedAt: last.createdAt } }); return { items: next.entries, hasMore: next.hasMore }; },
+        () => n === seq.current,
+      );
+      if (n !== seq.current) return;
+      cached.current = loaded;
+      setEntries(loaded.items);
+      if (after && advance) setPageNumber((p) => p + 1);
+      setMore(loaded.hasMore);
       if (open) setTodos(open.entries);
       setError(null);
     } catch (e) {
       if (n === seq.current) setError(message(e));
-    } finally { if (n === seq.current) setLoading(false); }
+    } finally { if (n === seq.current) { inFlight.current = false; setLoading(false); } }
   };
-  useEffect(() => { void load(); return () => { seq.current++; }; }, [project, kind, query]);
+  useEffect(() => { cached.current = { items: [], hasMore: false }; void load(); return () => { seq.current++; }; }, [project, kind, query]);
+  useEffect(() => {
+    const cache = cached.current;
+    if (!inFlight.current && needsCollectionPage(cache.items.length, cache.hasMore, pageNumber, PAGE)) {
+      void load(cache.items.at(-1), false);
+    }
+  }, [pageNumber]);
 
   const act = async (fn: () => Promise<unknown>) => {
     setBusy(true);

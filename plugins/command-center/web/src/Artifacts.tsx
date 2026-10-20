@@ -1,3 +1,4 @@
+import { collectCollectionPages, needsCollectionPage } from "./collectionPages.ts";
 import { useCollectionDraft, useCollectionState } from "./collectionHooks.ts";
 import { paginateCollection } from "./pagination.ts";
 import { Pager } from "./ui/Pager.tsx";
@@ -66,12 +67,16 @@ export function Artifacts({ projectKey }: { projectKey?: string }) {
   const [more, setMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const [draft, setDraft] = useCollectionDraft<{ title: string; content: string } | null>(`artifacts.${projectKey ?? project}`, null);
+  const [draft, setDraft] = useCollectionDraft<{ title: string; content: string } | null>(`artifacts.${projectKey ?? project}`, null, (value) => value === null || (typeof value === "object" && value !== null && "title" in value && typeof value.title === "string" && "content" in value && typeof value.content === "string"));
   const [open, setOpen] = useCollectionState<string | null>("artifacts.open", null);
   const cancelDraft = () => {
     if (!busy && (!draft || confirm("¿Descartar el borrador sin guardar?"))) setDraft(null);
   };
   const seq = useRef(0);
+  const cached = useRef({ items: [] as Artifact[], hasMore: false });
+  const inFlight = useRef(false);
+  const requestedPage = useRef(pageNumber);
+  requestedPage.current = pageNumber;
   const [, setVersion] = useCollectionState("artifacts.version", "");
   const select = (id: string) => { setVersion(""); setOpen(id); };
   const close = useCallback(() => { setOpen(null); setVersion(""); }, [setOpen, setVersion]); // stable, so the sheet keeps its focus across reloads
@@ -82,32 +87,39 @@ export function Artifacts({ projectKey }: { projectKey?: string }) {
   }, [search]);
 
   const projectId = project === "all" ? undefined : project === "none" ? null : project;
-  const load = async (after?: Artifact) => {
+  const load = async (after?: Artifact, advance = true) => {
     const n = ++seq.current; // a slower, older response must not overwrite a newer filter
+    inFlight.current = true;
     setLoading(true);
     try {
-      let page = await call("POST /api/artifacts/list", {
+      const page = await call("POST /api/artifacts/list", {
         body: { projectId, archived, query: query || undefined, limit: PAGE, before: after?.id, beforeUpdatedAt: after?.updatedAt },
       });
       if (n !== seq.current) return;
-      const loaded = [...page.artifacts];
-      while (!after && page.hasMore && loaded.length < pageNumber * PAGE) {
-        const last = loaded.at(-1);
-        if (!last) break;
-        page = await call("POST /api/artifacts/list", { body: { projectId, archived, query: query || undefined, limit: PAGE, before: last.id, beforeUpdatedAt: last.updatedAt } });
-        if (n !== seq.current) return;
-        if (!page.artifacts.length) break;
-        loaded.push(...page.artifacts);
-      }
-      setRows((prev) => (after && prev ? [...prev, ...loaded] : loaded));
-      if (after) setPageNumber((p) => p + 1);
-      setMore(page.hasMore);
+      const loaded = await collectCollectionPages(
+        after ? cached.current.items : [],
+        { items: page.artifacts, hasMore: page.hasMore },
+        () => (after && advance ? 0 : requestedPage.current * PAGE),
+        async (last) => { const next = await call("POST /api/artifacts/list", { body: { projectId, archived, query: query || undefined, limit: PAGE, before: last.id, beforeUpdatedAt: last.updatedAt } }); return { items: next.artifacts, hasMore: next.hasMore }; },
+        () => n === seq.current,
+      );
+      if (n !== seq.current) return;
+      cached.current = loaded;
+      setRows(loaded.items);
+      if (after && advance) setPageNumber((p) => p + 1);
+      setMore(loaded.hasMore);
       setError(null);
     } catch (e) {
       if (n === seq.current) setError(message(e));
-    } finally { if (n === seq.current) setLoading(false); }
+    } finally { if (n === seq.current) { inFlight.current = false; setLoading(false); } }
   };
-  useEffect(() => { void load(); return () => { seq.current++; }; }, [project, archived, query]);
+  useEffect(() => { cached.current = { items: [], hasMore: false }; void load(); return () => { seq.current++; }; }, [project, archived, query]);
+  useEffect(() => {
+    const cache = cached.current;
+    if (!inFlight.current && needsCollectionPage(cache.items.length, cache.hasMore, pageNumber, PAGE)) {
+      void load(cache.items.at(-1), false);
+    }
+  }, [pageNumber]);
 
   const tooBig = draft !== null && new TextEncoder().encode(draft.content).length > MAX_BYTES;
   const save = async () => {

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type SetStateAction } from "react";
 import { collectionHash, readCollectionState } from "./collectionState.ts";
+import { collectionDrafts } from "./collectionDrafts.ts";
 
 /** History updates keep the route and mounted form intact; hashchange also updates the app overlay return address. */
 export function useCollectionState<T>(key: string, fallback: T, accept?: (value: T) => boolean) {
@@ -31,24 +32,22 @@ export function useCollectionState<T>(key: string, fallback: T, accept?: (value:
 }
 
 /** Session-only drafts survive navigation/reload. Storage failures leave the form usable. */
-export function useCollectionDraft<T>(key: string, initial: T) {
-  const storageKey = `cc.draft.${key}`;
-  const read = () => {
-    try { const saved = sessionStorage.getItem(storageKey); return saved === null ? initial : JSON.parse(saved) as T; }
-    catch { return initial; }
-  };
-  const [value, setValue] = useState<T>(read);
+export function useCollectionDraft<T>(key: string, initial: T, accept?: (value: unknown) => boolean) {
+  const [state, setState] = useState(() => ({ key, value: collectionDrafts.read(key, initial, accept) }));
+  // Cambiar de proyecto restaura su borrador en el mismo render, antes de aceptar ediciones.
+  const value = state.key === key ? state.value : collectionDrafts.read(key, initial, accept);
   const current = useRef(value);
-  useEffect(() => { const next = read(); current.current = next; setValue(next); }, [storageKey]);
+  current.current = value;
+  if (state.key !== key) setState({ key, value });
   const set = useCallback((action: SetStateAction<T>) => {
     const next = typeof action === "function" ? (action as (prev: T) => T)(current.current) : action;
     current.current = next;
-    setValue(next);
-    try { if (next === null) sessionStorage.removeItem(storageKey); else sessionStorage.setItem(storageKey, JSON.stringify(next)); } catch { /* Storage can be unavailable. */ }
-  }, [storageKey]);
+    setState({ key, value: next });
+    collectionDrafts.write(key, next);
+  }, [key]);
   return [value, set] as const;
 }
 
 export function clearCollectionDraft(key: string) {
-  try { sessionStorage.removeItem(`cc.draft.${key}`); } catch { /* Storage can be unavailable. */ }
+  collectionDrafts.clear(key);
 }
