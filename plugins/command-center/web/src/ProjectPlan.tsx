@@ -1,3 +1,4 @@
+import { useCollectionState } from "./collectionHooks.ts";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { MemoryEntry, MemoryPage } from "../../server/memory.ts";
 import type { Artifact } from "../../server/artifacts.ts";
@@ -27,14 +28,17 @@ export function ProjectPlan({ projectKey, store, compact = false, onChanged }: {
   const [draft, setDraft] = useState("");
   const [draftSection, setDraftSection] = useState("");
   const [update, setUpdate] = useState<string | null>(null);
-  const [filter, setFilter] = useState("open");
-  const [query, setQuery] = useState("");
-  const [section, setSection] = useState("");
-  const [page, setPage] = useState(1);
+  const [filter, setFilter] = useCollectionState("plan.filter", "open", (v) => ["open", "done", "all"].includes(v));
+  const [query, setQuery] = useCollectionState("plan.query", "");
+  const [section, setSection] = useCollectionState("plan.section", "");
+  const [page, setPage] = useCollectionState("plan.page", 1);
   const [expanded, setExpanded] = useState(false);
   const seq = useRef(0);
   const done = compact || filter === "open" ? false : filter === "done" ? true : undefined;
+  const target = useRef({ page, filter, query, section });
+  target.current = { page, filter, query, section };
   const load = useCallback(async () => {
+    const requested = target.current;
     const n = ++seq.current;
     try {
       const [checklist, state, documents] = await Promise.all([
@@ -43,11 +47,22 @@ export function ProjectPlan({ projectKey, store, compact = false, onChanged }: {
         call("POST /api/artifacts/list", { body: { projectId, archived: false, query: "PRD", limit: 10 } }),
       ]);
       if (n !== seq.current) return;
-      setTodos(checklist); setProgress(state.entries[0] ?? null); setDocs(documents.artifacts); setError(null);
+      const entries = [...checklist.entries];
+      let hasMore = checklist.hasMore;
+      while (!compact && hasMore && planTodos(entries, projectId, requested.filter, requested.query, requested.section).length < requested.page * 10) {
+        const last = entries.at(-1);
+        if (!last) break;
+        const next = await call("POST /api/memory/list", { body: { projectId, kind: "todo", done, limit: 100, before: last.id, beforeCreatedAt: last.createdAt } });
+        if (n !== seq.current) return;
+        hasMore = next.hasMore;
+        if (!next.entries.length) break;
+        entries.push(...next.entries);
+      }
+      setTodos({ entries, hasMore }); setProgress(state.entries[0] ?? null); setDocs(documents.artifacts); setError(null);
     } catch (e) { if (n === seq.current) setError(message(e)); }
-  }, [projectId, done]);
+  }, [projectId, done, compact]);
   useEffect(() => {
-    setTodos(null); setProgress(null); setDocs([]); setDraft(""); setUpdate(null); setPage(1); setSection(""); setDraftSection("");
+    setTodos(null); setProgress(null); setDocs([]); setDraft(""); setUpdate(null); setDraftSection("");
   }, [projectId]);
   useEffect(() => {
     void load();
@@ -60,7 +75,6 @@ export function ProjectPlan({ projectKey, store, compact = false, onChanged }: {
   const milestones = planMilestones(store.sections ?? [], projectId);
   const matches = planTodos(todos?.entries ?? [], projectId, compact ? "open" : filter, compact ? "" : query, compact ? "" : section);
   const pagination = paginateCollection(matches, page, compact ? 5 : 10);
-  useEffect(() => setPage(pagination.page), [pagination.page]);
 
   return <div className="grid min-w-0 gap-4">
     {!compact && <ProjectAuditPanel projectKey={projectKey} onApplied={() => { void load(); store.reload(); onChanged?.(); }} />}
@@ -68,7 +82,7 @@ export function ProjectPlan({ projectKey, store, compact = false, onChanged }: {
     <Panel title="Dónde estamos" action={compact ? <LinkButton size="sm" href={hashes.project(projectKey, "plan")}>Ver plan y pendientes</LinkButton> : <Button size="sm" disabled={busy} onClick={() => setUpdate(progress?.text ?? "")}>Actualizar avance</Button>}>
       <div className="grid gap-2 px-4 py-3">
         {progress ? <><p className={cn("break-words whitespace-pre-wrap", (compact || !expanded) && "line-clamp-4")}>{progress.text}</p>{!compact && <Button size="sm" className="justify-self-start" aria-expanded={expanded} onClick={() => setExpanded(!expanded)}>{expanded ? "Ver menos" : "Ver avance completo"}</Button>}<p className="text-xs text-muted-fg">Último registro {ago(progress.updatedAt)} · {progress.source === "user" ? "tú" : "agente"}</p></>
-          : <p className="text-muted-fg">Registrá el objetivo, el alcance entregado y el próximo paso. Un chat terminado no cierra el proyecto.</p>}
+          : <p className="text-muted-fg">Registra el objetivo, el alcance entregado y el próximo paso. Un chat terminado no cierra el proyecto.</p>}
         <p className="text-xs text-muted-fg">{todos ? `${todos.entries.length}${todos.hasMore ? "+" : ""} registros en esta vista` : "Cargando pendientes…"} · {store.sections ? `${milestones.done} de ${milestones.sections.length} fases cerradas` : "Cargando fases…"}</p>
         {!compact && <p className="text-xs text-muted-fg">El avance es el último registro guardado. Usa Revisar y organizar para actualizarlo desde la evidencia del proyecto.</p>}
       </div>
@@ -93,14 +107,14 @@ export function ProjectPlan({ projectKey, store, compact = false, onChanged }: {
           <div className="flex gap-2"><Select aria-label="Fase del nuevo pendiente" value={draftSection} onChange={(e) => setDraftSection(e.target.value)}><option value="">Sin fase</option>{milestones.sections.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}</Select><Button type="submit" variant="primary" disabled={busy || !draft.trim()}>Agregar</Button></div>
         </form>
         <div className="grid gap-2 sm:grid-cols-3">
-          <Select aria-label="Estado de pendientes" value={filter} onChange={(e) => { setFilter(e.target.value); setPage(1); }}><option value="open">Pendientes</option><option value="done">Hechos</option><option value="all">Todos</option></Select>
-          <Select aria-label="Filtrar pendientes por fase" value={section} onChange={(e) => { setSection(e.target.value); setPage(1); }}><option value="">Todas las fases</option><option value="none">Sin fase</option>{milestones.sections.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}</Select>
-          <Input type="search" aria-label="Buscar pendientes" placeholder="Buscar pendiente…" value={query} onChange={(e) => { setQuery(e.target.value); setPage(1); }} />
+          <Select aria-label="Estado de pendientes" value={filter} onChange={(e) => { setFilter(e.target.value); setPage(1, true); }}><option value="open">Pendientes</option><option value="done">Hechos</option><option value="all">Todos</option></Select>
+          <Select aria-label="Filtrar pendientes por fase" value={section} onChange={(e) => { setSection(e.target.value); setPage(1, true); }}><option value="">Todas las fases</option><option value="none">Sin fase</option>{milestones.sections.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}</Select>
+          <Input type="search" aria-label="Buscar pendientes" placeholder="Buscar pendiente…" value={query} onChange={(e) => { setQuery(e.target.value); setPage(1, true); }} />
         </div>
       </div>}
-      {!todos ? <p className="px-4 py-3 text-muted-fg">{error ? "No se pudo cargar el plan." : "Cargando…"}</p> : !matches.length ? <p className="px-4 py-3 text-muted-fg">{filter === "open" ? "Sin pendientes registrados en esta vista. Comprobá el PRD antes de dar el proyecto por terminado." : "No hay pendientes que coincidan."}</p> : pagination.items.map((todo) => <div key={todo.id} className="flex items-start gap-3 px-4 py-3">
-        <input className="mt-1 size-5 shrink-0 accent-primary" type="checkbox" checked={todo.done} disabled={busy} aria-label={`Hecho: ${todo.text}`} onChange={() => void act(() => call("POST /api/memory/:id/done", { params: { id: todo.id }, body: { done: !todo.done } }))} />
-        <div className="grid min-w-0 gap-1"><p className={cn("break-words whitespace-pre-wrap", todo.done && "text-muted-fg line-through")}>{todo.text}</p>{todo.sectionId && <span className="text-xs text-muted-fg">{store.names.get(todo.sectionId) ?? "Fase archivada"}</span>}</div>
+      {!todos ? <p className="px-4 py-3 text-muted-fg">{error ? "No se pudo cargar el plan." : "Cargando…"}</p> : !matches.length ? <p className="px-4 py-3 text-muted-fg">{filter === "open" ? "Sin pendientes registrados en esta vista. Comprueba el PRD antes de dar el proyecto por terminado." : "No hay pendientes que coincidan."}</p> : pagination.items.map((todo) => <div key={todo.id} className="flex items-start gap-3 px-4 py-3">
+        <input id={`plan-todo-${todo.id}`} className="mt-1 size-5 shrink-0 accent-primary" type="checkbox" checked={todo.done} disabled={busy} aria-label={`Hecho: ${todo.text}`} onChange={() => void act(() => call("POST /api/memory/:id/done", { params: { id: todo.id }, body: { done: !todo.done } }))} />
+        <div className="grid min-w-0 gap-1"><label htmlFor={`plan-todo-${todo.id}`} className={cn("cursor-pointer break-words whitespace-pre-wrap", todo.done && "text-muted-fg line-through")}>{todo.text}</label>{todo.sectionId && <span className="text-xs text-muted-fg">{store.names.get(todo.sectionId) ?? "Fase archivada"}</span>}</div>
       </div>)}
       {compact && matches.length > 5 && <a className="block px-4 py-3 text-primary" href={hashes.project(projectKey, "plan")}>Ver todos los pendientes</a>}
     </Panel>

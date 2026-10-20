@@ -1,3 +1,4 @@
+import { useCollectionState } from "./collectionHooks.ts";
 import { ArrowDown, ArrowUp, ChevronDown, ChevronRight, Pin, PinOff, Plus, Settings2, Trash2 } from "lucide-react";
 import { useEffect, useMemo, useState, type CSSProperties } from "react";
 import type { MachineProjects } from "../../server/types.ts";
@@ -42,12 +43,13 @@ export function Projects({ projectKey, tab }: { projectKey: string | null; tab: 
   const [error, setError] = useState<string | null>(null);
   const [managing, setManaging] = useState(false);
   const [newGroup, setNewGroup] = useState("");
-  const [filters, setFilters] = useState<ProjectFilters>({ query: "", machineId: "", status: "all" });
-  const [page, setPage] = useState(1);
-  const [size, setSize] = useState(10);
+  const [filters, setFilters] = useCollectionState<ProjectFilters>("projects.filters", { query: "", machineId: "", status: "all" }, (f) => ["all", "online", "offline"].includes(f.status));
+  const [page, setPage] = useCollectionState("projects.page", 1);
+  const [sort, setSort] = useCollectionState<ProjectSort | null>("projects.sort", null, (v) => v === null || sorts.some(([id]) => id === v));
+  const [size, setSize] = useCollectionState("projects.size", 10, (n) => [10, 20, 50].includes(n));
   const filter = (patch: Partial<ProjectFilters>) => {
     setFilters((value) => ({ ...value, ...patch }));
-    setPage(1);
+    setPage(1, true);
   };
 
   useEffect(() => {
@@ -69,11 +71,7 @@ export function Projects({ projectKey, tab }: { projectKey: string | null; tab: 
 
   const entries = useMemo<ProjectEntry[]>(() => projectEntries(machines ?? [], view), [machines, view]);
 
-  const directory = settings ? projectDirectory(entries, settings, filters, page, size) : null;
-  const currentPage = directory?.pagination.page ?? 1;
-  useEffect(() => {
-    setPage(currentPage);
-  }, [currentPage]);
+  const directory = settings ? projectDirectory(entries, { ...settings, sort: sort ?? settings.sort }, filters, page, size) : null;
 
   if (!settings || !machines || !directory) return error ? <p role="alert" className="text-fail">{error}</p> : <p className="text-muted-fg">Cargando…</p>;
 
@@ -97,7 +95,7 @@ export function Projects({ projectKey, tab }: { projectKey: string | null; tab: 
     save({ groupOf });
   };
   const toggleCollapsed = (id: string) => {
-    setPage(1);
+    setPage(1, true);
     save({ collapsed: settings.collapsed.includes(id) ? settings.collapsed.filter((c) => c !== id) : [...settings.collapsed, id] });
   };
   const addGroup = () => {
@@ -111,7 +109,9 @@ export function Projects({ projectKey, tab }: { projectKey: string | null; tab: 
     if (n && n !== settings.groups.find((g) => g.id === id)?.name) save({ groups: settings.groups.map((g) => (g.id === id ? { ...g, name: n } : g)) });
   };
   // Deleting a group only ungroups its projects; the server drops their dangling entries.
-  const removeGroup = (id: string) => save({ groups: settings.groups.filter((g) => g.id !== id) });
+  const removeGroup = (id: string) => {
+    if (confirm("¿Eliminar este grupo? Sus proyectos quedarán sin grupo.")) save({ groups: settings.groups.filter((g) => g.id !== id) });
+  };
   const move = (items: ProjectEntry[], key: string, dir: -1 | 1) =>
     save({ order: moveProject(settings.order, items.map((e) => e.key), key, dir) });
 
@@ -126,14 +126,14 @@ export function Projects({ projectKey, tab }: { projectKey: string | null; tab: 
         <Select className="md:w-auto" aria-label="Filtrar proyectos por estado" value={filters.status} onChange={(e) => filter({ status: e.target.value as ProjectFilters["status"] })}>
           <option value="all">Todos los estados</option><option value="online">En línea</option><option value="offline">Sin conexión</option>
         </Select>
-        <Select className="md:w-auto" aria-label="Orden de los proyectos" value={settings.sort} onChange={(e) => { setPage(1); save({ sort: e.target.value as ProjectSort }); }}>
+        <Select className="md:w-auto" aria-label="Orden de los proyectos" value={sort ?? settings.sort} onChange={(e) => { setSort(e.target.value as ProjectSort); setPage(1, true); save({ sort: e.target.value as ProjectSort }); }}>
           {sorts.map(([v, l]) => (
             <option key={v} value={v}>
               {l}
             </option>
           ))}
         </Select>
-        <Select className="md:w-auto" aria-label="Proyectos por página" value={size} onChange={(e) => { setSize(Number(e.target.value)); setPage(1); }}>
+        <Select className="md:w-auto" aria-label="Proyectos por página" value={size} onChange={(e) => { setSize(Number(e.target.value)); setPage(1, true); }}>
           {[10, 20, 50].map((n) => <option key={n} value={n}>{n} por página</option>)}
         </Select>
         <span className="hidden flex-1 md:block" />
@@ -171,7 +171,7 @@ export function Projects({ projectKey, tab }: { projectKey: string | null; tab: 
               </Button>
             </form>
           )}
-          <p className="text-xs text-muted-fg">Asigná el grupo y el orden desde cada proyecto. Para reordenar elige el orden manual.</p>
+          <p className="text-xs text-muted-fg">Asigna el grupo y el orden desde cada proyecto. Para reordenar elige el orden manual.</p>
         </Card>
       )}
 

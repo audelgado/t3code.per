@@ -1,3 +1,4 @@
+import { useCollectionState } from "./collectionHooks.ts";
 import { WifiOff } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import type { LinkStatus } from "../../server/types.ts";
@@ -119,8 +120,8 @@ export function Work({ taskId }: { taskId: string | null }) {
   const { machines: work, error } = useWork();
   const titles = useProjectTitles();
   const phone = useIsPhone();
-  const [filters, setFilters] = useState<WorkFilters>(NO_FILTERS);
-  const [page, setPage] = useState(1);
+  const [filters, setFilters] = useCollectionState<WorkFilters>("work.filters", NO_FILTERS, (f) => ["all", "need", "run", "queue", "done"].includes(f.tab));
+  const [page, setPage] = useCollectionState("work.page", 1);
   const [selected, setSelected] = useState<string | null>(taskId ? `task:${taskId}` : null);
   useEffect(() => setSelected(taskId ? `task:${taskId}` : null), [taskId]);
 
@@ -136,7 +137,7 @@ export function Work({ taskId }: { taskId: string | null }) {
 
   const set = (patch: Partial<WorkFilters>) => {
     setFilters((f) => ({ ...f, ...patch }));
-    setPage(1);
+    setPage(1, true);
   };
   const found = searchWork(entries, filters);
   const counts = tabCounts(found);
@@ -150,7 +151,12 @@ export function Work({ taskId }: { taskId: string | null }) {
   // Also drops `?task=` from the hash, or opening the same task again by link would not change it.
   const close = () => {
     setSelected(null);
-    if (taskId) location.replace(hashes.page("work"));
+    if (taskId) {
+      const [path, query] = location.hash.split("?");
+      const params = new URLSearchParams(query);
+      params.delete("task");
+      location.replace(path + (params.size ? `?${params}` : ""));
+    }
   };
   const select = (e: WorkEntry) => setSelected(e.key === selected ? null : e.key);
 
@@ -179,7 +185,7 @@ export function Work({ taskId }: { taskId: string | null }) {
         <div className="min-w-0 flex-1">
           {groups.length === 0 && (
             <div className="p-4">
-              <EmptyState action={filters.query || filters.projectKey || filters.machineId || filters.tab !== "all" ? <Button size="sm" onClick={() => { setFilters(NO_FILTERS); setPage(1); }}>Limpiar filtros</Button> : undefined}>
+              <EmptyState action={filters.query || filters.projectKey || filters.machineId || filters.tab !== "all" ? <Button size="sm" onClick={() => { setFilters(NO_FILTERS); setPage(1, true); }}>Limpiar filtros</Button> : undefined}>
                 {work === null && !error ? "Cargando…" : "Sin elementos"}
               </EmptyState>
             </div>

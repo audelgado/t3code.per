@@ -1,3 +1,6 @@
+import { useCollectionDraft, useCollectionState } from "./collectionHooks.ts";
+import { paginateCollection } from "./pagination.ts";
+import { Pager } from "./ui/Pager.tsx";
 import { Archive, ArchiveRestore, FileText, GitCompare, Plus, RotateCcw } from "lucide-react";
 import { lazy, Suspense, useCallback, useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import type { Artifact, ArtifactDetail, DiffLine } from "../../server/artifacts.ts";
@@ -52,19 +55,26 @@ export function Artifacts({ projectKey }: { projectKey?: string }) {
   const phone = useIsPhone();
   const split = !projectKey && !phone;
   const fixed = projectKey ? splitProjectKey(projectKey).projectId : null;
-  const [picked, setPicked] = useState("all"); // "all" | "none" | project id
+  const [picked, setPicked] = useCollectionState("artifacts.picked", "all"); // "all" | "none" | project id
   const project = fixed ?? picked;
-  const [archived, setArchived] = useState(false);
-  const [search, setSearch] = useState("");
-  const [query, setQuery] = useState("");
+  const [archived, setArchived] = useCollectionState("artifacts.archived", false);
+  const [search, setSearch] = useCollectionState("artifacts.search", "");
+  const [query, setQuery] = useState(search.trim());
+  const [pageNumber, setPageNumber] = useCollectionState("artifacts.page", 1);
+  const [loading, setLoading] = useState(false);
   const [rows, setRows] = useState<Artifact[] | null>(null);
   const [more, setMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const [draft, setDraft] = useState<{ title: string; content: string } | null>(null);
-  const [open, setOpen] = useState<string | null>(null);
+  const [draft, setDraft] = useCollectionDraft<{ title: string; content: string } | null>(`artifacts.${projectKey ?? project}`, null);
+  const [open, setOpen] = useCollectionState<string | null>("artifacts.open", null);
+  const cancelDraft = () => {
+    if (!busy && (!draft || confirm("¿Descartar el borrador sin guardar?"))) setDraft(null);
+  };
   const seq = useRef(0);
-  const close = useCallback(() => setOpen(null), []); // stable, so the sheet keeps its focus across reloads
+  const [, setVersion] = useCollectionState("artifacts.version", "");
+  const select = (id: string) => { setVersion(""); setOpen(id); };
+  const close = useCallback(() => { setOpen(null); setVersion(""); }, [setOpen, setVersion]); // stable, so the sheet keeps its focus across reloads
 
   useEffect(() => {
     const id = setTimeout(() => setQuery(search.trim()), 250);
@@ -74,19 +84,30 @@ export function Artifacts({ projectKey }: { projectKey?: string }) {
   const projectId = project === "all" ? undefined : project === "none" ? null : project;
   const load = async (after?: Artifact) => {
     const n = ++seq.current; // a slower, older response must not overwrite a newer filter
+    setLoading(true);
     try {
-      const page = await call("POST /api/artifacts/list", {
+      let page = await call("POST /api/artifacts/list", {
         body: { projectId, archived, query: query || undefined, limit: PAGE, before: after?.id, beforeUpdatedAt: after?.updatedAt },
       });
       if (n !== seq.current) return;
-      setRows((prev) => (after && prev ? [...prev, ...page.artifacts] : page.artifacts));
+      const loaded = [...page.artifacts];
+      while (!after && page.hasMore && loaded.length < pageNumber * PAGE) {
+        const last = loaded.at(-1);
+        if (!last) break;
+        page = await call("POST /api/artifacts/list", { body: { projectId, archived, query: query || undefined, limit: PAGE, before: last.id, beforeUpdatedAt: last.updatedAt } });
+        if (n !== seq.current) return;
+        if (!page.artifacts.length) break;
+        loaded.push(...page.artifacts);
+      }
+      setRows((prev) => (after && prev ? [...prev, ...loaded] : loaded));
+      if (after) setPageNumber((p) => p + 1);
       setMore(page.hasMore);
       setError(null);
     } catch (e) {
       if (n === seq.current) setError(message(e));
-    }
+    } finally { if (n === seq.current) setLoading(false); }
   };
-  useEffect(() => void load(), [project, archived, query]);
+  useEffect(() => { void load(); return () => { seq.current++; }; }, [project, archived, query]);
 
   const tooBig = draft !== null && new TextEncoder().encode(draft.content).length > MAX_BYTES;
   const save = async () => {
@@ -96,7 +117,7 @@ export function Artifacts({ projectKey }: { projectKey?: string }) {
       const saved = await call("POST /api/artifacts", { body: { title: draft.title, content: draft.content, projectId: projectId ?? null } });
       setDraft(null);
       await load();
-      setOpen(saved.artifact.id);
+      select(saved.artifact.id);
     } catch (e) {
       setError(message(e));
     } finally {
@@ -108,6 +129,7 @@ export function Artifacts({ projectKey }: { projectKey?: string }) {
   const shown = open ?? (split ? (rows?.[0]?.id ?? null) : null);
   const filtered = !!query || archived || (!fixed && project !== "all");
 
+  const pagination = paginateCollection(rows ?? [], pageNumber, PAGE);
   const list =
     rows === null ? (
       error ? null : <p className="text-muted-fg">Cargando…</p>
@@ -115,7 +137,7 @@ export function Artifacts({ projectKey }: { projectKey?: string }) {
       <EmptyState>{filtered ? "Sin elementos" : "Todavía no hay artefactos. Agrega uno o deja que un agente llame a artifact_save."}</EmptyState>
     ) : (
       <Panel className={split ? "rounded-none border-0 md:h-full" : undefined}>
-        {rows.map((a) => {
+        {pagination.items.map((a) => {
           const pk = a.projectId ? index.key(a.projectId) : null;
           const owner = a.projectId ? index.title(a.projectId) : "Sin proyecto";
           return (
@@ -123,7 +145,7 @@ export function Artifacts({ projectKey }: { projectKey?: string }) {
               key={a.id}
               type="button"
               aria-current={shown === a.id}
-              onClick={() => setOpen(a.id)}
+              onClick={() => select(a.id)}
               style={{ "--pc": pk ? projectColor(pk) : "transparent" } as CSSProperties}
               className={cn(
                 "flex w-full items-center gap-3 border-l-0 px-4 py-3 text-left md:border-l-4 md:border-l-[color:var(--pc)]",
@@ -147,10 +169,11 @@ export function Artifacts({ projectKey }: { projectKey?: string }) {
             </button>
           );
         })}
+        <div className="px-4 py-2"><Pager page={pagination} onPageChange={setPageNumber} label="Artefactos" /></div>
         <div className="flex items-center justify-between gap-2 px-4 py-2.5 text-xs text-muted-fg">
           <span>Hasta 64 KB por versión</span>
-          {more && rows && (
-            <Button size="sm" disabled={busy} onClick={() => void load(rows.at(-1))}>
+          {more && rows && pagination.page === pagination.pageCount && (
+            <Button size="sm" disabled={busy || loading} onClick={() => void load(rows.at(-1))}>
               Más antiguos
             </Button>
           )}
@@ -161,17 +184,18 @@ export function Artifacts({ projectKey }: { projectKey?: string }) {
   return (
     <div className="grid gap-4">
       <div className="flex flex-wrap items-center gap-2">
-        <Tabs label="Mostrar" value={archived ? "archived" : "active"} onChange={(id) => setArchived(id === "archived")} items={[{ id: "active", label: "Activos" }, { id: "archived", label: "Archivados" }]} />
+        <Tabs label="Mostrar" value={archived ? "archived" : "active"} onChange={(id) => { setArchived(id === "archived"); setPageNumber(1, true); }} items={[{ id: "active", label: "Activos" }, { id: "archived", label: "Archivados" }]} />
         <span className="flex-1" />
-        <Button onClick={() => setDraft(draft ? null : { title: "", content: "" })} aria-expanded={draft !== null}>
+        <Button disabled={busy} onClick={() => draft ? cancelDraft() : setDraft({ title: "", content: "" })} aria-expanded={draft !== null}>
           <Plus className="size-4" aria-hidden /> Nuevo artefacto
         </Button>
       </div>
 
       {draft && (
-        <Card className="grid gap-2">
-          <Input value={draft.title} maxLength={200} autoFocus placeholder="Título…" aria-label="Título" onChange={(e) => setDraft({ ...draft, title: e.target.value })} />
+        <Card aria-busy={busy} className="grid gap-2">
+          <Input disabled={busy} value={draft.title} maxLength={200} autoFocus placeholder="Título…" aria-label="Título" onChange={(e) => setDraft({ ...draft, title: e.target.value })} />
           <Textarea
+            disabled={busy}
             value={draft.content}
             className="min-h-40 font-mono text-sm"
             placeholder="Pega HTML o Markdown…"
@@ -180,18 +204,18 @@ export function Artifacts({ projectKey }: { projectKey?: string }) {
           />
           {tooBig && <p className="text-sm text-fail">Es demasiado grande: una versión de un artefacto admite hasta 64 KB.</p>}
           <div className="flex justify-end gap-2">
-            <Button onClick={() => setDraft(null)}>Cancelar</Button>
+            <Button disabled={busy} onClick={cancelDraft}>Cancelar</Button>
             <Button variant="primary" disabled={busy || tooBig || !draft.title.trim() || !draft.content.trim()} onClick={() => void save()}>
-              Guardar
+              {busy ? "Guardando…" : "Guardar"}
             </Button>
           </div>
         </Card>
       )}
 
       <div className="flex flex-wrap gap-2">
-        <Input className="min-w-0 flex-1 md:max-w-sm" type="search" value={search} placeholder="Buscar por título…" aria-label="Buscar artefactos" onChange={(e) => setSearch(e.target.value)} />
+        <Input className="min-w-0 flex-1 md:max-w-sm" type="search" value={search} placeholder="Buscar por título…" aria-label="Buscar artefactos" onChange={(e) => { setSearch(e.target.value); setPageNumber(1, true); }} />
         {!fixed && (
-          <Select className="w-auto max-w-full" value={picked} aria-label="Proyecto" onChange={(e) => setPicked(e.target.value)}>
+          <Select className="w-auto max-w-full" value={picked} aria-label="Proyecto" onChange={(e) => { setPicked(e.target.value); setPageNumber(1, true); }}>
             <option value="all">Todos los proyectos</option>
             <option value="none">Sin proyecto</option>
             {index.list.map((p) => (
@@ -222,7 +246,9 @@ export function Artifacts({ projectKey }: { projectKey?: string }) {
 /** One artifact: the page, its versions, a line diff against the previous version. A sheet, or a pane when `inline`. */
 function Viewer({ id, inline, onClose, onChanged }: { id: string; inline?: boolean; onClose: () => void; onChanged: () => void }) {
   const [detail, setDetail] = useState<ArtifactDetail | null>(null);
-  const [version, setVersion] = useState<number | null>(null); // null = current
+  const [version, setVersion] = useCollectionState("artifacts.version", "", (v) => v === "" || /^[1-9]\d{0,8}$/.test(v)); // empty = current
+  const [, setOpen] = useCollectionState<string | null>("artifacts.open", null);
+  const chooseVersion = (v: string) => { setOpen(id); setVersion(v); };
   const [diff, setDiff] = useState<{ from: number; to: number; lines: DiffLine[] } | null>(null);
   const [comparing, setComparing] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -230,7 +256,7 @@ function Viewer({ id, inline, onClose, onChanged }: { id: string; inline?: boole
 
   useEffect(() => {
     let live = true;
-    call("GET /api/artifacts/:id", { params: { id }, query: version === null ? undefined : { version: String(version) } }).then(
+    call("GET /api/artifacts/:id", { params: { id }, query: version === "" ? undefined : { version } }).then(
       (d) => live && (setDetail(d), setError(null)),
       (e: unknown) => live && setError(message(e)),
     );
@@ -264,7 +290,7 @@ function Viewer({ id, inline, onClose, onChanged }: { id: string; inline?: boole
   const restore = () =>
     act(async () => {
       const d = await call("POST /api/artifacts/:id/restore", { params: { id }, body: { version: shown! } });
-      setVersion(null);
+      setVersion("");
       setDetail(d);
     });
   const archive = (next: boolean) =>
@@ -339,7 +365,7 @@ function Viewer({ id, inline, onClose, onChanged }: { id: string; inline?: boole
                 type="button"
                 aria-pressed={v.version === shown}
                 title={`${v.author} · ${ago(v.createdAt)}`}
-                onClick={() => setVersion(v.version === a.currentVersion ? null : v.version)}
+                onClick={() => chooseVersion(v.version === a.currentVersion ? "" : String(v.version))}
                 className={cn("rounded-full px-2.5 py-0.5 font-semibold", v.version === shown ? "bg-run-bg text-run" : "bg-soft text-tx2")}
               >
                 v{v.version}

@@ -1,9 +1,11 @@
+import { clearCollectionDraft, useCollectionDraft, useCollectionState } from "./collectionHooks.ts";
+import { financeAmount } from "./financeValidation.ts";
 import { Eye, EyeOff, Plus } from "lucide-react";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { Cost, FinanceView, Income, IncomeStatus } from "../../server/finance.ts";
 import type { MachineProjects } from "../../server/types.ts";
 import { call } from "./api.ts";
-import { INCOME_STATUS, NEXT_STATUS, dayLabel, money, monthLabel, toCents } from "./financeView.ts";
+import { INCOME_STATUS, NEXT_STATUS, dayLabel, money, monthLabel } from "./financeView.ts";
 import { projectColor } from "./look.ts";
 import { paginateCollection } from "./pagination.ts";
 import { Button } from "./ui/Button.tsx";
@@ -64,7 +66,7 @@ function Bars({ view, hide }: { view: FinanceView; hide: boolean }) {
   return (
     <Panel title="Últimos 6 meses" action={<span className="flex gap-2.5 text-xs font-medium text-muted-fg">{legend("#15803d", "Ingresos")}{legend("#cfcbc2", "Costos")}</span>}>
       <div className="px-4 pt-4 pb-3">
-        <div className="flex h-28 items-end gap-3" role="img" aria-label="Ingresos y costos fijos de los últimos seis meses">
+        <div className="flex h-28 items-end gap-3" aria-hidden="true">
           {months.map((m, i) => (
             <div key={m.key} className="flex h-full flex-1 items-end justify-center gap-0.5">
               <div className={cn("w-full max-w-3.5 rounded-t bg-ok", i < months.length - 1 && "opacity-55")} style={{ height: `${hide ? 0 : (m.incomeCents / max) * 100}%` }} />
@@ -79,6 +81,11 @@ function Bars({ view, hide }: { view: FinanceView; hide: boolean }) {
             </span>
           ))}
         </div>
+        <table className="mt-3 w-full text-left text-xs">
+          <caption className="sr-only">Ingresos y costos fijos por mes</caption>
+          <thead><tr><th scope="col">Mes</th><th scope="col">Ingresos</th><th scope="col">Costos</th></tr></thead>
+          <tbody>{months.map((m) => <tr key={m.key}><th scope="row">{m.key}</th><td>{money(m.incomeCents, view.currency, hide)}</td><td>{money(m.costCents, view.currency, hide)}</td></tr>)}</tbody>
+        </table>
       </div>
     </Panel>
   );
@@ -88,14 +95,27 @@ function EditSheet({ editing, projects, currency, onClose, onSaved }: { editing:
   const isIncome = editing.kind === "income";
   const inc = isIncome ? editing.row : null;
   const cost = isIncome ? null : editing.row;
-  const [concept, setConcept] = useState(inc?.concept ?? cost?.concept ?? "");
-  const [client, setClient] = useState(inc?.clientName ?? "");
-  const [date, setDate] = useState(inc?.date ?? new Date().toLocaleDateString("sv"));
-  const [category, setCategory] = useState(cost?.category ?? "");
-  const [amount, setAmount] = useState(inc ? String(inc.amountCents / 100) : cost ? String(cost.monthlyCents / 100) : "");
-  const [cur, setCur] = useState(inc?.currency ?? cost?.currency ?? currency);
-  const [status, setStatus] = useState<IncomeStatus>(inc?.status ?? "pending");
-  const [picked, setPicked] = useState(new Set(cost?.projectIds ?? []));
+  const draftKey = `finance.${editing.kind}.${editing.row?.id ?? "new"}`;
+  const initial = {
+    concept: inc?.concept ?? cost?.concept ?? "", client: inc?.clientName ?? "",
+    date: inc?.date ?? new Date().toLocaleDateString("sv"), category: cost?.category ?? "",
+    amount: inc ? String(inc.amountCents / 100) : cost ? String(cost.monthlyCents / 100) : "",
+    cur: inc?.currency ?? cost?.currency ?? currency, status: (inc?.status ?? "pending") as IncomeStatus,
+    projectIds: cost?.projectIds ?? [],
+  };
+  const [draft, setDraft] = useCollectionDraft(draftKey, initial);
+  const { concept, client, date, category, amount, cur, status } = draft;
+  const picked = new Set(draft.projectIds);
+  const setConcept = (value: string) => setDraft((d) => ({ ...d, concept: value }));
+  const setClient = (value: string) => setDraft((d) => ({ ...d, client: value }));
+  const setDate = (value: string) => setDraft((d) => ({ ...d, date: value }));
+  const setCategory = (value: string) => setDraft((d) => ({ ...d, category: value }));
+  const setAmount = (value: string) => setDraft((d) => ({ ...d, amount: value }));
+  const setCur = (value: string) => setDraft((d) => ({ ...d, cur: value }));
+  const setStatus = (value: IncomeStatus) => setDraft((d) => ({ ...d, status: value }));
+  const setPicked = (update: (value: Set<string>) => Set<string>) => setDraft((d) => ({ ...d, projectIds: [...update(new Set(d.projectIds))] }));
+  const amountField = useRef<HTMLInputElement>(null);
+  const [invalidAmount, setInvalidAmount] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -104,6 +124,7 @@ function EditSheet({ editing, projects, currency, onClose, onSaved }: { editing:
     setError(null);
     try {
       await fn();
+      clearCollectionDraft(draftKey);
       onSaved();
     } catch (e) {
       setError(e instanceof Error ? e.message : "No se pudo completar la acción");
@@ -111,8 +132,14 @@ function EditSheet({ editing, projects, currency, onClose, onSaved }: { editing:
     }
   };
   const save = () => {
-    const cents = toCents(amount);
-    if (cents === null) return setError("Ingresá un importe válido");
+    if (busy) return;
+    const cents = financeAmount(amount);
+    setInvalidAmount(cents === null);
+    if (cents === null) {
+      setError("Ingresa un importe válido, con hasta dos decimales y un máximo de 10.000.000.000.");
+      amountField.current?.focus();
+      return;
+    }
     const params = { id: (inc ?? cost)?.id ?? "" };
     void act(() =>
       isIncome
@@ -130,10 +157,17 @@ function EditSheet({ editing, projects, currency, onClose, onSaved }: { editing:
     void act(() => (isIncome ? api("DELETE /api/finance/income/:id", { params }) : api("DELETE /api/finance/costs/:id", { params })));
   };
 
+  const close = () => {
+    if (busy) return;
+    if (JSON.stringify(draft) !== JSON.stringify(initial) && !confirm("¿Descartar los cambios sin guardar?")) return;
+    clearCollectionDraft(draftKey);
+    onClose();
+  };
+
   return (
     <Sheet
       title={`${inc || cost ? "Editar" : "Agregar"} ${isIncome ? "ingreso" : "costo"}`}
-      onClose={onClose}
+      onClose={close}
       footer={
         <div className="flex gap-2">
           {(inc || cost) && (
@@ -141,16 +175,17 @@ function EditSheet({ editing, projects, currency, onClose, onSaved }: { editing:
               Eliminar
             </Button>
           )}
-          <Button className="ml-auto" onClick={onClose}>
+          <Button className="ml-auto" disabled={busy} onClick={close}>
             Cancelar
           </Button>
           <Button type="submit" form="finance-form" variant="primary" disabled={busy || !concept.trim()}>
-            Guardar
+            {busy ? "Guardando…" : "Guardar"}
           </Button>
         </div>
       }
     >
       <form
+        aria-busy={busy}
         id="finance-form"
         className="grid gap-3"
         onSubmit={(e) => {
@@ -158,6 +193,7 @@ function EditSheet({ editing, projects, currency, onClose, onSaved }: { editing:
           save();
         }}
       >
+        <fieldset disabled={busy} className="contents">
         <Field label="Concepto">
           <Input value={concept} onChange={(e) => setConcept(e.target.value)} maxLength={200} required />
         </Field>
@@ -178,7 +214,7 @@ function EditSheet({ editing, projects, currency, onClose, onSaved }: { editing:
         <div className="flex gap-2">
           <div className="min-w-0 flex-1">
             <Field label={isIncome ? "Importe" : "Por mes"}>
-              <Input inputMode="decimal" value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="0,00…" required />
+              <Input ref={amountField} aria-invalid={invalidAmount || undefined} aria-describedby={invalidAmount ? "finance-error" : undefined} inputMode="decimal" value={amount} onChange={(e) => { setAmount(e.target.value); setInvalidAmount(false); }} placeholder="0,00…" required />
             </Field>
           </div>
           <div className="w-24">
@@ -213,10 +249,11 @@ function EditSheet({ editing, projects, currency, onClose, onSaved }: { editing:
           </fieldset>
         )}
         {error && (
-          <p role="alert" className="text-fail">
+          <p id="finance-error" role="alert" className="text-fail">
             {error}
           </p>
         )}
+        </fieldset>
       </form>
     </Sheet>
   );
@@ -225,24 +262,28 @@ function EditSheet({ editing, projects, currency, onClose, onSaved }: { editing:
 /** Dinero: ingresos y costos recurrentes, con totales por mes, cliente y proyecto. Los importes se pueden ocultar por dispositivo. */
 export function Finance() {
   const [view, setView] = useState<FinanceView | null>(null);
-  const [month, setMonth] = useState<string>("");
+  const [month, setMonth] = useCollectionState("finance.month", "", (v) => v === "" || /^\d{4}-(0[1-9]|1[0-2])$/.test(v));
   const [hide, setHide] = useState(readHide);
-  const [editing, setEditing] = useState<Editing | null>(null);
+  const [editing, setEditing] = useCollectionDraft<Editing | null>("finance.editing", null);
   const [projects, setProjects] = useState<{ key: string; title: string }[]>([]);
-  const [tab, setTab] = useState<Tab>("income");
-  const [page, setPage] = useState(1);
+  const [tab, setTab] = useCollectionState<Tab>("finance.tab", "income", (v) => v === "income" || v === "costs");
+  const [page, setPage] = useCollectionState("finance.page", 1);
   const [error, setError] = useState<string | null>(null);
 
+  const reloadSeq = useRef(0);
   const reload = useCallback(async () => {
+    const n = ++reloadSeq.current;
     try {
-      setView(await call("GET /api/finance", { query: month ? { month } : undefined }));
+      const next = await call("GET /api/finance", { query: month ? { month } : undefined });
+      if (n !== reloadSeq.current) return;
+      setView(next);
       setError(null);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "No se pudo cargar Dinero");
+      if (n === reloadSeq.current) setError(e instanceof Error ? e.message : "No se pudo cargar Dinero");
     }
   }, [month]);
 
-  useEffect(() => void reload(), [reload]);
+  useEffect(() => { void reload(); return () => { reloadSeq.current++; }; }, [reload]);
   useEffect(() => {
     call("GET /api/projects").then(
       (list: MachineProjects[]) => setProjects(list.flatMap((m) => m.projects.map((p) => ({ key: `${m.machineId}:${p.id}`, title: `${m.machineLabel} · ${p.title}` })))),
@@ -282,7 +323,7 @@ export function Finance() {
               value={month}
               onChange={(e) => {
                 setMonth(e.target.value);
-                setPage(1);
+                setPage(1, true);
               }}
             />
           </Field>
@@ -318,7 +359,7 @@ export function Finance() {
                   value={tab}
                   onChange={(t) => {
                     setTab(t);
-                    setPage(1);
+                    setPage(1, true);
                   }}
                   items={[
                     { id: "income", label: "Ingresos", count: view.income.length },

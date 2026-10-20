@@ -1,3 +1,6 @@
+import { useCollectionDraft, useCollectionState } from "./collectionHooks.ts";
+import { paginateCollection } from "./pagination.ts";
+import { Pager } from "./ui/Pager.tsx";
 import { Plus, Trash2 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import type { MemoryEntry, MemoryKind } from "../../server/memory.ts";
@@ -46,17 +49,22 @@ function byDay(entries: MemoryEntry[]) {
 export function Memory({ projectKey }: { projectKey?: string }) {
   const index = useProjectIndex();
   const fixed = projectKey ? splitProjectKey(projectKey).projectId : null;
-  const [picked, setPicked] = useState("all"); // "all" | "none" | project id
+  const [picked, setPicked] = useCollectionState("memory.picked", "all"); // "all" | "none" | project id
   const project = fixed ?? picked;
-  const [kind, setKind] = useState<MemoryKind | "all">("all");
-  const [search, setSearch] = useState("");
-  const [query, setQuery] = useState("");
+  const [kind, setKind] = useCollectionState<MemoryKind | "all">("memory.kind", "all", (v) => v === "all" || kinds.includes(v));
+  const [search, setSearch] = useCollectionState("memory.search", "");
+  const [query, setQuery] = useState(search.trim());
+  const [pageNumber, setPageNumber] = useCollectionState("memory.page", 1);
+  const [loading, setLoading] = useState(false);
   const [entries, setEntries] = useState<MemoryEntry[] | null>(null);
   const [more, setMore] = useState(false);
   const [todos, setTodos] = useState<MemoryEntry[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const [draft, setDraft] = useState<{ kind: MemoryKind; text: string } | null>(null);
+  const [draft, setDraft] = useCollectionDraft<{ kind: MemoryKind; text: string } | null>(`memory.${projectKey ?? project}`, null);
+  const cancelDraft = () => {
+    if (!busy && (!draft || confirm("¿Descartar el borrador sin guardar?"))) setDraft(null);
+  };
   const seq = useRef(0);
 
   useEffect(() => {
@@ -67,23 +75,34 @@ export function Memory({ projectKey }: { projectKey?: string }) {
   const scope = { projectId: project === "all" ? undefined : project === "none" ? null : project };
   const load = async (after?: MemoryEntry) => {
     const n = ++seq.current; // a slower, older response must not overwrite a newer filter
+    setLoading(true);
     try {
-      const [page, open] = await Promise.all([
+      let [page, open] = await Promise.all([
         call("POST /api/memory/list", {
           body: { ...scope, kind: kind === "all" ? undefined : kind, query: query || undefined, limit: PAGE, before: after?.id, beforeCreatedAt: after?.createdAt },
         }),
         after ? null : call("POST /api/memory/list", { body: { ...scope, kind: "todo", done: false, query: query || undefined, limit: 50 } }),
       ]);
       if (n !== seq.current) return;
-      setEntries((prev) => (after && prev ? [...prev, ...page.entries] : page.entries));
+      const loaded = [...page.entries];
+      while (!after && page.hasMore && loaded.length < pageNumber * PAGE) {
+        const last = loaded.at(-1);
+        if (!last) break;
+        page = await call("POST /api/memory/list", { body: { ...scope, kind: kind === "all" ? undefined : kind, query: query || undefined, limit: PAGE, before: last.id, beforeCreatedAt: last.createdAt } });
+        if (n !== seq.current) return;
+        if (!page.entries.length) break;
+        loaded.push(...page.entries);
+      }
+      setEntries((prev) => (after && prev ? [...prev, ...loaded] : loaded));
+      if (after) setPageNumber((p) => p + 1);
       setMore(page.hasMore);
       if (open) setTodos(open.entries);
       setError(null);
     } catch (e) {
       if (n === seq.current) setError(message(e));
-    }
+    } finally { if (n === seq.current) setLoading(false); }
   };
-  useEffect(() => void load(), [project, kind, query]);
+  useEffect(() => { void load(); return () => { seq.current++; }; }, [project, kind, query]);
 
   const act = async (fn: () => Promise<unknown>) => {
     setBusy(true);
@@ -107,18 +126,19 @@ export function Memory({ projectKey }: { projectKey?: string }) {
 
   // Open todos are actionable, so they get their own panel (never paged); the timeline shows the rest.
   const showTodos = todos.length > 0 && (kind === "all" || kind === "todo");
-  const timeline = showTodos ? (entries ?? []).filter((e) => e.kind !== "todo" || e.done) : (entries ?? []);
+  const pagination = paginateCollection(entries ?? [], pageNumber, PAGE);
+  const timeline = showTodos ? pagination.items.filter((e) => e.kind !== "todo" || e.done || !todos.some((todo) => todo.id === e.id)) : pagination.items;
   const row = (e: MemoryEntry, compact = false) => {
     const pk = e.projectId ? index.key(e.projectId) : null;
     return (
       <div key={e.id} className="flex items-start gap-3 px-4 py-3">
         {e.kind === "todo" ? (
-          <input type="checkbox" className="mt-0.5 size-5 shrink-0 accent-primary" checked={e.done} disabled={busy} onChange={() => void toggle(e)} aria-label={`Hecho: ${e.text.slice(0, 40)}`} />
+          <input id={`memory-todo-${e.id}`} type="checkbox" className="mt-0.5 size-5 shrink-0 accent-primary" checked={e.done} disabled={busy} onChange={() => void toggle(e)} aria-label={`Hecho: ${e.text.slice(0, 40)}`} />
         ) : (
           <span aria-hidden className="mt-1.5 size-3 shrink-0 rounded-[3px] md:hidden" style={{ background: `var(--${kindTone[e.kind]})` }} />
         )}
         <div className="grid min-w-0 flex-1 gap-1">
-          <p className={cn("break-words whitespace-pre-wrap", e.kind === "todo" && e.done && "text-muted-fg line-through")}>{e.text}</p>
+          <label htmlFor={e.kind === "todo" ? `memory-todo-${e.id}` : undefined} className={cn("break-words whitespace-pre-wrap", e.kind === "todo" && "cursor-pointer", e.kind === "todo" && e.done && "text-muted-fg line-through")}>{e.text}</label>
           <p className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-fg">
             <Chip tone={kindTone[e.kind]} className="hidden md:inline-flex">{memoryKindLabel(e.kind)}</Chip>
             <span className="md:hidden">{memoryKindLabel(e.kind)}</span>
@@ -146,38 +166,38 @@ export function Memory({ projectKey }: { projectKey?: string }) {
         <Tabs
           label="Tipo de entrada"
           value={kind}
-          onChange={setKind}
+          onChange={(v) => { setKind(v); setPageNumber(1, true); }}
           items={[{ id: "all" as const, label: "Todas" }, ...kinds.map((k) => ({ id: k, label: memoryKindLabel(k) }))]}
         />
         <span className="flex-1" />
-        <Button onClick={() => setDraft(draft ? null : { kind: "note", text: "" })} aria-expanded={draft !== null}>
+        <Button disabled={busy} onClick={() => draft ? cancelDraft() : setDraft({ kind: "note", text: "" })} aria-expanded={draft !== null}>
           <Plus className="size-4" aria-hidden /> Agregar
         </Button>
       </div>
 
       {draft && (
-        <Card className="grid gap-2">
-          <Select value={draft.kind} aria-label="Tipo" onChange={(e) => setDraft({ ...draft, kind: e.target.value as MemoryKind })}>
+        <Card aria-busy={busy} className="grid gap-2">
+          <Select disabled={busy} value={draft.kind} aria-label="Tipo" onChange={(e) => setDraft({ ...draft, kind: e.target.value as MemoryKind })}>
             {kinds.map((k) => (
               <option key={k} value={k}>
                 {memoryKindLabel(k)}
               </option>
             ))}
           </Select>
-          <Textarea aria-label="Contenido de la memoria" value={draft.text} maxLength={20000} autoFocus placeholder="¿Qué hay que recordar?" onChange={(e) => setDraft({ ...draft, text: e.target.value })} />
+          <Textarea disabled={busy} aria-label="Contenido de la memoria" value={draft.text} maxLength={20000} autoFocus placeholder="¿Qué hay que recordar?" onChange={(e) => setDraft({ ...draft, text: e.target.value })} />
           <div className="flex justify-end gap-2">
-            <Button onClick={() => setDraft(null)}>Cancelar</Button>
+            <Button disabled={busy} onClick={cancelDraft}>Cancelar</Button>
             <Button variant="primary" disabled={busy || !draft.text.trim()} onClick={() => void save()}>
-              Guardar
+              {busy ? "Guardando…" : "Guardar"}
             </Button>
           </div>
         </Card>
       )}
 
       <div className="flex flex-wrap gap-2">
-        <Input className="min-w-[14rem] flex-1 md:min-w-0 md:max-w-sm" type="search" value={search} placeholder="Buscar en la memoria…" aria-label="Buscar en la memoria" onChange={(e) => setSearch(e.target.value)} />
+        <Input className="min-w-[14rem] flex-1 md:min-w-0 md:max-w-sm" type="search" value={search} placeholder="Buscar en la memoria…" aria-label="Buscar en la memoria" onChange={(e) => { setSearch(e.target.value); setPageNumber(1, true); }} />
         {!fixed && (
-          <Select className="w-auto max-w-full" value={picked} aria-label="Proyecto" onChange={(e) => setPicked(e.target.value)}>
+          <Select className="w-auto max-w-full" value={picked} aria-label="Proyecto" onChange={(e) => { setPicked(e.target.value); setPageNumber(1, true); }}>
             <option value="all">Todos los proyectos</option>
             <option value="none">Sin proyecto</option>
             {index.list.map((p) => (
@@ -200,7 +220,7 @@ export function Memory({ projectKey }: { projectKey?: string }) {
         <div className="grid gap-3 lg:col-start-1 lg:row-start-1">
           {entries === null ? (
             error ? null : <p className="text-muted-fg">Cargando…</p>
-          ) : timeline.length === 0 && !more ? (
+          ) : entries.length === 0 && !more ? (
             showTodos ? null : <EmptyState>{filtered ? "Sin elementos" : "Todavía no hay memoria. Agrega una nota o deja que un agente llame a memory_save."}</EmptyState>
           ) : (
             <Panel>
@@ -210,10 +230,11 @@ export function Memory({ projectKey }: { projectKey?: string }) {
                   <div className="divide-y divide-soft">{list.map((e) => row(e, !!fixed))}</div>
                 </div>
               ))}
-              {more && entries && (
+              <div className="px-4 py-2"><Pager page={pagination} onPageChange={setPageNumber} label="Memoria" /></div>
+              {more && entries && pagination.page === pagination.pageCount && (
                 <div className="flex items-center justify-between px-4 py-2.5">
                   <span className="text-xs text-muted-fg">Más recientes primero</span>
-                  <Button disabled={busy} onClick={() => void load(entries.at(-1))}>
+                  <Button disabled={busy || loading} onClick={() => void load(entries.at(-1))}>
                     Anteriores
                   </Button>
                 </div>

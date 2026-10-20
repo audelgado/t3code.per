@@ -1,5 +1,6 @@
+import { useCollectionState } from "./collectionHooks.ts";
 import { Check, ChevronRight, Clock, Inbox, Play } from "lucide-react";
-import { useMemo, useState, type ReactNode } from "react";
+import { useMemo, type ReactNode } from "react";
 import type { HomeView, TaskItem, ThreadItem } from "../../server/types.ts";
 import type { WorkRow } from "../../server/work.ts";
 import { useLive } from "./api.ts";
@@ -103,7 +104,7 @@ export function Home() {
 function Today({ view }: { view: HomeView }) {
   const { machines: work } = useWork();
   const titles = useProjectTitles();
-  const [donePage, setDonePage] = useState(1);
+  const [donePage, setDonePage] = useCollectionState("home.donePage", 1);
 
   const needs = useMemo(
     () => homeNeeds(view, { projectTitle: (k) => titles.get(k), hashes: { thread: hashes.thread, task: hashes.task, run: hashes.run, fleet: hashes.page("fleet") } }),

@@ -1,3 +1,4 @@
+import { useCollectionState } from "./collectionHooks.ts";
 import { ChevronRight } from "lucide-react";
 import { useMemo, useState } from "react";
 import { useLive } from "./api.ts";
@@ -50,8 +51,8 @@ export function Board() {
   const { view } = useLive();
   const { machines: work, error } = useWork();
   const titles = useProjectTitles();
-  const [filters, setFilters] = useState<WorkFilters>(NO_FILTERS);
-  const [column, setColumn] = useState<Bucket>("need");
+  const [filters, setFilters] = useCollectionState<WorkFilters>("board.filters", NO_FILTERS, (f) => ["all", "need", "run", "queue", "done"].includes(f.tab));
+  const [column, setColumn] = useCollectionState<Bucket>("board.column", "need", (v) => COLUMNS.some((c) => c.bucket === v));
   const [selected, setSelected] = useState<string | null>(null);
 
   const entries = useMemo(() => {
