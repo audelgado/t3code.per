@@ -64,7 +64,8 @@ function ProjectChatContent({ projectKey }: { projectKey: string }) {
     {!!chat?.conversations?.length && <details className="text-sm"><summary className="cursor-pointer text-muted-fg">{chat.threadId ? "Otras conversaciones del proyecto" : "Continuar una conversación existente"}</summary><div className="mt-2 grid gap-1">{chat.conversations.filter((c) => c.threadId !== chat.threadId).map((c) => <button key={c.threadId} type="button" disabled={busy} className="rounded-ctl px-3 py-2 text-left hover:bg-soft disabled:opacity-50" onClick={() => void act(() => call("PUT /api/project-chat/:machine/:project", { params, body: { threadId: c.threadId } }))}>{c.title}</button>)}</div></details>}
     {away && <div className="sticky top-2 z-10 flex justify-end"><Button onClick={jump}>Volver al final</Button></div>}
     <div className="min-h-24 flex-1">
-      {!chat?.messages.length && <div className="py-8 text-center"><h2 className="text-lg font-semibold">¿Qué hacemos en este proyecto?</h2><p className="mx-auto mt-2 max-w-sm text-sm text-muted-fg">Escribe o dicta. El orquestador coordina los agentes y reúne sus avances en esta conversación.</p></div>}
+      {!chat && !error && <p role="status" className="py-8 text-center text-sm text-muted-fg">Cargando la conversación…</p>}
+      {chat && !chat.messages.length && <div className="py-8 text-center"><h2 className="text-lg font-semibold">¿Qué hacemos en este proyecto?</h2><p className="mx-auto mt-2 max-w-sm text-sm text-muted-fg">Escribe o dicta. El orquestador coordina los agentes y reúne sus avances en esta conversación.</p></div>}
       {chat && <ChatHistory messages={chat.messages} />}
       {active && <p role="status" className="mt-4 text-sm text-muted-fg">El orquestador está trabajando. Puedes dejarle el próximo mensaje.</p>}
       <div ref={end} />
