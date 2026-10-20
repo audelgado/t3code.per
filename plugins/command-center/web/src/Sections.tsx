@@ -1,6 +1,10 @@
 import { Plus } from "lucide-react";
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { SECTION_STATUSES, selectSectionPage, type Section, type SectionFields, type SectionStatus } from "../../server/sections.ts";
+import { sectionProgress } from "./sectionProgress.ts";
+import { createExclusiveAction } from "./sectionMutation.ts";
+import { readDraft, writeDraft, clearDraft } from "./sectionDraft.ts";
+import { useCollectionQuery, useCollectionPage } from "./sectionQuery.ts";
 import { call } from "./api.ts";
 import { sectionStatusLabel, type Tone } from "./look.ts";
 import { Button } from "./ui/Button.tsx";
@@ -33,7 +37,7 @@ export type SectionsStore = ReturnType<typeof useSections>;
 
 /** Name, status, progress and the notes that matter; `extra` adds rows below (the Secciones tab uses it). */
 export function SectionLine({ s, extra }: { s: Section; extra?: ReactNode }) {
-  const pct = s.tasksTotal > 0 ? Math.min(100, Math.round((s.tasksDone / s.tasksTotal) * 100)) : 0;
+  const progress = sectionProgress(s.tasksDone, s.tasksTotal);
   return (
     <div className="grid gap-1.5 md:grid-cols-[minmax(0,1fr)_200px] md:items-center md:gap-4">
       <div className="grid min-w-0 gap-0.5">
@@ -51,11 +55,11 @@ export function SectionLine({ s, extra }: { s: Section; extra?: ReactNode }) {
         {extra}
       </div>
       <div className="grid gap-1">
-        <div role="progressbar" aria-valuemin={0} aria-valuemax={s.tasksTotal} aria-valuenow={s.tasksDone} aria-label="Tareas hechas" className="h-1.5 overflow-hidden rounded-full bg-[#e8e6e0]">
-          <div className="h-full rounded-full bg-primary" style={{ width: `${pct}%`, background: bar[s.status] }} />
+        <div role="progressbar" aria-valuemin={0} aria-valuemax={progress.max} aria-valuenow={progress.now} aria-valuetext={progress.max === undefined ? "Total de tareas desconocido" : undefined} aria-label="Tareas hechas" className="h-1.5 overflow-hidden rounded-full bg-[#e8e6e0]">
+          <div className="h-full rounded-full bg-primary" style={{ width: `${progress.percent}%`, background: bar[s.status] }} />
         </div>
         <span className="text-xs text-muted-fg tabular-nums">
-          {s.tasksDone}/{s.tasksTotal} tareas{s.dueDate && ` · ${dueLabel(s.dueDate)}`}
+          {progress.max === undefined ? "Sin total de tareas" : `${progress.now}/${progress.max} tareas`}{s.dueDate && ` · ${dueLabel(s.dueDate)}`}
         </span>
       </div>
     </div>
@@ -63,7 +67,8 @@ export function SectionLine({ s, extra }: { s: Section; extra?: ReactNode }) {
 }
 
 function Editor({ section, onSaved, onDeleted, onClose }: { section: Section; onSaved: (s: Section) => void; onDeleted: (id: string) => void; onClose: () => void }) {
-  const [f, setF] = useState({
+  const draftKey = `cc:section:${section.id}`;
+  const [f, setF] = useState(() => readDraft(draftKey, {
     name: section.name,
     status: section.status,
     tasksDone: String(section.tasksDone),
@@ -72,7 +77,8 @@ function Editor({ section, onSaved, onDeleted, onClose }: { section: Section; on
     trying: section.trying ?? "",
     blocker: section.blocker ?? "",
     missing: section.missing.join("\n"),
-  });
+  }));
+  useEffect(() => writeDraft(draftKey, f), [draftKey, f]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const set = (k: keyof typeof f) => (e: { target: { value: string } }) => setF((p) => ({ ...p, [k]: e.target.value }));
@@ -92,6 +98,7 @@ function Editor({ section, onSaved, onDeleted, onClose }: { section: Section; on
     };
     try {
       onSaved(await call("PATCH /api/sections/:id", { params: { id: section.id }, body }));
+      clearDraft(draftKey);
       onClose();
     } catch (e) {
       setError(message(e, "No se pudo guardar"));
@@ -105,6 +112,7 @@ function Editor({ section, onSaved, onDeleted, onClose }: { section: Section; on
     setError(null);
     try {
       await call("DELETE /api/sections/:id", { params: { id: section.id } });
+      clearDraft(draftKey);
       onDeleted(section.id);
     } catch (e) {
       setError(message(e, "No se pudo eliminar"));
@@ -114,12 +122,13 @@ function Editor({ section, onSaved, onDeleted, onClose }: { section: Section; on
 
   return (
     <div className="mt-3 grid gap-2 border-t border-line pt-3">
+      <p className="text-xs text-muted-fg">Los cambios sin guardar se conservan en esta sesión.</p>
       <Field label="Nombre">
-        <Input value={f.name} maxLength={80} onChange={set("name")} />
+        <Input disabled={busy} value={f.name} maxLength={80} onChange={set("name")} />
       </Field>
       <div className="grid grid-cols-2 gap-2">
         <Field label="Estado">
-          <Select value={f.status} onChange={set("status")}>
+          <Select disabled={busy} value={f.status} onChange={set("status")}>
             {SECTION_STATUSES.map((s) => (
               <option key={s} value={s}>
                 {sectionStatusLabel(s)}
@@ -128,23 +137,23 @@ function Editor({ section, onSaved, onDeleted, onClose }: { section: Section; on
           </Select>
         </Field>
         <Field label="Vence">
-          <Input type="date" value={f.dueDate} onChange={set("dueDate")} />
+          <Input disabled={busy} type="date" value={f.dueDate} onChange={set("dueDate")} />
         </Field>
         <Field label="Tareas hechas">
-          <Input inputMode="numeric" value={f.tasksDone} onChange={set("tasksDone")} />
+          <Input disabled={busy} inputMode="numeric" value={f.tasksDone} onChange={set("tasksDone")} />
         </Field>
         <Field label="Tareas en total">
-          <Input inputMode="numeric" value={f.tasksTotal} onChange={set("tasksTotal")} />
+          <Input disabled={busy} inputMode="numeric" value={f.tasksTotal} onChange={set("tasksTotal")} />
         </Field>
       </div>
       <Field label="Probando">
-        <Input value={f.trying} maxLength={500} onChange={set("trying")} />
+        <Input disabled={busy} value={f.trying} maxLength={500} onChange={set("trying")} />
       </Field>
       <Field label="Bloqueo">
-        <Input value={f.blocker} maxLength={500} onChange={set("blocker")} />
+        <Input disabled={busy} value={f.blocker} maxLength={500} onChange={set("blocker")} />
       </Field>
       <Field label="Falta (una por línea)">
-        <Textarea className="min-h-16" value={f.missing} onChange={set("missing")} />
+        <Textarea disabled={busy} className="min-h-16" value={f.missing} onChange={set("missing")} />
       </Field>
       {error && (
         <p role="alert" className="text-fail">
@@ -157,10 +166,10 @@ function Editor({ section, onSaved, onDeleted, onClose }: { section: Section; on
         </Button>
         <span className="flex-1" />
         <Button disabled={busy} onClick={onClose}>
-          Cancelar
+          Cerrar
         </Button>
         <Button variant="primary" disabled={busy || !f.name.trim()} onClick={() => void save()}>
-          Guardar
+          {busy ? "Guardando…" : "Guardar"}
         </Button>
       </div>
     </div>
@@ -192,25 +201,34 @@ function SectionCard({ s, names, editing, onEdit, onSaved, onDeleted }: { s: Sec
 /** The Secciones tab of a project: milestones with search, status filter, inline editor and paging. */
 export function ProjectSections({ projectId, store }: { projectId: string; store: SectionsStore }) {
   const { sections, error, changed, deleted, names } = store;
-  const [search, setSearch] = useState("");
-  const [status, setStatus] = useState<SectionStatus | "all">("all");
-  const [page, setPage] = useState(1);
+  const [search, setSearch] = useCollectionQuery("sectionSearch");
+  const [statusQuery, setStatus] = useCollectionQuery("sectionStatus", "all");
+  const status = SECTION_STATUSES.includes(statusQuery as SectionStatus) ? statusQuery as SectionStatus : "all";
+  const [page, setPage] = useCollectionPage("sectionPage");
   const [editing, setEditing] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
   const [name, setName] = useState("");
+  const submit = useRef(createExclusiveAction());
+  const [addBusy, setAddBusy] = useState(false);
   const [addError, setAddError] = useState<string | null>(null);
   const mine = useMemo(() => (sections ?? []).filter((s) => s.projectId === projectId), [sections, projectId]);
   const p = selectSectionPage({ sections: mine, search, status, page, editing });
 
   async function add() {
-    setAddError(null);
-    try {
-      changed(await call("POST /api/sections", { body: { projectId, name } }));
-      setName("");
-      setAdding(false);
-    } catch (e) {
-      setAddError(message(e, "No se pudo agregar"));
-    }
+    if (!name.trim()) return;
+    await submit.current(async () => {
+      setAddBusy(true);
+      setAddError(null);
+      try {
+        changed(await call("POST /api/sections", { body: { projectId, name } }));
+        setName("");
+        setAdding(false);
+      } catch (e) {
+        setAddError(message(e, "No se pudo agregar"));
+      } finally {
+        setAddBusy(false);
+      }
+    });
   }
 
   if (error) return <p role="alert" className="text-fail">{error}</p>;
@@ -228,7 +246,7 @@ export function ProjectSections({ projectId, store }: { projectId: string; store
           ))}
         </Select>
         <span className="flex-1" />
-        <Button onClick={() => setAdding((v) => !v)} aria-expanded={adding}>
+        <Button disabled={addBusy} onClick={() => setAdding((v) => !v)} aria-expanded={adding}>
           <Plus className="size-4" aria-hidden /> Agregar
         </Button>
       </div>
@@ -241,8 +259,8 @@ export function ProjectSections({ projectId, store }: { projectId: string; store
           }}
         >
           <Input aria-label="Nombre de la sección" placeholder="Nombre de la sección…" value={name} maxLength={80} autoFocus onChange={(e) => setName(e.target.value)} />
-          <Button variant="primary" type="submit" disabled={!name.trim()}>
-            Agregar sección
+          <Button variant="primary" type="submit" disabled={addBusy || !name.trim()}>
+            {addBusy ? "Agregando…" : "Agregar sección"}
           </Button>
           {addError && (
             <p role="alert" className="text-fail md:col-span-2">

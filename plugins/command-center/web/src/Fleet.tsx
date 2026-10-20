@@ -64,11 +64,12 @@ function Meter({ label, percent, detail, base }: { label: string; percent: numbe
     <div className="flex items-center gap-2.5 text-xs">
       <span className="w-14 text-muted-fg">{label}</span>
       <div
-        role="meter"
+        role={percent === null ? "progressbar" : "meter"}
         aria-label={label}
         aria-valuemin={0}
         aria-valuemax={100}
-        aria-valuenow={Math.round(value)}
+        aria-valuenow={percent === null ? undefined : Math.round(value)}
+        aria-valuetext={percent === null ? "Medición desconocida. " + detail : detail}
         className="h-1.5 min-w-0 flex-1 overflow-hidden rounded-full bg-[#e7e5e0]"
       >
         <div className="h-full rounded-full" style={{ width: `${value}%`, background: tone === "ok" ? base : TONES[tone].fg }} />
@@ -175,20 +176,22 @@ function LaneGrid({ machines, lanes }: { machines: MachineView[]; lanes: ReturnT
   const cell = "flex min-w-0 flex-col justify-center gap-1.5 border-b border-soft p-2";
   return (
     <Panel title="Flujo por máquina" action={<span className="text-xs font-normal text-muted-fg">dónde está cada tarea ahora</span>} className="hidden md:block">
-      <div className="grid grid-cols-[130px_repeat(5,minmax(0,1fr))]">
-        <div className="border-r border-b border-line bg-[#faf9f7] px-3 py-2 text-[11.5px] font-semibold tracking-wide text-muted-fg uppercase">Máquina</div>
+      <div role="table" aria-label="Flujo por máquina" className="grid grid-cols-[130px_repeat(5,minmax(0,1fr))]">
+        <div role="row" className="contents">
+        <div role="columnheader" className="border-r border-b border-line bg-[#faf9f7] px-3 py-2 text-[11.5px] font-semibold tracking-wide text-muted-fg uppercase">Máquina</div>
         {LANES.map((l) => (
-          <div key={l.id} className="flex items-center gap-1.5 border-b border-line bg-[#faf9f7] px-3 py-2 text-[11.5px] font-semibold tracking-wide text-muted-fg uppercase">
+          <div role="columnheader" key={l.id} className="flex items-center gap-1.5 border-b border-line bg-[#faf9f7] px-3 py-2 text-[11.5px] font-semibold tracking-wide text-muted-fg uppercase">
             <span className="size-1.5 rounded-full" style={{ background: TONES[l.tone].fg }} />
             {l.label}
           </div>
         ))}
+        </div>
         {machines.map((m) => {
           const online = m.link.status === "online";
           const ml = lanes.get(m.id);
           return (
-            <div key={m.id} className="contents">
-              <div className={cn("flex flex-col justify-center gap-0.5 border-r border-b border-line px-3 py-2.5", !online && "opacity-50")}>
+            <div role="row" key={m.id} className="contents">
+              <div role="rowheader" className={cn("flex flex-col justify-center gap-0.5 border-r border-b border-line px-3 py-2.5", !online && "opacity-50")}>
                 <b className="flex items-center gap-1.5 text-sm">
                   <StatusDot status={m.link.status} />
                   <span className="truncate">{m.label}</span>
@@ -198,7 +201,7 @@ function LaneGrid({ machines, lanes }: { machines: MachineView[]; lanes: ReturnT
               {LANES.map((l) => {
                 const items = ml?.[l.id] ?? [];
                 return (
-                  <div key={l.id} className={cn(cell, !online && "opacity-50")}>
+                  <div role="cell" key={l.id} className={cn(cell, !online && "opacity-50")}>
                     {items.slice(0, 2).map((i) => (
                       <a key={i.key} href={i.href} title={i.title} style={{ background: TONES[l.tone].bg }} className="flex items-center gap-1.5 overflow-hidden rounded-[7px] px-2 py-1 text-xs">
                         <ProjectDot projectKey={i.projectKey} className="size-2" />
@@ -240,7 +243,7 @@ export function Fleet() {
       )}
       {machines.length > 0 && <LaneGrid machines={machines} lanes={lanes} />}
       <p className="text-xs text-muted-fg">
-        Para sumar o quitar una máquina, corré <code>machine add</code> en el servidor.
+        Para sumar o quitar una máquina, ejecuta <code>machine add</code> en el servidor.
       </p>
     </div>
   );

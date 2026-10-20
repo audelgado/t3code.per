@@ -1,11 +1,14 @@
 import { AlertTriangle, ChevronLeft, Check, Play, Plus } from "lucide-react";
-import { useCallback, useEffect, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useId, useRef, useState, type ReactNode } from "react";
 import type { Api, ApiRoute, MachineProjects, RuntimeMode } from "../../server/types.ts";
 import type { ImportResult, RunDetail, RunSummary, StepView, Workflow, WorkflowNode, WorkflowSummary } from "../../server/workflows.ts";
 import { call, refresh, useLive } from "./api.ts";
 import { matchesSearch } from "./homeQueueView.ts";
 import { ago, RUNTIME_MODES, TONES } from "./look.ts";
 import { hashes } from "./navigation.ts";
+import { readDraft, writeDraft, clearDraft } from "./sectionDraft.ts";
+import { createWorkflowRefresh, workflowSignal } from "./workflowRefresh.ts";
+import { useCollectionQuery, useCollectionPage, workflowListHash } from "./sectionQuery.ts";
 import { paginateCollection } from "./pagination.ts";
 import { Button, LinkButton } from "./ui/Button.tsx";
 import { Chip } from "./ui/Chip.tsx";
@@ -64,23 +67,37 @@ function Chain({ nodes, states }: { nodes: WorkflowNode[]; states?: Map<string, 
 // ---- run data ----
 
 /** One run, reloaded with the live view; its actions keep the busy state and the error next to the run. */
-function useRun(id: string) {
+function useRun(id: string, summary?: RunSummary) {
   const { view } = useLive();
   const [detail, setDetail] = useState<RunDetail | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [mode, setMode] = useState<RuntimeMode>("auto-accept-edits");
+  const shouldRefresh = useRef(createWorkflowRefresh());
+  const scope = summary ?? detail?.run;
+  const signal = workflowSignal(view, scope);
+  const [retry, setRetry] = useState(0);
+  const [revision, setRevision] = useState(0);
+  const firstUpdate = useRef(true);
+  useEffect(() => {
+    const relevant = shouldRefresh.current(signal);
+    if (firstUpdate.current) { firstUpdate.current = false; return; }
+    if (relevant) { setRevision((v) => v + 1); return; }
+    const timer = setTimeout(() => setRevision((v) => v + 1), 15_000);
+    return () => clearTimeout(timer);
+  }, [signal, view]);
 
   useEffect(() => {
     let live = true;
     api("GET /api/workflow-runs/:id", { params: { id } }).then(
-      (d) => live && setDetail(d),
+      (d) => { if (live) { setDetail(d); setError(null); } },
       (e) => live && setError(errorMessage(e)),
     );
     return () => void (live = false);
-  }, [id, view]);
+  }, [id, retry, revision]);
 
   async function act<R extends ApiRoute>(failure: string, route: R, body?: Api[R]["body"]) {
+    if (busy) return;
     setBusy(true);
     setError(null);
     try {
@@ -92,7 +109,7 @@ function useRun(id: string) {
       setBusy(false);
     }
   }
-  return { detail, busy, error, mode, setMode, act };
+  return { detail, busy, error, mode, setMode, act, reload: () => setRetry((v) => v + 1) };
 }
 
 function ModeSelect({ value, onChange }: { value: RuntimeMode; onChange: (m: RuntimeMode) => void }) {
@@ -108,7 +125,7 @@ function ModeSelect({ value, onChange }: { value: RuntimeMode; onChange: (m: Run
 /** A run that waits on you: its steps, what it waits for, and the decision when it is an approval or a manual gate. */
 function AttentionCard({ run }: { run: RunSummary }) {
   const titles = useProjectTitles();
-  const { detail, busy, error, mode, setMode, act } = useRun(run.id);
+  const { detail, busy, error, mode, setMode, act, reload } = useRun(run.id, run);
   const projectKey = `${run.machineId}:${run.projectId}`;
   const wait = detail && waitingStep(detail.run.workflow, detail.steps);
   const approval = run.status === "pending_approval";
@@ -118,7 +135,7 @@ function AttentionCard({ run }: { run: RunSummary }) {
     <section className="grid gap-3 rounded-card border border-[#f3d9a6] bg-panel p-4">
       <div className="flex items-center gap-2">
         <ProjectTag projectKey={projectKey} name={titles.get(projectKey) ?? run.projectId} className="shrink-0 font-semibold text-fg" />
-        <a href={hashes.run(run.id)} className="min-w-0 flex-1 truncate font-semibold">{run.title}</a>
+        <a href={workflowListHash(hashes.run(run.id), location.hash)} className="min-w-0 flex-1 truncate font-semibold">{run.title}</a>
         <Chip tone="need">{RUN_LABEL[run.status]}</Chip>
       </div>
       {detail && <Chain nodes={orderNodes(detail.run.workflow)} states={nodeStates(detail.run.workflow.nodes, detail.steps)} />}
@@ -133,10 +150,11 @@ function AttentionCard({ run }: { run: RunSummary }) {
           {" "}Iniciado por {by(run.source)} {ago(run.createdAt)}.
         </span>
       </p>
-      {error && <ErrorNote>{error}</ErrorNote>}
+      {error && <ErrorNote>{error} <Button size="sm" onClick={reload}>Reintentar</Button></ErrorNote>}
+      {busy && <p role="status">Guardando cambios…</p>}
       {approval && <ModeSelect value={mode} onChange={setMode} />}
       <div className="flex flex-wrap items-center gap-2">
-        <LinkButton href={hashes.run(run.id)}>{ask ? "Responder" : "Ver ejecución"}</LinkButton>
+        <LinkButton href={workflowListHash(hashes.run(run.id), location.hash)}>{ask ? "Responder" : "Ver ejecución"}</LinkButton>
         {(approval || gate) && (
           <>
             <Button variant="danger" disabled={busy || !detail} onClick={() => void (approval ? act("No se pudo rechazar", "POST /api/workflow-runs/:id/reject") : act("No se pudo rechazar", "POST /api/workflow-runs/:id/answer", { nodeId: wait!.node.id, approved: false }))}>Rechazar</Button>
@@ -155,18 +173,29 @@ function FlowsHome() {
   const [running, setRunning] = useState<WorkflowSummary | null>(null);
   const [importing, setImporting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [query, setQuery] = useState("");
-  const [libraryPage, setLibraryPage] = useState(1);
-  const [runsPage, setRunsPage] = useState(1);
+  const [runsError, setRunsError] = useState<string | null>(null);
+  const [query, setQuery] = useCollectionQuery("flowQuery");
+  const [libraryPage, setLibraryPage] = useCollectionPage("flowLibraryPage");
+  const [runsPage, setRunsPage] = useCollectionPage("flowRunsPage");
   const titles = useProjectTitles();
   const { view } = useLive();
+  const runsRefresh = useRef(createWorkflowRefresh());
+  const libraryRefresh = useRef(createWorkflowRefresh(30_000));
 
   // Reloads with the live view (SSE) instead of polling: a task change is what moves a run.
-  const load = useCallback(() => {
-    api("GET /api/workflows").then(setList, (e) => setError(errorMessage(e)));
-    api("GET /api/workflow-runs").then(setRuns, () => {});
+  const load = useCallback((library = true, executions = true) => {
+    if (library) api("GET /api/workflows").then((v) => { setList(v); setError(null); }, (e) => setError(errorMessage(e)));
+    if (executions) api("GET /api/workflow-runs").then((v) => { setRuns(v); setRunsError(null); }, (e) => setRunsError(errorMessage(e)));
   }, []);
-  useEffect(load, [load, view]);
+  useEffect(() => {
+    const library = libraryRefresh.current("library");
+    const executions = runsRefresh.current(workflowSignal(view));
+    load(library, executions);
+    // A trailing refresh preserves the final event even if no later event arrives.
+    const libraryTimer = !library ? setTimeout(() => load(true, false), 30_000) : undefined;
+    const runsTimer = !executions ? setTimeout(() => load(false, true), 15_000) : undefined;
+    return () => { clearTimeout(libraryTimer); clearTimeout(runsTimer); };
+  }, [load, view]);
 
   const last = lastRunBySlug(runs);
   const library = paginateCollection((list ?? []).filter((w) => matchesSearch(query, w.title, w.slug, w.description)), libraryPage, LIBRARY_PAGE);
@@ -194,18 +223,19 @@ function FlowsHome() {
   return (
     <div className="grid gap-4">
       <Input type="search" aria-label="Buscar flujos y ejecuciones" placeholder="Buscar por título, slug, descripción o estado…" className="md:w-[22rem]" value={query} onChange={(e) => { setQuery(e.target.value); setLibraryPage(1); setRunsPage(1); }} />
-      {error && <ErrorNote>No se pudo cargar los flujos. {error}</ErrorNote>}
+      {error && <ErrorNote>No se pudieron cargar los flujos. {error} <Button onClick={() => load(true, false)}>Reintentar</Button></ErrorNote>}
+      {runsError && <ErrorNote>No se pudieron cargar las ejecuciones. {runsError} <Button onClick={() => load(false, true)}>Reintentar</Button></ErrorNote>}
 
       <div className="grid items-start gap-4 lg:grid-cols-2">
         <div className="grid gap-4 lg:order-2">
           {attention.map((r) => <AttentionCard key={r.id} run={r} />)}
           <Panel title="Ejecuciones recientes" count={runs.length}>
-            {runs.length === 0 && <p className="px-4 py-6 text-center text-muted-fg">Sin elementos</p>}
+            {runs.length === 0 && !runsError && <p className="px-4 py-6 text-center text-muted-fg">Sin elementos</p>}
             {runs.length > 0 && recent.total === 0 && <p className="px-4 py-6 text-center text-muted-fg">{attention.length ? "Sin más elementos" : "Ninguna ejecución coincide con la búsqueda"}</p>}
             {recent.items.map((r) => {
               const k = `${r.machineId}:${r.projectId}`;
               return (
-                <a key={r.id} href={hashes.run(r.id)} className="flex items-center gap-3 px-4 py-3 active:bg-soft">
+                <a key={r.id} href={workflowListHash(hashes.run(r.id), location.hash)} className="flex items-center gap-3 px-4 py-3 hover:bg-soft active:bg-soft">
                   <ProjectDot projectKey={k} />
                   <span className="min-w-0 flex-1">
                     <span className="block truncate font-semibold">{r.title}</span>
@@ -281,7 +311,7 @@ function FlowsHome() {
           onStarted={(id) => {
             setRunning(null);
             refresh();
-            location.hash = hashes.run(id);
+            location.hash = workflowListHash(hashes.run(id), location.hash);
           }}
         />
       )}
@@ -301,19 +331,27 @@ function FlowsHome() {
 
 /** JSON editor. The server is the validator: its 400 lists every problem, one per line. */
 function Editor({ initial, onClose, onSaved }: { initial: string; onClose: () => void; onSaved: () => void }) {
-  const [text, setText] = useState(initial);
+  const draftKey = `cc:workflow:${JSON.parse(initial).slug}`;
+  const [text, setText] = useState(() => readDraft(draftKey, initial));
+  const input = useRef<HTMLTextAreaElement>(null);
+  const errorId = useId();
   const [errors, setErrors] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
+  useEffect(() => writeDraft(draftKey, text), [draftKey, text]);
+  const fail = (lines: string[]) => { setErrors(lines); input.current?.focus(); };
 
   async function save() {
+    if (busy) return;
     const parsed = parseDraft(text);
-    if ("error" in parsed) return setErrors([parsed.error]);
+    if ("error" in parsed) return fail([parsed.error]);
     setBusy(true);
+    setErrors([]);
     try {
       await api("POST /api/workflows", { body: parsed.value as Workflow });
+      clearDraft(draftKey);
       onSaved();
     } catch (e) {
-      setErrors(errorLines(errorMessage(e)));
+      fail(errorLines(errorMessage(e)));
     } finally {
       setBusy(false);
     }
@@ -323,19 +361,20 @@ function Editor({ initial, onClose, onSaved }: { initial: string; onClose: () =>
     <Sheet
       title="Editar flujo"
       wide
-      onClose={onClose}
+      onClose={() => { if (!busy) onClose(); }}
       footer={
         <div className="flex gap-2">
-          <Button variant="primary" disabled={busy} onClick={() => void save()}>Guardar</Button>
-          <Button onClick={onClose}>Cancelar</Button>
+          <Button variant="primary" disabled={busy} onClick={() => void save()}>{busy ? "Guardando…" : "Guardar"}</Button>
+          <Button disabled={busy} onClick={onClose}>Cerrar</Button>
         </div>
       }
     >
       <div className="grid gap-3">
         <p className="text-xs text-muted-fg">Guardar con un slug existente reemplaza ese flujo. Pasos: agent, skill, ask, parallel, gate.</p>
-        <Textarea value={text} onChange={(e) => setText(e.target.value)} spellCheck={false} aria-label="JSON del flujo" className="min-h-72 font-mono text-xs" aria-invalid={errors.length > 0} />
+        <p className="text-xs text-muted-fg">Los cambios sin guardar se conservan en esta sesión.</p>
+        <Textarea ref={input} value={text} disabled={busy} onChange={(e) => setText(e.target.value)} spellCheck={false} aria-label="JSON del flujo" className="min-h-72 font-mono text-xs" aria-invalid={errors.length > 0} aria-describedby={errors.length ? errorId : undefined} />
         {errors.length > 0 && (
-          <ul role="alert" className="grid gap-1 rounded-ctl bg-fail-bg px-3 py-2 text-[13px] text-[#7f1d1d]">
+          <ul id={errorId} role="alert" className="grid gap-1 rounded-ctl bg-fail-bg px-3 py-2 text-[13px] text-[#7f1d1d]">
             {errors.map((l) => <li key={l}>{l}</li>)}
           </ul>
         )}
@@ -378,6 +417,7 @@ function RunDialog({ workflow, onClose, onStarted }: { workflow: WorkflowSummary
   const { inputs, missing } = runInputs(workflow.inputs, values);
 
   async function start() {
+    if (busy || !chosen || missing.length) return;
     setBusy(true);
     setError(null);
     try {
@@ -392,11 +432,11 @@ function RunDialog({ workflow, onClose, onStarted }: { workflow: WorkflowSummary
   return (
     <Sheet
       title={`Ejecutar ${workflow.title}`}
-      onClose={onClose}
+      onClose={() => { if (!busy) onClose(); }}
       footer={
         <div className="flex gap-2">
-          <Button variant="primary" type="submit" form="run-form" disabled={busy || !chosen || missing.length > 0}>Iniciar</Button>
-          <Button onClick={onClose}>Cancelar</Button>
+          <Button variant="primary" type="submit" form="run-form" disabled={busy || !chosen || missing.length > 0}>{busy ? "Iniciando…" : "Iniciar"}</Button>
+          <Button disabled={busy} onClick={onClose}>Cancelar</Button>
         </div>
       }
     >
@@ -411,7 +451,7 @@ function RunDialog({ workflow, onClose, onStarted }: { workflow: WorkflowSummary
           <ModeSelect value={mode} onChange={setMode} />
         </Field>
         {(error ?? loadError) && <ErrorNote>{error ?? `No se pudo cargar los proyectos. ${loadError}`}</ErrorNote>}
-        {missing.length > 0 && <p className="text-xs text-muted-fg">Completá: {missing.join(", ")}</p>}
+        {missing.length > 0 && <p className="text-xs text-muted-fg">Completa: {missing.join(", ")}</p>}
       </form>
     </Sheet>
   );
@@ -427,6 +467,7 @@ function ImportDialog({ onClose }: { onClose: () => void }) {
   const chosen = project || first;
 
   async function run() {
+    if (busy || !chosen) return;
     setBusy(true);
     setError(null);
     try {
@@ -441,11 +482,11 @@ function ImportDialog({ onClose }: { onClose: () => void }) {
   return (
     <Sheet
       title="Importar desde un proyecto"
-      onClose={onClose}
+      onClose={() => { if (!busy) onClose(); }}
       footer={
         <div className="flex gap-2">
-          <Button variant="primary" disabled={busy || !chosen} onClick={() => void run()}>Importar</Button>
-          <Button onClick={onClose}>Cerrar</Button>
+          <Button variant="primary" disabled={busy || !chosen} onClick={() => void run()}>{busy ? "Importando…" : "Importar"}</Button>
+          <Button disabled={busy} onClick={onClose}>Cerrar</Button>
         </div>
       }
     >
@@ -477,14 +518,14 @@ function ImportDialog({ onClose }: { onClose: () => void }) {
 function RunView({ id }: { id: string }) {
   const { view } = useLive();
   const titles = useProjectTitles();
-  const { detail, busy, error, mode, setMode, act } = useRun(id);
+  const { detail, busy, error, mode, setMode, act, reload } = useRun(id);
 
   const back = (
-    <a href={hashes.page("flows")} className="inline-flex items-center gap-0.5 justify-self-start text-sm text-primary">
+    <a href={workflowListHash(hashes.page("flows"), location.hash)} className="inline-flex items-center gap-0.5 justify-self-start text-sm text-primary hover:underline">
       <ChevronLeft className="size-4" aria-hidden /> Flujos
     </a>
   );
-  if (!detail) return <div className="grid gap-3">{back}{error ? <ErrorNote>No se pudo cargar la ejecución. {error}</ErrorNote> : <p className="text-muted-fg">Cargando…</p>}</div>;
+  if (!detail) return <div className="grid gap-3">{back}{error ? <ErrorNote>No se pudo cargar la ejecución. {error} <Button onClick={reload}>Reintentar</Button></ErrorNote> : <p className="text-muted-fg">Cargando…</p>}</div>;
 
   const { run, steps } = detail;
   const states = nodeStates(run.workflow.nodes, steps);
@@ -507,7 +548,8 @@ function RunView({ id }: { id: string }) {
         <Chain nodes={orderNodes(run.workflow)} states={states} />
         {run.error && <p className="text-[13px] text-fail">{run.error}</p>}
       </div>
-      {error && <ErrorNote>{error}</ErrorNote>}
+      {error && <ErrorNote>{error} <Button onClick={reload}>Reintentar</Button></ErrorNote>}
+      {busy && <p role="status">Guardando cambios…</p>}
 
       {run.status === "pending_approval" && (
         <section className="grid gap-3 rounded-card border border-[#f3d9a6] bg-panel p-4">

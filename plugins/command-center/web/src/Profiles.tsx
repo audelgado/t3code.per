@@ -35,7 +35,7 @@ const key = (m: ModelSelection) => `${m.instanceId}\0${m.model}`;
 const blank: ProfileInput = { name: "", avatar: "", rolePrompt: "", model: null, runtimeMode: null, interactionMode: null };
 
 /** Sheet to create (`id` "") or edit a profile; Eliminar shows only when editing. */
-function ProfileSheet({ initial, models, busy, onSave, onDelete, onClose }: { initial: ProfileInput; models: ModelOption[]; busy: boolean; onSave(p: ProfileInput): void; onDelete?: () => void; onClose: () => void }) {
+function ProfileSheet({ initial, models, busy, error, onSave, onDelete, onClose }: { initial: ProfileInput; models: ModelOption[]; busy: boolean; error: string | null; onSave(p: ProfileInput): void; onDelete?: () => void; onClose: () => void }) {
   const [p, setP] = useState(initial);
   const patch = (x: Partial<ProfileInput>) => setP((cur) => ({ ...cur, ...x }));
   // A saved model that no machine lists now stays selectable instead of silently resetting.
@@ -43,7 +43,7 @@ function ProfileSheet({ initial, models, busy, onSave, onDelete, onClose }: { in
   return (
     <Sheet
       title={onDelete ? "Editar perfil" : "Nuevo perfil"}
-      onClose={onClose}
+      onClose={() => { if (!busy) onClose(); }}
       footer={
         <div className="flex gap-2">
           {onDelete && (
@@ -51,11 +51,11 @@ function ProfileSheet({ initial, models, busy, onSave, onDelete, onClose }: { in
               Eliminar
             </Button>
           )}
-          <Button className="ml-auto" onClick={onClose}>
+          <Button className="ml-auto" disabled={busy} onClick={onClose}>
             Cancelar
           </Button>
           <Button variant="primary" type="submit" form="profile-form" disabled={busy || !p.name.trim()}>
-            Guardar
+            {busy ? "Guardando…" : "Guardar"}
           </Button>
         </div>
       }
@@ -65,22 +65,24 @@ function ProfileSheet({ initial, models, busy, onSave, onDelete, onClose }: { in
         className="grid gap-3"
         onSubmit={(e) => {
           e.preventDefault();
-          onSave({ ...p, name: p.name.trim() });
+          if (!busy) onSave({ ...p, name: p.name.trim() });
         }}
       >
+        {error && <p role="alert" className="text-fail">{error}</p>}
+        {busy && <p role="status">Guardando cambios…</p>}
         <div className="grid grid-cols-[5rem_1fr] gap-3">
           <Field label="Avatar">
-            <Input value={p.avatar ?? ""} onChange={(e) => patch({ avatar: e.target.value })} maxLength={8} placeholder="🧑…" />
+            <Input disabled={busy} value={p.avatar ?? ""} onChange={(e) => patch({ avatar: e.target.value })} maxLength={8} placeholder="🧑…" />
           </Field>
           <Field label="Nombre">
-            <Input value={p.name} onChange={(e) => patch({ name: e.target.value })} maxLength={40} required autoFocus />
+            <Input disabled={busy} value={p.name} onChange={(e) => patch({ name: e.target.value })} maxLength={40} required autoFocus />
           </Field>
         </div>
         <Field label="Indicaciones del rol">
-          <Textarea value={p.rolePrompt ?? ""} onChange={(e) => patch({ rolePrompt: e.target.value })} maxLength={4000} placeholder="Eres un revisor cuidadoso. Concéntrate en…" />
+          <Textarea disabled={busy} value={p.rolePrompt ?? ""} onChange={(e) => patch({ rolePrompt: e.target.value })} maxLength={4000} placeholder="Eres un revisor cuidadoso. Concéntrate en…" />
         </Field>
         <Field label="Modelo">
-          <Select value={p.model ? key(p.model) : ""} onChange={(e) => patch({ model: options.find((m) => key(m.sel) === e.target.value)?.sel ?? null })}>
+          <Select disabled={busy} value={p.model ? key(p.model) : ""} onChange={(e) => patch({ model: options.find((m) => key(m.sel) === e.target.value)?.sel ?? null })}>
             <option value="">Sin definir</option>
             {options.map((m) => (
               <option key={key(m.sel)} value={key(m.sel)}>
@@ -91,7 +93,7 @@ function ProfileSheet({ initial, models, busy, onSave, onDelete, onClose }: { in
         </Field>
         <div className="grid gap-3 sm:grid-cols-2">
           <Field label="Permisos">
-            <Select value={p.runtimeMode ?? ""} onChange={(e) => patch({ runtimeMode: (e.target.value || null) as RuntimeMode | null })}>
+            <Select disabled={busy} value={p.runtimeMode ?? ""} onChange={(e) => patch({ runtimeMode: (e.target.value || null) as RuntimeMode | null })}>
               <option value="">Sin definir</option>
               {RUNTIME_MODES.map(([v, l]) => (
                 <option key={v} value={v}>
@@ -101,7 +103,7 @@ function ProfileSheet({ initial, models, busy, onSave, onDelete, onClose }: { in
             </Select>
           </Field>
           <Field label="Modo">
-            <Select value={p.interactionMode ?? ""} onChange={(e) => patch({ interactionMode: (e.target.value || null) as InteractionMode | null })}>
+            <Select disabled={busy} value={p.interactionMode ?? ""} onChange={(e) => patch({ interactionMode: (e.target.value || null) as InteractionMode | null })}>
               <option value="">Sin definir</option>
               {INTERACTION_MODES.map(([v, l]) => (
                 <option key={v} value={v}>
@@ -117,7 +119,7 @@ function ProfileSheet({ initial, models, busy, onSave, onDelete, onClose }: { in
   );
 }
 
-/** Perfiles: roles reutilizables que elegís en Pedir. Un perfil antepone su prompt al tuyo y completa los valores por defecto. */
+/** Perfiles: indicaciones y valores por defecto reutilizables. */
 export function Profiles() {
   const [profiles, setProfiles] = useState<Profile[] | null>(null);
   const [models, setModels] = useState<ModelOption[]>([]);
@@ -133,6 +135,7 @@ export function Profiles() {
   }, []);
 
   const act = async (fn: () => Promise<unknown>) => {
+    if (busy) return false;
     setBusy(true);
     setError(null);
     try {
@@ -168,8 +171,8 @@ export function Profiles() {
           </Button>
         }
       >
-        <p className="px-4 py-2.5 text-xs text-muted-fg">Roles que elegís en Pedir: su prompt va antes del tuyo y su modelo y modo son los valores por defecto.</p>
-        {error && (
+        <p className="px-4 py-2.5 text-xs text-muted-fg">Roles reutilizables con indicaciones, modelo y permisos. El formulario Pedir todavía no permite elegir un perfil.</p>
+        {error && editing === null && (
           <p role="alert" className="px-4 py-2.5 text-fail">
             {error}
           </p>
@@ -202,8 +205,8 @@ export function Profiles() {
           </div>
         ))}
       </Panel>
-      {editing === "" && <ProfileSheet initial={blank} models={models} busy={busy} onSave={(p) => void save("", p)} onClose={() => setEditing(null)} />}
-      {current && <ProfileSheet key={current.id} initial={current} models={models} busy={busy} onSave={(p) => void save(current.id, p)} onDelete={() => void remove(current)} onClose={() => setEditing(null)} />}
+      {editing === "" && <ProfileSheet initial={blank} models={models} busy={busy} error={error} onSave={(p) => void save("", p)} onClose={() => setEditing(null)} />}
+      {current && <ProfileSheet key={current.id} initial={current} models={models} busy={busy} error={error} onSave={(p) => void save(current.id, p)} onDelete={() => void remove(current)} onClose={() => setEditing(null)} />}
     </>
   );
 }

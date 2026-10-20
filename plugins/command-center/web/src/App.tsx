@@ -61,7 +61,7 @@ import { Toaster, toast } from "./ui/Toast.tsx";
 
 export function App() {
   const hash = useHash();
-  const { view, authed } = useLive();
+  const { view, authed, connection, connectionError } = useLive();
   // The pair link is /pair#token=...; a pasted token lands on #pair.
   const pairing = location.pathname === "/pair" || hash.startsWith("#pair") || new URLSearchParams(hash.slice(1)).has("token");
   const [assistantOpen, setAssistantOpen] = useState(false);
@@ -95,7 +95,7 @@ export function App() {
     setInputRequest(null);
   }, [inputRequest, route.page, route.tab]);
 
-  useEffect(connect, []);
+  useEffect(() => { void connect(); }, []);
   useEffect(() => {
     if (authed) void syncPush().catch(() => {});
   }, [authed]);
@@ -148,7 +148,7 @@ export function App() {
   }, [threadGone]);
 
   if (pairing || authed === false) return <Pair />;
-  if (authed === null) return <p className="p-6 text-muted-fg">Cargando…</p>;
+  if (authed === null) return <div className="grid gap-3 p-6"><p role="status">{connectionError ?? "Cargando…"}</p>{connection === "retrying" && <button type="button" className="justify-self-start rounded border border-line px-3 py-2 hover:bg-soft" onClick={connect}>Reintentar conexión</button>}</div>;
 
   let page: ReactNode;
   switch (route.page) {
