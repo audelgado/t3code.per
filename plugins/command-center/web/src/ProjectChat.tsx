@@ -21,11 +21,10 @@ function ProjectChatContent({ projectKey }: { projectKey: string }) {
   const params = { machine: machineId, project: projectId };
   const { view } = useLive();
   const [chat, setChat] = useState<ProjectChatView | null>(null);
-  const [text, setText, clearSent] = useChatDraft(`project-chat:${projectKey}`);
+  const [text, setText, clearSent, commandId] = useChatDraft(`project-chat:${projectKey}`);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [listening, setListening] = useState(false);
-  const command = useRef(crypto.randomUUID());
   const sending = useRef(false);
   const fetching = useRef(false);
   const reloadRequested = useRef(false);
@@ -49,10 +48,10 @@ function ProjectChatContent({ projectKey }: { projectKey: string }) {
     return () => { clearInterval(timer); document.removeEventListener("visibilitychange", visible); };
   }, [active, load]);
   const act = async (run: () => Promise<unknown>) => {
-    if (sending.current) return;
+    if (sending.current) return false;
     sending.current = true; setBusy(true); setError(null);
-    try { await run(); await load(); void refresh(); }
-    catch (e) { setError(e instanceof Error ? e.message : "No se pudo enviar"); }
+    try { await run(); await load(); void refresh(); return true; }
+    catch (e) { setError(e instanceof Error ? e.message : "No se pudo enviar"); return false; }
     finally { sending.current = false; setBusy(false); }
   };
   const pending = chat?.pending;
@@ -71,12 +70,12 @@ function ProjectChatContent({ projectKey }: { projectKey: string }) {
       <div ref={end} />
     </div>
     {pending && <div className="rounded-ctl border border-line p-3">
-      {pending.kind === "user_input" && pending.questions?.length ? <ThreadInput key={pending.id} questions={pending.questions} busy={busy} onSubmit={(answers) => void act(() => call("POST /api/threads/:machine/:thread/answer", { params: threadParams, body: { requestId: pending.id, answers } }))} /> : ["command", "file-read", "file-change", "permission", "mcp-elicitation"].includes(pending.kind) ? <div className="grid gap-3"><p className="text-sm break-words whitespace-pre-wrap">{pending.summary ?? "El agente necesita tu aprobación"}</p><div className="flex gap-2"><Button disabled={busy} onClick={() => void act(() => call("POST /api/threads/:machine/:thread/respond", { params: threadParams, body: { requestId: pending.id, decision: "decline" } }))}>Rechazar</Button><Button variant="primary" disabled={busy} onClick={() => void act(() => call("POST /api/threads/:machine/:thread/respond", { params: threadParams, body: { requestId: pending.id, decision: "accept" } }))}>Aprobar</Button></div></div> : <LinkButton href={hashes.thread(`${machineId}:${chat!.threadId}`)}>Abrir solicitud</LinkButton>}
+      {pending.kind === "user_input" && pending.questions?.length ? <ThreadInput key={pending.id} draftScope={JSON.stringify([machineId, chat!.threadId, pending.id])} questions={pending.questions} busy={busy} onSubmit={(answers) => act(() => call("POST /api/threads/:machine/:thread/answer", { params: threadParams, body: { requestId: pending.id, answers } }))} /> : ["command", "file-read", "file-change", "permission", "mcp-elicitation"].includes(pending.kind) ? <div className="grid gap-3"><p className="text-sm break-words whitespace-pre-wrap">{pending.summary ?? "El agente necesita tu aprobación"}</p><div className="flex gap-2"><Button disabled={busy} onClick={() => void act(() => call("POST /api/threads/:machine/:thread/respond", { params: threadParams, body: { requestId: pending.id, decision: "decline" } }))}>Rechazar</Button><Button variant="primary" disabled={busy} onClick={() => void act(() => call("POST /api/threads/:machine/:thread/respond", { params: threadParams, body: { requestId: pending.id, decision: "accept" } }))}>Aprobar</Button></div></div> : <LinkButton href={hashes.thread(`${machineId}:${chat!.threadId}`)}>Abrir solicitud</LinkButton>}
     </div>}
     {error && <p role="alert" className="text-sm text-fail">{error}</p>}
     {chat?.retry && <Button disabled={busy} onClick={() => void act(() => call("POST /api/project-chat/:machine/:project", { params, body: chat.retry! }))}>Reintentar envío pendiente</Button>}
-    <form className="sticky bottom-20 grid gap-2 rounded-card border border-line bg-panel p-3 md:bottom-3" onSubmit={(e) => { e.preventDefault(); if (listening || !text.trim()) return; void act(async () => { await call("POST /api/project-chat/:machine/:project", { params, body: { text, commandId: command.current } }); clearSent(); command.current = crypto.randomUUID(); }); }}>
-      <DictationTextarea compact activateEvent={busy || pending || chat?.retry ? undefined : "cc:project-dictate"} aria-label="Mensaje al orquestador" placeholder="Escribe o dicta tu pedido…" rows={2} className="min-h-16" value={text} maxLength={20000} disabled={busy || !!pending || !!chat?.retry} onValueChange={(v) => { setText(v); command.current = crypto.randomUUID(); }} onListeningChange={setListening} />
+    <form className="sticky bottom-20 grid gap-2 rounded-card border border-line bg-panel p-3 md:bottom-3" onSubmit={(e) => { e.preventDefault(); if (listening || !text.trim()) return; void act(async () => { await call("POST /api/project-chat/:machine/:project", { params, body: { text, commandId } }); clearSent(); }); }}>
+      <DictationTextarea compact activateEvent={busy || pending || chat?.retry ? undefined : "cc:project-dictate"} aria-label="Mensaje al orquestador" placeholder="Escribe o dicta tu pedido…" rows={2} className="min-h-16" value={text} maxLength={20000} disabled={busy || !!pending || !!chat?.retry} onValueChange={setText} onListeningChange={setListening} />
       <div className="flex justify-end gap-2">{active && chat?.threadId && <Button disabled={busy} onClick={() => { if (confirm(STOP_AGENT_CONFIRMATION)) void act(() => call("POST /api/threads/:machine/:thread/stop", { params: threadParams })); }}>Detener agente</Button>}<Button type="submit" variant="primary" disabled={busy || listening || !!pending || !!chat?.retry || !text.trim()}>{active ? "Enviar después" : "Enviar"}</Button></div>
     </form>
   </section>;

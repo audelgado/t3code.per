@@ -28,14 +28,15 @@ test("solo limpia el borrador enviado y conserva ediciones posteriores y otros d
   drafts.write("a", "Pedido");
   drafts.write("b", "Otro destino");
   const send = async (succeed: boolean) => {
-    const sent = drafts.read("a");
+    const sent = drafts.snapshot("a");
     await (succeed ? Promise.resolve() : Promise.reject(new Error("Sin conexión")));
     drafts.clearSent("a", sent);
   };
   await assert.rejects(send(false));
   assert.equal(drafts.read("a"), "Pedido");
+  const sent = drafts.snapshot("a");
   drafts.write("a", "Nueva edición");
-  drafts.clearSent("a", "Pedido");
+  drafts.clearSent("a", sent);
   assert.equal(drafts.read("a"), "Nueva edición");
   await send(true);
   assert.equal(createChatDraftStore(() => session).read("a"), "");
@@ -48,7 +49,53 @@ test("conserva los borradores en memoria si falla el acceso al almacenamiento", 
     assert.equal(drafts.read("a"), "");
     drafts.write("a", "Pedido conservado");
     assert.equal(drafts.read("a"), "Pedido conservado");
-    drafts.clearSent("a", "Pedido conservado");
+    drafts.clearSent("a", drafts.snapshot("a"));
     assert.equal(drafts.read("a"), "");
+  }
+});
+
+test("reutiliza el ID tras un fallo y una recarga en cada compositor", async () => {
+  const session = storage();
+  const scopes = ["project-request:m:p", "project-chat:m:p", "thread:m:t", "assistant:global", "assistant:project:p"];
+  const drafts = createChatDraftStore(() => session);
+  const commands = new Set<string>();
+  for (const scope of scopes) {
+    drafts.write(scope, "Continuar");
+    const sent = drafts.snapshot(scope);
+    commands.add(sent.commandId);
+    await assert.rejects(async () => {
+      await Promise.reject(new Error("Respuesta perdida"));
+      drafts.clearSent(scope, sent);
+    });
+    assert.deepEqual(drafts.snapshot(scope), sent);
+    assert.deepEqual(createChatDraftStore(() => session).snapshot(scope), sent);
+  }
+  assert.equal(commands.size, scopes.length);
+});
+
+test("renueva el ID al editar incluso si el texto vuelve a ser el mismo", () => {
+  const session = storage();
+  const drafts = createChatDraftStore(() => session);
+  const sent = drafts.write("a", "Continuar");
+  drafts.write("a", "");
+  const edited = drafts.write("a", "Continuar");
+  assert.notEqual(edited.commandId, sent.commandId);
+  drafts.clearSent("a", sent);
+  assert.deepEqual(createChatDraftStore(() => session).snapshot("a"), edited);
+  drafts.clearSent("a", edited);
+  const cleared = createChatDraftStore(() => session).snapshot("a");
+  assert.equal(cleared.text, "");
+  assert.notEqual(cleared.commandId, edited.commandId);
+  assert.notEqual(drafts.write("a", "Continuar").commandId, edited.commandId);
+});
+
+test("migra borradores de texto plano y conserva su ID en la siguiente recarga", () => {
+  const session = storage();
+  for (const text of ["Pedido anterior", '{"text":"Texto literal","commandId":"no es metadato"}', "cc.chat.draft.v1:incompleto"]) {
+    session.setItem("cc.chat.draft:legacy", text);
+    const migrated = createChatDraftStore(() => session).snapshot("legacy");
+    assert.equal(migrated.text, text);
+    assert.ok(migrated.commandId);
+    assert.deepEqual(createChatDraftStore(() => session).snapshot("legacy"), migrated);
   }
 });

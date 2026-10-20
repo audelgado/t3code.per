@@ -29,7 +29,6 @@ export function Assistant({ open, onClose, projectKey }: { open: boolean; onClos
   const [listening, setListening] = useState(false);
   const [busy, setBusy] = useState(false);
   const working = useRef(false);
-  const command = useRef(crypto.randomUUID());
   const [error, setError] = useState<string | null>(null);
   const messages = chat?.messages ?? [];
   const pending = chat?.status === "running";
@@ -38,7 +37,7 @@ export function Assistant({ open, onClose, projectKey }: { open: boolean; onClos
   const selectedCoordinator = choice?.id ?? coordinator;
   const selection = { coordinator: selectedCoordinator, projectKey: target || null };
   const selectionKey = JSON.stringify(selection);
-  const [text, setText, clearSent] = useChatDraft(`assistant:${selectionKey}`);
+  const [text, setText, clearSent, commandId] = useChatDraft(`assistant:${selectionKey}`);
   const { end, away, jump } = useChatFollow(messages.at(-1), selectionKey, open);
   const currentSelection = useRef(selectionKey);
   currentSelection.current = selectionKey;
@@ -73,15 +72,14 @@ export function Assistant({ open, onClose, projectKey }: { open: boolean; onClos
     return () => { clearInterval(timer); document.removeEventListener("visibilitychange", visible); };
   }, [open, pending, load]);
 
-  const consult = async (request: string, commandId: string = command.current) => {
+  const consult = async (request: string, sentCommandId: string = commandId) => {
     if (working.current || listening || !choice || !request.trim()) return;
     working.current = true; setBusy(true); setError(null);
     ++requests.current;
     try {
-      const result = await call("POST /api/assistant", { body: { ...selection, text: request, commandId } });
+      const result = await call("POST /api/assistant", { body: { ...selection, text: request, commandId: sentCommandId } });
       ++requests.current; setChat(result);
-      if (request === text) clearSent();
-      command.current = crypto.randomUUID();
+      if (sentCommandId === commandId) clearSent();
     } catch (e) { setError(e instanceof Error ? e.message : "No se pudo consultar"); await load(); }
     finally { working.current = false; setBusy(false); }
   };
@@ -101,8 +99,8 @@ export function Assistant({ open, onClose, projectKey }: { open: boolean; onClos
 
   if (!open) return null;
   return <Sheet title="Asistente CC" onClose={onClose} wide footer={<form id="cc-assistant-form" className="grid gap-2" onSubmit={(e) => { e.preventDefault(); if (!locked) void consult(text); }}>
-    <label className="grid gap-1 text-xs">Alcance<Select aria-label="Alcance del asistente" value={target} disabled={busy || listening} onChange={(e) => { setTarget(e.target.value); setError(null); command.current = crypto.randomUUID(); }}><option value="">Todo el CC</option>{groups.map((g) => <optgroup key={g.machineId} label={g.machineLabel}>{g.projects.map((p) => <option key={p.id} value={`${g.machineId}:${p.id}`}>Este proyecto: {p.title} · {g.machineLabel}</option>)}</optgroup>)}</Select></label>
-    <DictationTextarea compact aria-label="Mensaje al asistente CC" placeholder="Escribe o dicta al asistente…" rows={2} className="min-h-16" value={text} maxLength={8000} onValueChange={(v) => { setText(v); command.current = crypto.randomUUID(); }} onListeningChange={setListening} disabled={locked || !chat} />
+    <label className="grid gap-1 text-xs">Alcance<Select aria-label="Alcance del asistente" value={target} disabled={busy || listening} onChange={(e) => { setTarget(e.target.value); setError(null); }}><option value="">Todo el CC</option>{groups.map((g) => <optgroup key={g.machineId} label={g.machineLabel}>{g.projects.map((p) => <option key={p.id} value={`${g.machineId}:${p.id}`}>Este proyecto: {p.title} · {g.machineLabel}</option>)}</optgroup>)}</Select></label>
+    <DictationTextarea compact aria-label="Mensaje al asistente CC" placeholder="Escribe o dicta al asistente…" rows={2} className="min-h-16" value={text} maxLength={8000} onValueChange={setText} onListeningChange={setListening} disabled={locked || !chat} />
     <div className="flex gap-2"><Button onClick={onClose}>Cerrar</Button><Button className="ml-auto" variant="primary" type="submit" disabled={locked || !chat || listening || !choice || !text.trim()}>Enviar</Button></div>
   </form>}>
     <div className="grid gap-4">

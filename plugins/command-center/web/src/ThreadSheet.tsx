@@ -1,6 +1,6 @@
 import { STOP_AGENT_CONFIRMATION } from "./chatConfirm.ts";
 import { AlertTriangle, ChevronLeft, ChevronRight, ExternalLink, X } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { HomeView, ThreadItem } from "../../server/types.ts";
 import type { ThreadActionApi, ThreadDetail } from "../../server/threadActions.ts";
 import { call } from "./api.ts";
@@ -42,8 +42,7 @@ function Thread({ item, view, onClose }: { item: ThreadItem; view: HomeView; onC
   const [loadError, setLoadError] = useState<string | null>(null);
   const { busy, error, act } = useAct();
   const [listening, setListening] = useState(false);
-  const [message, setMessage, clearSent] = useChatDraft(`thread:${item.key}`);
-  const messageCommand = useRef(crypto.randomUUID());
+  const [message, setMessage, clearSent, commandId] = useChatDraft(`thread:${item.key}`);
 
   // Fetched on open (not in the view): the result text is read from T3 once per tap.
   useEffect(() => {
@@ -152,10 +151,10 @@ function Thread({ item, view, onClose }: { item: ThreadItem; view: HomeView; onC
         )}
 
         {loadError && !detail && <ErrorNote>No se pudo cargar el detalle. {loadError}</ErrorNote>}
-        {pending && detail?.inputAnswerable && pending.questions && <ThreadInput key={pending.id} questions={pending.questions} busy={busy} onSubmit={(answers) => void act("No se pudo enviar la respuesta", async () => { await api("POST /api/threads/:machine/:thread/answer", { params, body: { requestId: pending.id, answers } }); onClose(); })} />}
-        {detail?.canMessage && <form className="grid gap-2" onSubmit={(e) => { e.preventDefault(); if (listening || busy || !message.trim()) return; void act("No se pudo enviar el mensaje", async () => { await api("POST /api/threads/:machine/:thread/message", { params, body: { text: message, commandId: messageCommand.current } }); clearSent(); onClose(); }); }}>
+        {pending && detail?.inputAnswerable && pending.questions && <ThreadInput key={pending.id} draftScope={JSON.stringify([item.machineId, item.threadId, pending.id])} questions={pending.questions} busy={busy} onSubmit={(answers) => act("No se pudo enviar la respuesta", async () => { await api("POST /api/threads/:machine/:thread/answer", { params, body: { requestId: pending.id, answers } }); onClose(); })} />}
+        {detail?.canMessage && <form className="grid gap-2" onSubmit={(e) => { e.preventDefault(); if (listening || busy || !message.trim()) return; void act("No se pudo enviar el mensaje", async () => { await api("POST /api/threads/:machine/:thread/message", { params, body: { text: message, commandId } }); clearSent(); onClose(); }); }}>
           <label className="font-semibold" htmlFor="thread-reply">Responder desde el CC</label>
-          <DictationTextarea id="thread-reply" placeholder="Escribe tu respuesta o la siguiente instrucción…" value={message} maxLength={20000} disabled={busy} onListeningChange={setListening} onValueChange={(value) => { setMessage(value); messageCommand.current = crypto.randomUUID(); }} />
+          <DictationTextarea id="thread-reply" placeholder="Escribe tu respuesta o la siguiente instrucción…" value={message} maxLength={20000} disabled={busy} onListeningChange={setListening} onValueChange={setMessage} />
           <p className="text-xs text-muted-fg">Se envía a este mismo hilo en {machine}.</p>
           <Button type="submit" variant="primary" disabled={busy || listening || !message.trim()}>Enviar mensaje</Button>
         </form>}
