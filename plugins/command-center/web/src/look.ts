@@ -1,4 +1,4 @@
-// Shared look: labels, tones and formatters every screen uses. Spanish (rioplatense) and es-AR.
+// Etiquetas en español neutro y formatos de fecha y número es-AR compartidos.
 // Colours here mirror the --color-* tokens in index.css (the "Papel vivo" palette).
 import type { LinkStatus, RuntimeMode, TaskStatus, ThreadStatus } from "../../server/types.ts";
 
@@ -18,8 +18,8 @@ export function projectColor(key: string): string {
 export type Tone = "need" | "run" | "queue" | "ok" | "fail" | "pr" | "teal";
 export const TONES: Record<Tone, { fg: string; bg: string }> = {
   need: { fg: "#b45309", bg: "#fef3c7" },
-  run: { fg: "#2563eb", bg: "#dbeafe" },
-  queue: { fg: "#64748b", bg: "#f1f5f9" },
+  run: { fg: "#1d4ed8", bg: "#dbeafe" },
+  queue: { fg: "#475569", bg: "#f1f5f9" },
   ok: { fg: "#15803d", bg: "#dcfce7" },
   fail: { fg: "#b91c1c", bg: "#fee2e2" },
   pr: { fg: "#6d28d9", bg: "#ede9fe" },

@@ -7,7 +7,7 @@ export function queueReason(task: Task, tasks: Map<string, Task>, machine: Machi
   for (const id of task.dependsOn) {
     const dep = tasks.get(id);
     if (dep?.status === "done") continue;
-    if (!dep) return "Una tarea previa ya no existe. Revisá las dependencias.";
+    if (!dep) return "Una tarea previa ya no existe. Revisa las dependencias.";
     if (dep.status === "cancelled" || dep.status === "failed") return `Bloqueada: «${dep.title}» ${dep.status === "cancelled" ? "fue cancelada" : "falló"}. Reintenta ese paso para continuar la cadena.`;
     return `Espera a «${dep.title}» (${dep.status === "needs_you" || dep.status === "pending_approval" ? "necesita tu respuesta" : "sin terminar"}).`;
   }

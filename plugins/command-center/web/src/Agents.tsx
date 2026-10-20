@@ -50,9 +50,9 @@ function NewToken({ created, onDone }: { created: NewAgentToken; onDone: () => v
         <span className="text-sm text-muted-fg">· se muestra una sola vez</span>
       </header>
       <div className="grid gap-3 px-4 py-3">
-        <p className="text-sm text-need">Copialo ahora: no se vuelve a mostrar.</p>
+        <p className="text-sm text-need">Cópialo ahora: no se vuelve a mostrar.</p>
         <div className="flex items-center gap-2">
-          <code className="min-w-0 flex-1 rounded-lg bg-soft px-2.5 py-2 font-mono text-[13px] break-all">{created.token}</code>
+          <code translate="no" className="min-w-0 flex-1 rounded-lg bg-soft px-2.5 py-2 font-mono text-[13px] break-all">{created.token}</code>
           <CopyButton text={created.token} label="el token" />
         </div>
         <div className="flex items-center gap-2">
@@ -61,7 +61,7 @@ function NewToken({ created, onDone }: { created: NewAgentToken; onDone: () => v
             <CopyButton text={snippet.text} label={`la configuración de ${snippet.label}`} />
           </span>
         </div>
-        <pre className="overflow-x-auto rounded-lg bg-fg p-2.5 font-mono text-[11.5px] leading-normal whitespace-pre-wrap break-all text-[#e7e5e0]">{snippet.text}</pre>
+        <pre translate="no" className="overflow-x-auto rounded-lg bg-fg p-2.5 font-mono text-[11.5px] leading-normal whitespace-pre-wrap break-all text-[#e7e5e0]">{snippet.text}</pre>
         <Button variant="primary" className="justify-self-end" onClick={onDone}>
           Listo
         </Button>
@@ -164,7 +164,7 @@ function ApiAccess() {
                 Cancelar
               </Button>
               <Button variant="primary" type="submit" form="agent-form" disabled={busy || !label.trim()}>
-                Crear
+                {busy ? "Creando…" : "Crear"}
               </Button>
             </div>
           }
@@ -178,9 +178,9 @@ function ApiAccess() {
             }}
           >
             <Field label="Nombre">
-              <Input value={label} onChange={(e) => setLabel(e.target.value)} placeholder="hermes…" maxLength={40} autoCapitalize="off" autoCorrect="off" autoFocus />
+              <Input value={label} onChange={(e) => setLabel(e.target.value)} placeholder="hermes…" maxLength={40} autoCapitalize="off" autoCorrect="off" spellCheck={false} autoFocus />
             </Field>
-            <p className="text-xs text-muted-fg">Letras, números, puntos, guiones y guiones bajos. Después vas a ver el token una sola vez.</p>
+            <p className="text-xs text-muted-fg">Letras, números, puntos, guiones y guiones bajos. Después verás el token una sola vez.</p>
             {error && (
               <p role="alert" className="text-fail">
                 {error}

@@ -38,7 +38,7 @@ export function Notifications() {
   const disable = run(async () => (setState(await disablePush()), "Las notificaciones están desactivadas en este dispositivo."));
   const test = run(async () => {
     const { sent } = await testPush();
-    return sent > 0 ? `Enviada a ${sent} ${sent === 1 ? "dispositivo" : "dispositivos"}.` : "Ningún dispositivo la recibió. Desactivá las notificaciones y volvé a activarlas.";
+    return sent > 0 ? `Enviada a ${sent} ${sent === 1 ? "dispositivo" : "dispositivos"}.` : "Ningún dispositivo la recibió. Desactiva las notificaciones y vuelve a activarlas.";
   });
 
   return (
@@ -46,12 +46,12 @@ export function Notifications() {
       <Panel title="Este dispositivo" action={state && <Chip tone={STATE[state].tone}>{STATE[state].label}</Chip>}>
         <p className="px-4 py-3 text-sm text-muted-fg">
           Tus tareas del Command Center: aprobaciones, preguntas, tareas terminadas o fallidas y alertas de máquinas. Los demás hilos de T3 avisan por T3 Connect desde la app de T3.
-          {" "}Los avisos de todas tus máquinas llegan a este dispositivo. Para elegir dónde ejecutar una tarea, usa Sistema en Pedir.
+          {" "}Los avisos de todas tus máquinas llegan a este dispositivo. Al crear un pedido, elige el proyecto de la máquina donde quieres ejecutarlo.
         </p>
         {state === "unsupported" && (
-          <p className="px-4 py-3 text-sm text-need">Este navegador no puede recibir notificaciones. En iPhone, agrega el Command Center a la pantalla de inicio y abrilo desde ahí.</p>
+          <p className="px-4 py-3 text-sm text-need">Este navegador no puede recibir notificaciones. En iPhone, agrega el Command Center a la pantalla de inicio y ábrelo desde allí.</p>
         )}
-        {state === "denied" && <p className="px-4 py-3 text-sm text-need">Las notificaciones están bloqueadas. Permitilas en los ajustes del sistema para esta app.</p>}
+        {state === "denied" && <p className="px-4 py-3 text-sm text-need">Las notificaciones están bloqueadas. Permítelas en los ajustes del sistema para esta app.</p>}
         {(state === "off" || state === "on") && (
           <div className="flex flex-wrap items-center gap-2 px-4 py-3">
             {state === "off" ? (

@@ -61,17 +61,19 @@ export function Search({ onClose }: { onClose: () => void }) {
   const { view } = useLive();
   const [query, setQuery] = useState("");
   const [projects, setProjects] = useState<MachineProjects[]>([]);
+  const [projectError, setProjectError] = useState(false);
   const [active, setActive] = useState(0);
   const list = useRef<HTMLUListElement>(null);
   const input = useRef<HTMLInputElement>(null);
   const resultsId = useId();
 
   useEffect(() => {
-    call("GET /api/projects").then(setProjects, () => {});
+    let active = true;
+    call("GET /api/projects").then((rows) => { if (active) setProjects(rows); }, () => { if (active) setProjectError(true); });
     const frame = requestAnimationFrame(() => {
       if (matchMedia("(hover: hover) and (pointer: fine)").matches) input.current?.focus();
     });
-    return () => cancelAnimationFrame(frame);
+    return () => { active = false; cancelAnimationFrame(frame); };
   }, []);
 
   const hits = useMemo(() => findHits(query, view, projects), [query, view, projects]);
@@ -118,6 +120,7 @@ export function Search({ onClose }: { onClose: () => void }) {
           <kbd className="hidden text-muted-fg md:inline-block">esc</kbd>
         </div>
         <p role="status" className="sr-only">{hits.length} resultados</p>
+        {projectError && <p role="alert" className="px-4 py-2 text-sm text-fail">No se pudieron cargar los proyectos. Cierra y vuelve a abrir la búsqueda para reintentar.</p>}
         {!hits.length && <p className="p-6 text-center text-muted-fg">{query.trim() ? `No hay resultados para “${query.trim()}”. Prueba con un proyecto, una tarea o una página.` : "Sin resultados"}</p>}
         <ul id={resultsId} ref={list} role="listbox" aria-label="Resultados de búsqueda" className="max-h-[50dvh] min-h-0 flex-1 overflow-y-auto py-1">
           {hits.map((hit, i) => (
@@ -128,6 +131,7 @@ export function Search({ onClose }: { onClose: () => void }) {
                 href={hit.hash}
                 role="option"
                 aria-selected={i === current}
+                onFocus={() => setActive(i)}
                 onMouseMove={() => setActive(i)}
                 onClick={(event) => { if (!event.ctrlKey && !event.metaKey && !event.shiftKey && !event.altKey) onClose(); }}
                 className={`flex cursor-pointer items-center gap-3 px-4 py-2 hover:bg-soft ${i === current ? "bg-[#f5f8ff]" : ""}`}

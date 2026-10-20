@@ -18,9 +18,9 @@
   --primary-fg: #ffffff;
   --need: #b45309;
   --need-bg: #fef3c7;
-  --run: #2563eb;
+  --run: #1d4ed8;
   --run-bg: #dbeafe;
-  --queue: #64748b;
+  --queue: #475569;
   --queue-bg: #f1f5f9;
   --ok: #15803d;
   --ok-bg: #dcfce7;
@@ -100,6 +100,17 @@ button, a, input, select, textarea, summary {
 }
 dialog, dialog [class*="overflow-y-auto"] {
   overscroll-behavior: contain;
+}
+/* Con poca altura, el formulario del pie puede ocupar toda la pantalla.
+   Desplazar el panel completo mantiene accesibles el contenido y sus acciones. */
+@media (max-height: 480px) {
+  .cc-sheet {
+    display: block;
+    overflow-y: auto;
+  }
+  .cc-sheet-content {
+    overflow-y: visible;
+  }
 }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {
