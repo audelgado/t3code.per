@@ -19,7 +19,7 @@ export function createCollectionDraftStore(storage: () => DraftStorage | undefin
       const raw = memory.has(scope) ? memory.get(scope) : storage()?.getItem(key(scope));
       if (raw == null) return initial;
       const value: unknown = JSON.parse(raw);
-      if (!matchesCollectionDraft(value, initial) || (accept && !accept(value))) return initial;
+      if (accept ? !accept(value) : !matchesCollectionDraft(value, initial)) return initial;
       memory.set(scope, raw);
       return value as T;
     } catch { return initial; }

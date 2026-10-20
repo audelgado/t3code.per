@@ -4,6 +4,7 @@ import type { Profile, ProfileInput } from "../../server/profiles.ts";
 import type { InteractionMode, ModelSelection, RuntimeMode } from "../../server/types.ts";
 import { call } from "./api.ts";
 import { clearCollectionDraft, useCollectionDraft } from "./collectionHooks.ts";
+import { isProfileDraft } from "./profileDraft.ts";
 import { RUNTIME_MODES, runtimeModeLabel } from "./look.ts";
 import { Button } from "./ui/Button.tsx";
 import { Chip } from "./ui/Chip.tsx";
@@ -37,7 +38,7 @@ const blank: ProfileInput = { name: "", avatar: "", rolePrompt: "", model: null,
 
 /** Sheet to create (`id` "") or edit a profile; Eliminar shows only when editing. */
 function ProfileSheet({ id, initial, models, busy, error, onSave, onDelete, onClose }: { id: string; initial: ProfileInput; models: ModelOption[]; busy: boolean; error: string | null; onSave(p: ProfileInput): void; onDelete?: () => void; onClose: () => void }) {
-  const [p, setP] = useCollectionDraft(`profile.${id}`, initial);
+  const [p, setP] = useCollectionDraft(`profile.${id}`, initial, isProfileDraft);
   const close = () => {
     if (busy || JSON.stringify(p) !== JSON.stringify(initial) && !confirm("¿Descartar los cambios sin guardar?")) return;
     clearCollectionDraft(`profile.${id}`);
