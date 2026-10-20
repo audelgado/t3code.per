@@ -1,3 +1,4 @@
+import { CANCEL_TASK_CONFIRMATION } from "./chatConfirm.ts";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { AssistantAction } from "../../server/assistant.ts";
 import type { AssistantChatView } from "../../server/assistantChat.ts";
@@ -5,6 +6,8 @@ import type { Coordinator, CoordinatorId } from "../../server/organize.ts";
 import type { MachineProjects, RuntimeMode } from "../../server/types.ts";
 import { call, refresh, useLive } from "./api.ts";
 import { DictationTextarea } from "./DictationTextarea.tsx";
+import { useChatDraft } from "./chatDraftState.ts";
+import { useChatFollow } from "./chatFollow.ts";
 import { hashes } from "./navigation.ts";
 import { Button, LinkButton } from "./ui/Button.tsx";
 import { Select } from "./ui/fields.tsx";
@@ -15,7 +18,6 @@ const actionLabel = (a: AssistantAction) => a.type === "retry" ? "Reintentar tar
 /** CC restores the conversation and pending sends, including after a reload. */
 export function Assistant({ open, onClose, projectKey }: { open: boolean; onClose: () => void; projectKey: string | null }) {
   const { view } = useLive();
-  const [text, setText] = useState("");
   const [chat, setChat] = useState<AssistantChatView | null>(null);
   const [coordinators, setCoordinators] = useState<Coordinator[]>([]);
   const [coordinator, setCoordinator] = useState<CoordinatorId>(() => {
@@ -29,7 +31,6 @@ export function Assistant({ open, onClose, projectKey }: { open: boolean; onClos
   const working = useRef(false);
   const command = useRef(crypto.randomUUID());
   const [error, setError] = useState<string | null>(null);
-  const end = useRef<HTMLDivElement>(null);
   const messages = chat?.messages ?? [];
   const pending = chat?.status === "running";
   const locked = busy || pending || !!chat?.retry;
@@ -37,13 +38,14 @@ export function Assistant({ open, onClose, projectKey }: { open: boolean; onClos
   const selectedCoordinator = choice?.id ?? coordinator;
   const selection = { coordinator: selectedCoordinator, projectKey: target || null };
   const selectionKey = JSON.stringify(selection);
+  const [text, setText, clearSent] = useChatDraft(`assistant:${selectionKey}`);
+  const { end, away, jump } = useChatFollow(messages.at(-1), selectionKey, open);
   const currentSelection = useRef(selectionKey);
   currentSelection.current = selectionKey;
   const requests = useRef(0);
   const connectivity = view?.machines.filter((m) => !target || target.startsWith(`${m.id}:`)).map((m) => `${m.id}:${m.link.status}`).join("|");
   useEffect(() => { if (choice) { try { localStorage.setItem("cc.assistant.coordinator", choice.id); } catch { /* The server still retains the conversation. */ } } }, [choice?.id]);
 
-  useEffect(() => { if (open) end.current?.scrollIntoView({ block: "nearest" }); }, [messages.length, open]);
   useEffect(() => {
     if (!open) return;
     let live = true;
@@ -78,7 +80,8 @@ export function Assistant({ open, onClose, projectKey }: { open: boolean; onClos
     try {
       const result = await call("POST /api/assistant", { body: { ...selection, text: request, commandId } });
       ++requests.current; setChat(result);
-      setText(""); command.current = crypto.randomUUID();
+      if (request === text) clearSent();
+      command.current = crypto.randomUUID();
     } catch (e) { setError(e instanceof Error ? e.message : "No se pudo consultar"); await load(); }
     finally { working.current = false; setBusy(false); }
   };
@@ -98,7 +101,7 @@ export function Assistant({ open, onClose, projectKey }: { open: boolean; onClos
 
   if (!open) return null;
   return <Sheet title="Asistente CC" onClose={onClose} wide footer={<form id="cc-assistant-form" className="grid gap-2" onSubmit={(e) => { e.preventDefault(); if (!locked) void consult(text); }}>
-    <label className="grid gap-1 text-xs">Alcance<Select aria-label="Alcance del asistente" value={target} disabled={busy || listening} onChange={(e) => { setTarget(e.target.value); setText(""); setError(null); command.current = crypto.randomUUID(); }}><option value="">Todo el CC</option>{groups.map((g) => <optgroup key={g.machineId} label={g.machineLabel}>{g.projects.map((p) => <option key={p.id} value={`${g.machineId}:${p.id}`}>Este proyecto: {p.title} · {g.machineLabel}</option>)}</optgroup>)}</Select></label>
+    <label className="grid gap-1 text-xs">Alcance<Select aria-label="Alcance del asistente" value={target} disabled={busy || listening} onChange={(e) => { setTarget(e.target.value); setError(null); command.current = crypto.randomUUID(); }}><option value="">Todo el CC</option>{groups.map((g) => <optgroup key={g.machineId} label={g.machineLabel}>{g.projects.map((p) => <option key={p.id} value={`${g.machineId}:${p.id}`}>Este proyecto: {p.title} · {g.machineLabel}</option>)}</optgroup>)}</Select></label>
     <DictationTextarea compact aria-label="Mensaje al asistente CC" placeholder="Escribe o dicta al asistente…" rows={2} className="min-h-16" value={text} maxLength={8000} onValueChange={(v) => { setText(v); command.current = crypto.randomUUID(); }} onListeningChange={setListening} disabled={locked || !chat} />
     <div className="flex gap-2"><Button onClick={onClose}>Cerrar</Button><Button className="ml-auto" variant="primary" type="submit" disabled={locked || !chat || listening || !choice || !text.trim()}>Enviar</Button></div>
   </form>}>
@@ -109,9 +112,10 @@ export function Assistant({ open, onClose, projectKey }: { open: boolean; onClos
       {!!target && <LinkButton size="sm" href={hashes.project(target, "chat")} onClick={onClose}>Abrir chat del proyecto</LinkButton>}
       {!!queue.length && <details className="grid gap-2 rounded-ctl border border-line p-3"><summary className="cursor-pointer font-semibold">Estado de tu cola ({queue.filter((t) => t.status === "queued").length})</summary>{queue.filter((t) => t.status === "queued").slice(0, 8).map((t) => <p key={t.id} className="text-sm"><a className="font-medium text-primary" href={hashes.task(t.id)} onClick={onClose}>{t.title}</a><span className="block text-muted-fg">{t.queueReason ?? "Esperando despacho"}</span></p>)}</details>}
       {chat && !messages.length && <div className="flex flex-wrap gap-2">{["¿Por qué no arrancan mis trabajos?", "¿Qué necesita mi atención?", "Ayúdame a delegar un trabajo"].map((prompt) => <Button key={prompt} disabled={locked || listening || !choice} onClick={() => void consult(prompt)}>{prompt}</Button>)}</div>}
-      <div className="grid gap-3" aria-live="polite" aria-busy={busy || pending}>{messages.map((m) => <article key={m.id} aria-label={m.role === "user" ? "Tu mensaje" : "Mensaje del asistente"} className={`grid min-w-0 gap-2 ${m.role === "user" ? "ml-auto max-w-[90%] rounded-2xl bg-soft px-4 py-3" : "py-2"}`}><p className="text-sm break-words whitespace-pre-wrap">{m.text}</p>{m.reply?.actions.map((action, j) => {
+      {away && <div className="sticky top-0 z-10 flex justify-end"><Button onClick={jump}>Volver al final</Button></div>}
+      <div className="grid gap-3" aria-live="polite" aria-busy={busy || pending}>{messages.map((m) => <article style={{ contentVisibility: "auto", containIntrinsicSize: "auto 180px" }} key={m.id} aria-label={m.role === "user" ? "Tu mensaje" : "Mensaje del asistente"} className={`grid min-w-0 gap-2 ${m.role === "user" ? "ml-auto max-w-[90%] rounded-2xl bg-soft px-4 py-3" : "py-2"}`}><p className="text-sm break-words whitespace-pre-wrap">{m.text}</p>{m.reply?.actions.map((action, j) => {
         const applied = m.applied?.includes(j);
-        return <div key={`${m.id}:${j}`} className="grid gap-2 rounded-ctl bg-soft p-3"><strong className="text-sm break-words">{action.title}</strong>{action.type === "delegate" ? <><p className="text-xs text-muted-fg">Proyecto: {groups.flatMap((g) => g.projects.map((p) => ({ key: `${g.machineId}:${p.id}`, label: `${g.machineLabel} · ${p.title}` }))).find((p) => p.key === action.projectKey)?.label ?? action.projectKey}</p><details><summary className="cursor-pointer text-sm">Revisar instrucciones</summary><p className="mt-2 text-sm break-words whitespace-pre-wrap">{action.prompt}</p></details></> : <LinkButton size="sm" href={hashes.task(action.taskId)} onClick={onClose}>Ver tarea</LinkButton>}{action.type === "retry" && <p className="text-xs text-muted-fg">Reinicia este trabajo. Sus dependientes seguirán automáticamente cuando termine bien.</p>}<Button disabled={locked || applied} variant={action.type === "cancel" ? "danger" : "primary"} onClick={() => void apply(m.id, j)}>{applied ? "Aplicada" : actionLabel(action)}</Button></div>;
+        return <div key={`${m.id}:${j}`} className="grid gap-2 rounded-ctl bg-soft p-3"><strong className="text-sm break-words">{action.title}</strong>{action.type === "delegate" ? <><p className="text-xs text-muted-fg">Proyecto: {groups.flatMap((g) => g.projects.map((p) => ({ key: `${g.machineId}:${p.id}`, label: `${g.machineLabel} · ${p.title}` }))).find((p) => p.key === action.projectKey)?.label ?? action.projectKey}</p><details><summary className="cursor-pointer text-sm">Revisar instrucciones</summary><p className="mt-2 text-sm break-words whitespace-pre-wrap">{action.prompt}</p></details></> : <LinkButton size="sm" href={hashes.task(action.taskId)} onClick={onClose}>Ver tarea</LinkButton>}{action.type === "retry" && <p className="text-xs text-muted-fg">Reinicia este trabajo. Sus dependientes seguirán automáticamente cuando termine bien.</p>}<Button disabled={locked || applied} variant={action.type === "cancel" ? "danger" : "primary"} onClick={() => { if (action.type !== "cancel" || confirm(CANCEL_TASK_CONFIRMATION)) void apply(m.id, j); }}>{applied ? "Aplicada" : actionLabel(action)}</Button></div>;
       })}</article>)}</div>
       {messages.some((m) => m.reply?.actions.some((a) => a.type === "delegate" || a.type === "approve")) && <label className="grid gap-1 text-xs">Permisos para aprobar o delegar<Select aria-label="Permisos de tareas propuestas" value={mode} disabled={busy} onChange={(e) => setMode(e.target.value as RuntimeMode)}><option value="approval-required">Pedir aprobación</option><option value="auto-accept-edits">Aceptar ediciones</option><option value="full-access">Acceso completo</option></Select></label>}
       {(busy || pending) && <p role="status" className="text-sm text-muted-fg">Consultando o aplicando la acción… Puedes cerrar y volver a abrir el asistente.</p>}

@@ -1,3 +1,4 @@
+import { CANCEL_TASK_CONFIRMATION } from "./chatConfirm.ts";
 import { X } from "lucide-react";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import type { RuntimeMode } from "../../server/types.ts";
@@ -152,7 +153,7 @@ export function WorkDetail({ entry, variant, onClose }: { entry: WorkEntry; vari
       {t?.status === "pending_approval" && (
         <label className="grid gap-1">
           <span className="text-xs font-medium text-muted-fg">Permisos al aprobar</span>
-          <Select value={mode} onChange={(e) => setMode(e.target.value as RuntimeMode)}>
+          <Select name="approval-runtime-mode" value={mode} onChange={(e) => setMode(e.target.value as RuntimeMode)}>
             {RUNTIME_MODES.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
           </Select>
         </label>
@@ -160,7 +161,7 @@ export function WorkDetail({ entry, variant, onClose }: { entry: WorkEntry; vari
       {t?.status === "queued" && (
         <label className="grid gap-1">
           <span className="text-xs font-medium text-muted-fg">Prioridad</span>
-          <Select value={Math.max(-2, Math.min(2, Math.round(t.priority)))} disabled={busy} onChange={(e) => void act("No se pudo cambiar la prioridad", () => taskCall.priority(t.id, Number(e.target.value)))}>
+          <Select name="task-priority" value={Math.max(-2, Math.min(2, Math.round(t.priority)))} disabled={busy} onChange={(e) => void act("No se pudo cambiar la prioridad", () => taskCall.priority(t.id, Number(e.target.value)))}>
             {PRIORITIES.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
           </Select>
         </label>
@@ -177,7 +178,7 @@ export function WorkDetail({ entry, variant, onClose }: { entry: WorkEntry; vari
           <Button disabled={busy} onClick={() => void act("No se pudo reintentar", () => taskCall.retry(t.id))}>Reintentar</Button>
         )}
         {t && CANCELLABLE.has(t.status) && t.status !== "pending_approval" && (
-          <Button variant="danger" disabled={busy} onClick={() => void act("No se pudo cancelar", () => taskCall.cancel(t.id))}>Cancelar</Button>
+          <Button variant="danger" disabled={busy} onClick={() => { if (confirm(CANCEL_TASK_CONFIRMATION)) void act("No se pudo cancelar", () => taskCall.cancel(t.id)); }}>Cancelar</Button>
         )}
         {r?.pr && <LinkButton href={r.pr.url} target="_blank" rel="noreferrer">Ver PR</LinkButton>}
         {appUrl && <LinkButton href={appUrl}>Abrir en T3</LinkButton>}
