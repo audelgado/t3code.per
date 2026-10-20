@@ -8,7 +8,7 @@ test("los filtros conservan el proyecto, la pestaña y los parámetros de otras 
   assert.equal(hash.split("?")[0], "#project/m:p");
   assert.equal(params.get("tab"), "sections");
   assert.equal(params.get("other"), "keep");
-  assert.equal(params.get("sectionSearch"), "API y web");
+  assert.equal(JSON.parse(params.get("sectionSearch")!), "API y web");
   assert.equal(new URLSearchParams(collectionHash(hash, "sectionSearch", "").split("?")[1]).has("sectionSearch"), false);
 });
 

@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import type { Profile, ProfileInput } from "../../server/profiles.ts";
 import type { InteractionMode, ModelSelection, RuntimeMode } from "../../server/types.ts";
 import { call } from "./api.ts";
+import { clearCollectionDraft, useCollectionDraft } from "./collectionHooks.ts";
 import { RUNTIME_MODES, runtimeModeLabel } from "./look.ts";
 import { Button } from "./ui/Button.tsx";
 import { Chip } from "./ui/Chip.tsx";
@@ -35,15 +36,20 @@ const key = (m: ModelSelection) => `${m.instanceId}\0${m.model}`;
 const blank: ProfileInput = { name: "", avatar: "", rolePrompt: "", model: null, runtimeMode: null, interactionMode: null };
 
 /** Sheet to create (`id` "") or edit a profile; Eliminar shows only when editing. */
-function ProfileSheet({ initial, models, busy, error, onSave, onDelete, onClose }: { initial: ProfileInput; models: ModelOption[]; busy: boolean; error: string | null; onSave(p: ProfileInput): void; onDelete?: () => void; onClose: () => void }) {
-  const [p, setP] = useState(initial);
+function ProfileSheet({ id, initial, models, busy, error, onSave, onDelete, onClose }: { id: string; initial: ProfileInput; models: ModelOption[]; busy: boolean; error: string | null; onSave(p: ProfileInput): void; onDelete?: () => void; onClose: () => void }) {
+  const [p, setP] = useCollectionDraft(`profile.${id}`, initial);
+  const close = () => {
+    if (busy || JSON.stringify(p) !== JSON.stringify(initial) && !confirm("¿Descartar los cambios sin guardar?")) return;
+    clearCollectionDraft(`profile.${id}`);
+    onClose();
+  };
   const patch = (x: Partial<ProfileInput>) => setP((cur) => ({ ...cur, ...x }));
   // A saved model that no machine lists now stays selectable instead of silently resetting.
   const options = p.model && !models.some((m) => key(m.sel) === key(p.model!)) ? [{ label: `${p.model.instanceId} · ${p.model.model}`, sel: p.model }, ...models] : models;
   return (
     <Sheet
       title={onDelete ? "Editar perfil" : "Nuevo perfil"}
-      onClose={() => { if (!busy) onClose(); }}
+      onClose={close}
       footer={
         <div className="flex gap-2">
           {onDelete && (
@@ -51,7 +57,7 @@ function ProfileSheet({ initial, models, busy, error, onSave, onDelete, onClose 
               Eliminar
             </Button>
           )}
-          <Button className="ml-auto" disabled={busy} onClick={onClose}>
+          <Button className="ml-auto" disabled={busy} onClick={close}>
             Cancelar
           </Button>
           <Button variant="primary" type="submit" form="profile-form" disabled={busy || !p.name.trim()}>
@@ -151,11 +157,11 @@ export function Profiles() {
   };
   const save = async (id: string, body: ProfileInput) => {
     const ok = await act(() => (id ? call("PATCH /api/profiles/:id", { params: { id }, body }) : call("POST /api/profiles", { body })));
-    if (ok) setEditing(null);
+    if (ok) { clearCollectionDraft(`profile.${id}`); setEditing(null); }
   };
   const remove = async (p: Profile) => {
     if (!confirm(`¿Eliminar ${p.name}? Las tareas ya creadas conservan su prompt.`)) return;
-    if (await act(() => call("DELETE /api/profiles/:id", { params: { id: p.id } }))) setEditing(null);
+    if (await act(() => call("DELETE /api/profiles/:id", { params: { id: p.id } }))) { clearCollectionDraft(`profile.${p.id}`); setEditing(null); }
   };
   const modelLabel = (m: ModelSelection) => models.find((o) => key(o.sel) === key(m))?.label ?? `${m.instanceId} · ${m.model}`;
   const current = profiles?.find((p) => p.id === editing);
@@ -205,8 +211,8 @@ export function Profiles() {
           </div>
         ))}
       </Panel>
-      {editing === "" && <ProfileSheet initial={blank} models={models} busy={busy} error={error} onSave={(p) => void save("", p)} onClose={() => setEditing(null)} />}
-      {current && <ProfileSheet key={current.id} initial={current} models={models} busy={busy} error={error} onSave={(p) => void save(current.id, p)} onDelete={() => void remove(current)} onClose={() => setEditing(null)} />}
+      {editing === "" && <ProfileSheet id="" initial={blank} models={models} busy={busy} error={error} onSave={(p) => void save("", p)} onClose={() => setEditing(null)} />}
+      {current && <ProfileSheet key={current.id} id={current.id} initial={current} models={models} busy={busy} error={error} onSave={(p) => void save(current.id, p)} onDelete={() => void remove(current)} onClose={() => setEditing(null)} />}
     </>
   );
 }
