@@ -157,7 +157,7 @@ export function More({ view }: { view: HomeView | null }) {
     { page: "agents", label: "Agentes", sub: "Perfiles y acceso API", icon: Sparkles },
     { page: "notifications", label: "Notificaciones", sub: "Avisos en este dispositivo", icon: Bell },
     { page: "artifacts", label: "Artefactos", sub: "Lo que produjo tu trabajo", icon: FileText },
-    { page: "memory", label: "Memoria", sub: "Lo que guardaron los agentes y vos", icon: Brain },
+    { page: "memory", label: "Memoria", sub: "Lo que guardaron los agentes y tú", icon: Brain },
   ];
   return (
     <nav aria-label="Más" className="grid max-w-xl gap-3">
@@ -215,7 +215,7 @@ export function KeyboardHelp({ onClose }: { onClose: () => void }) {
         <h2 id="shortcut-title" className="text-lg font-semibold">Atajos de teclado</h2>
         <button type="button" autoFocus onClick={onClose} className="rounded-lg border border-line px-3 py-2">Cerrar</button>
       </div>
-      <p id="shortcut-description" className="mb-4 text-sm text-muted-fg">Apretá g y después la tecla de destino, dentro de 1,5 segundos. Los atajos se pausan mientras escribís o hay un diálogo abierto.</p>
+      <p id="shortcut-description" className="mb-4 text-sm text-muted-fg">Presiona g y después la tecla de destino, dentro de 1,5 segundos. Los atajos se pausan mientras escribes o hay un diálogo abierto.</p>
       <dl className="space-y-2 text-sm">
         {Object.entries(navigationKeys).map(([key, route]) => (
           <div key={key} className="flex justify-between gap-4">
@@ -240,7 +240,7 @@ export function Shell({ page, view, onAsk, onSearch, onHelp, onAssistant, childr
       <Sidebar page={page} view={view} onAsk={() => onAsk(false)} onHelp={onHelp} />
       <div className="flex min-w-0 flex-1 flex-col">
         <TopBar page={page} onSearch={onSearch} onAssistant={onAssistant} />
-        <main id="main-content" tabIndex={-1} className="min-w-0 flex-1 px-4 pt-2 pb-28 outline-none md:px-6 md:pb-8">{children}</main>
+        <main id="main-content" tabIndex={-1} className="min-w-0 flex-1 px-[max(1rem,env(safe-area-inset-left),env(safe-area-inset-right))] pt-2 pb-[calc(7rem+env(safe-area-inset-bottom))] md:px-6 md:pb-8">{children}</main>
       </div>
       <TabBar page={page} view={view} onDictate={() => onAsk(true)} />
     </div>

@@ -1,5 +1,6 @@
 import { FolderOpen, GitBranch, LayoutDashboard, MessageSquare, Search as SearchIcon } from "lucide-react";
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from "react";
+import { Sheet } from "./ui/Sheet.tsx";
 import type { HomeView, MachineProjects } from "../../server/types.ts";
 import { call, useLive } from "./api.ts";
 import { matchesSearch } from "./homeQueueView.ts";
@@ -63,14 +64,14 @@ export function Search({ onClose }: { onClose: () => void }) {
   const [active, setActive] = useState(0);
   const list = useRef<HTMLUListElement>(null);
   const input = useRef<HTMLInputElement>(null);
+  const resultsId = useId();
 
   useEffect(() => {
-    const previous = document.activeElement;
-    input.current?.focus();
     call("GET /api/projects").then(setProjects, () => {});
-    return () => {
-      if (previous instanceof HTMLElement && previous.isConnected) previous.focus();
-    };
+    const frame = requestAnimationFrame(() => {
+      if (matchMedia("(hover: hover) and (pointer: fine)").matches) input.current?.focus();
+    });
+    return () => cancelAnimationFrame(frame);
   }, []);
 
   const hits = useMemo(() => findHits(query, view, projects), [query, view, projects]);
@@ -85,55 +86,61 @@ export function Search({ onClose }: { onClose: () => void }) {
     location.hash = hit.hash;
   };
   const onKey = (e: React.KeyboardEvent) => {
-    if (e.key === "Escape") onClose();
-    else if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+    if (e.target !== input.current || e.nativeEvent.isComposing) return;
+    if (e.key === "ArrowDown" || e.key === "ArrowUp") {
       e.preventDefault();
       setActive((current + (e.key === "ArrowDown" ? 1 : -1) + hits.length) % Math.max(1, hits.length));
-    } else if (e.key === "Enter" && !e.nativeEvent.isComposing) open(hits[current]);
+    } else if (e.key === "Enter") { e.preventDefault(); open(hits[current]); }
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-start justify-center bg-fg/30 p-3 pt-[max(0.75rem,env(safe-area-inset-top))] md:p-6 md:pt-[8vh]" onClick={onClose}>
-      <div role="dialog" aria-modal="true" aria-label="Buscar" onClick={(e) => e.stopPropagation()} onKeyDown={onKey} className="flex max-h-[80dvh] w-full max-w-2xl flex-col overflow-hidden rounded-2xl border border-line bg-panel shadow-[0_24px_64px_rgba(0,0,0,.28)]">
-        <div className="flex items-center gap-3 border-b border-line px-4">
+    <Sheet title="Buscar" onClose={onClose} wide>
+      <div onKeyDown={onKey} className="flex min-h-0 flex-col">
+        <div className="flex items-center gap-3 rounded-ctl border border-line px-3 focus-within:ring-2 focus-within:ring-primary">
           <SearchIcon className="size-4 shrink-0 text-muted-fg" aria-hidden />
           <input
             ref={input}
             type="search"
             role="combobox"
             aria-expanded="true"
-            aria-controls="search-results"
+            aria-controls={resultsId}
+            aria-autocomplete="list"
+            aria-activedescendant={hits.length ? `${resultsId}-${current}` : undefined}
             aria-label="Buscar tareas, hilos y proyectos"
             value={query}
             onChange={(e) => { setQuery(e.target.value); setActive(0); }}
-            placeholder="Buscar tareas, hilos y proyectos"
+            placeholder="Buscar tareas, hilos y proyectos…"
+            name="search"
             autoComplete="off"
             spellCheck={false}
-            className="h-12 min-w-0 flex-1 bg-transparent outline-none! placeholder:text-muted-fg"
+            className="h-12 min-w-0 flex-1 bg-transparent placeholder:text-muted-fg"
           />
           <kbd className="hidden text-muted-fg md:inline-block">esc</kbd>
         </div>
-        <ul id="search-results" ref={list} role="listbox" className="min-h-0 flex-1 overflow-y-auto py-1">
-          {hits.length === 0 && <li className="p-6 text-center text-muted-fg">{query.trim() ? `Nada por acá para “${query.trim()}”. Probá con un proyecto, una tarea o una página.` : "Nada por acá"}</li>}
+        <p role="status" className="sr-only">{hits.length} resultados</p>
+        {!hits.length && <p className="p-6 text-center text-muted-fg">{query.trim() ? `No hay resultados para “${query.trim()}”. Prueba con un proyecto, una tarea o una página.` : "Sin resultados"}</p>}
+        <ul id={resultsId} ref={list} role="listbox" aria-label="Resultados de búsqueda" className="max-h-[50dvh] min-h-0 flex-1 overflow-y-auto py-1">
           {hits.map((hit, i) => (
             <li key={hit.id} role="presentation">
               {(i === 0 || hits[i - 1]!.group !== hit.group) && <p className="px-4 pt-3 pb-1 text-xs font-semibold tracking-wide text-muted-fg uppercase">{hit.group}</p>}
-              <div
+              <a
+                id={`${resultsId}-${i}`}
+                href={hit.hash}
                 role="option"
                 aria-selected={i === current}
                 onMouseMove={() => setActive(i)}
-                onClick={() => open(hit)}
-                className={`flex cursor-pointer items-center gap-3 px-4 py-2 ${i === current ? "bg-[#f5f8ff]" : ""}`}
+                onClick={(event) => { if (!event.ctrlKey && !event.metaKey && !event.shiftKey && !event.altKey) onClose(); }}
+                className={`flex cursor-pointer items-center gap-3 px-4 py-2 hover:bg-soft ${i === current ? "bg-[#f5f8ff]" : ""}`}
               >
                 <span className="text-muted-fg">{hit.icon}</span>
                 <span className="min-w-0 flex-1 truncate"><Highlight text={hit.label} query={query} /></span>
-                <span className="shrink-0 truncate text-xs text-muted-fg">{hit.sub}</span>
-              </div>
+                <span className="max-w-[40%] truncate text-xs text-muted-fg">{hit.sub}</span>
+              </a>
             </li>
           ))}
         </ul>
-        <p className="hidden border-t border-line px-4 py-2 text-xs text-muted-fg md:block">↑↓ moverte · ↵ abrir · esc cerrar</p>
+        <p className="hidden border-t border-line px-4 py-2 text-xs text-muted-fg md:block">↑↓ elegir · ↵ abrir · esc cerrar</p>
       </div>
-    </div>
+    </Sheet>
   );
 }

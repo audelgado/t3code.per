@@ -204,7 +204,7 @@ export function Ask({ project, onClose, autoDictate }: { project: string | null;
             )}
           </span>
           <Button variant="primary" type="submit" form="ask-form" disabled={busy || ordering || dictation.listening || !prompt.trim() || !key || (split && filled.length === 0)}>
-            {busy ? "Encolando..." : split ? `Encolar ${filled.length} ${filled.length === 1 ? "tarea" : "tareas"}` : "Encolar"}
+            {busy ? "Encolando…" : split ? `Encolar ${filled.length} ${filled.length === 1 ? "tarea" : "tareas"}` : "Encolar"}
           </Button>
         </div>
       }
@@ -234,7 +234,7 @@ export function Ask({ project, onClose, autoDictate }: { project: string | null;
             </span>
           </Field>
         </div>
-        {group && group.projects.length === 0 && <p role="status" className="text-sm text-need">{group.machineLabel} todavía no tiene proyectos. Agregá uno en T3 de ese sistema para poder ejecutar tareas allí.</p>}
+        {group && group.projects.length === 0 && <p role="status" className="text-sm text-need">{group.machineLabel} todavía no tiene proyectos. Agrega uno en T3 de ese sistema para poder ejecutar tareas allí.</p>}
         {draft && !ordering && (
           <ReviewBanner label={draft.by} questions={draft.questions} busy={!canOrder} onRedo={order} onDiscard={discardDraft} />
         )}
@@ -255,7 +255,7 @@ export function Ask({ project, onClose, autoDictate }: { project: string | null;
               if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) e.currentTarget.form?.requestSubmit();
             }}
             placeholder="¿Qué tiene que hacer el agente?"
-            className="min-h-32 border-run bg-panel shadow-[0_0_0_3px_var(--run-bg)] focus-visible:outline-none"
+            className="min-h-32 border-run bg-panel shadow-[0_0_0_3px_var(--run-bg)]"
             autoFocus
           />
           {dictation.interim && <p className="text-sm text-muted-fg italic">{dictation.interim}</p>}

@@ -31,7 +31,7 @@ export async function pollJob(first: OrganizeJob, get: (id: string) => Promise<O
   let job = first;
   let failures = 0;
   while (job.status === "running") {
-    if (now() >= deadline) throw new Error("El coordinador tardó demasiado. Probá de nuevo o encolá tu texto original.");
+    if (now() >= deadline) throw new Error("El coordinador tardó demasiado. Prueba de nuevo o encola tu texto original.");
     await sleep(intervalMs);
     signal.throwIfAborted();
     try {

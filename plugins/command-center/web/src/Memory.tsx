@@ -164,7 +164,7 @@ export function Memory({ projectKey }: { projectKey?: string }) {
               </option>
             ))}
           </Select>
-          <Textarea value={draft.text} maxLength={20000} autoFocus placeholder="¿Qué hay que recordar?" onChange={(e) => setDraft({ ...draft, text: e.target.value })} />
+          <Textarea aria-label="Contenido de la memoria" value={draft.text} maxLength={20000} autoFocus placeholder="¿Qué hay que recordar?" onChange={(e) => setDraft({ ...draft, text: e.target.value })} />
           <div className="flex justify-end gap-2">
             <Button onClick={() => setDraft(null)}>Cancelar</Button>
             <Button variant="primary" disabled={busy || !draft.text.trim()} onClick={() => void save()}>
@@ -175,7 +175,7 @@ export function Memory({ projectKey }: { projectKey?: string }) {
       )}
 
       <div className="flex flex-wrap gap-2">
-        <Input className="min-w-[14rem] flex-1 md:min-w-0 md:max-w-sm" type="search" value={search} placeholder="Buscar en la memoria" aria-label="Buscar en la memoria" onChange={(e) => setSearch(e.target.value)} />
+        <Input className="min-w-[14rem] flex-1 md:min-w-0 md:max-w-sm" type="search" value={search} placeholder="Buscar en la memoria…" aria-label="Buscar en la memoria" onChange={(e) => setSearch(e.target.value)} />
         {!fixed && (
           <Select className="w-auto max-w-full" value={picked} aria-label="Proyecto" onChange={(e) => setPicked(e.target.value)}>
             <option value="all">Todos los proyectos</option>
@@ -201,7 +201,7 @@ export function Memory({ projectKey }: { projectKey?: string }) {
           {entries === null ? (
             error ? null : <p className="text-muted-fg">Cargando…</p>
           ) : timeline.length === 0 && !more ? (
-            showTodos ? null : <EmptyState>{filtered ? "Nada por acá" : "Todavía no hay memoria. Agregá una nota o dejá que un agente llame a memory_save."}</EmptyState>
+            showTodos ? null : <EmptyState>{filtered ? "Sin elementos" : "Todavía no hay memoria. Agrega una nota o deja que un agente llame a memory_save."}</EmptyState>
           ) : (
             <Panel>
               {byDay(timeline).map(({ day, entries: list }) => (

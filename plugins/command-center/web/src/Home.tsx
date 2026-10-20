@@ -134,7 +134,7 @@ function Today({ view }: { view: HomeView }) {
       <div className="grid items-start gap-4 md:gap-5 lg:grid-cols-[1.3fr_1fr]">
         {needs.length === 0 ? (
           <Section title="Te necesita" count={0}>
-            <EmptyState action={<LinkButton size="sm" href={hashes.page("board")}>Ver qué está en marcha</LinkButton>}>Nada por acá</EmptyState>
+            <EmptyState action={<LinkButton size="sm" href={hashes.page("board")}>Ver qué está en marcha</LinkButton>}>Sin elementos</EmptyState>
           </Section>
         ) : (
           <Panel title="Te necesita" count={needs.length} action={<span className="text-xs text-muted-fg">más antiguo primero</span>}>
@@ -145,7 +145,7 @@ function Today({ view }: { view: HomeView }) {
         <div className="grid gap-4 md:gap-5">
           {view.running.length === 0 ? (
             <Section title="En marcha" count={0}>
-              <EmptyState>Nada por acá</EmptyState>
+              <EmptyState>Sin elementos</EmptyState>
             </Section>
           ) : (
             <Panel
@@ -171,7 +171,7 @@ function Today({ view }: { view: HomeView }) {
       </div>
 
       <Panel title="Terminado hoy" count={view.done.length}>
-        {view.done.length === 0 && <p className="px-4 py-6 text-center text-muted-fg">Nada por acá</p>}
+        {view.done.length === 0 && <p className="px-4 py-6 text-center text-muted-fg">Sin elementos</p>}
         {done.items.map((t) => (
           <a key={t.key} href={hashes.thread(t.key)} className="flex items-center gap-3 px-4 py-3 active:bg-soft">
             <StatusDot status={t.failed ? "failed" : "completed"} />

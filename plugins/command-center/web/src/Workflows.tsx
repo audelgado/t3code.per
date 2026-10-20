@@ -28,7 +28,7 @@ const LIBRARY_PAGE = 8;
 const RUNS_PAGE = 5;
 const key = (m: MachineProjects, id: string) => `${m.machineId}:${id}`;
 const split = (k: string) => ({ machineId: k.slice(0, k.indexOf(":")), projectId: k.slice(k.indexOf(":") + 1) });
-const by = (source: string) => (source === "user" ? "vos" : source.replace("agent:", ""));
+const by = (source: string) => (source === "user" ? "ti" : source.replace("agent:", ""));
 const needsYou = (r: Pick<RunSummary, "status">) => r.status === "needs_you" || r.status === "pending_approval";
 
 /** Flujos: library, runs and the run view. `runId` (a notification link or a row) opens a run. */
@@ -126,7 +126,7 @@ function AttentionCard({ run }: { run: RunSummary }) {
         <AlertTriangle className="mt-0.5 size-4 shrink-0" aria-hidden />
         <span>
           {approval
-            ? <><b>Un agente quiere ejecutar este flujo.</b> Elegí qué pueden hacer sus pasos y aprobá.</>
+            ? <><b>Un agente quiere ejecutar este flujo.</b> Elige qué pueden hacer sus pasos y aprueba.</>
             : wait
               ? <><b>{ask ? "Pregunta" : "Compuerta"}: {nodeTitle(wait.node)}.</b> {describeNode(wait.node)}</>
               : "Esperando tu respuesta."}
@@ -193,15 +193,15 @@ function FlowsHome() {
 
   return (
     <div className="grid gap-4">
-      <Input type="search" aria-label="Buscar flujos y ejecuciones" placeholder="Buscar por título, slug, descripción o estado" className="md:w-[22rem]" value={query} onChange={(e) => { setQuery(e.target.value); setLibraryPage(1); setRunsPage(1); }} />
+      <Input type="search" aria-label="Buscar flujos y ejecuciones" placeholder="Buscar por título, slug, descripción o estado…" className="md:w-[22rem]" value={query} onChange={(e) => { setQuery(e.target.value); setLibraryPage(1); setRunsPage(1); }} />
       {error && <ErrorNote>No se pudo cargar los flujos. {error}</ErrorNote>}
 
       <div className="grid items-start gap-4 lg:grid-cols-2">
         <div className="grid gap-4 lg:order-2">
           {attention.map((r) => <AttentionCard key={r.id} run={r} />)}
           <Panel title="Ejecuciones recientes" count={runs.length}>
-            {runs.length === 0 && <p className="px-4 py-6 text-center text-muted-fg">Nada por acá</p>}
-            {runs.length > 0 && recent.total === 0 && <p className="px-4 py-6 text-center text-muted-fg">{attention.length ? "Nada más por acá" : "Ninguna ejecución coincide con la búsqueda"}</p>}
+            {runs.length === 0 && <p className="px-4 py-6 text-center text-muted-fg">Sin elementos</p>}
+            {runs.length > 0 && recent.total === 0 && <p className="px-4 py-6 text-center text-muted-fg">{attention.length ? "Sin más elementos" : "Ninguna ejecución coincide con la búsqueda"}</p>}
             {recent.items.map((r) => {
               const k = `${r.machineId}:${r.projectId}`;
               return (
@@ -231,7 +231,7 @@ function FlowsHome() {
           }
         >
           {list === null && !error && <p className="px-4 py-6 text-center text-muted-fg">Cargando…</p>}
-          {list?.length === 0 && <div className="p-4"><EmptyState>Nada por acá. Creá un flujo o importalos desde un proyecto.</EmptyState></div>}
+          {list?.length === 0 && <div className="p-4"><EmptyState>Sin elementos. Crea un flujo o impórtalos desde un proyecto.</EmptyState></div>}
           {!!list?.length && library.total === 0 && <p className="px-4 py-6 text-center text-muted-fg">Ningún flujo coincide con la búsqueda</p>}
           {library.items.map((w) => {
             const r = last.get(w.slug);
@@ -258,7 +258,7 @@ function FlowsHome() {
             );
           })}
           <div className="flex flex-wrap items-center justify-between gap-2 px-4 py-2.5">
-            <span className="text-xs text-muted-fg">Editá como JSON · guardado en .t3/workflows</span>
+            <span className="text-xs text-muted-fg">Edita como JSON · guardado en .t3/workflows</span>
             <Pager page={library} onPageChange={setLibraryPage} label="Biblioteca" />
           </div>
         </Panel>
@@ -511,7 +511,7 @@ function RunView({ id }: { id: string }) {
 
       {run.status === "pending_approval" && (
         <section className="grid gap-3 rounded-card border border-[#f3d9a6] bg-panel p-4">
-          <p>Un agente quiere ejecutar este flujo. Elegí qué pueden hacer sus pasos y aprobá.</p>
+          <p>Un agente quiere ejecutar este flujo. Elige qué pueden hacer sus pasos y aprueba.</p>
           <ModeSelect value={mode} onChange={setMode} />
           <div className="flex gap-2">
             <Button variant="danger" disabled={busy} onClick={() => void act("No se pudo rechazar", "POST /api/workflow-runs/:id/reject")}>Rechazar</Button>

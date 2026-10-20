@@ -218,7 +218,7 @@ export function ProjectSections({ projectId, store }: { projectId: string; store
   return (
     <div className="grid gap-3">
       <div className="flex flex-wrap items-center gap-2">
-        <Input className="min-w-full flex-1 md:min-w-0 md:max-w-xs" type="search" aria-label="Buscar secciones" placeholder="Buscar" value={search} onChange={(e) => (setSearch(e.target.value), setPage(1))} />
+        <Input className="min-w-full flex-1 md:min-w-0 md:max-w-xs" type="search" aria-label="Buscar secciones" placeholder="Buscar…" value={search} onChange={(e) => (setSearch(e.target.value), setPage(1))} />
         <Select className="w-auto" aria-label="Estado" value={status} onChange={(e) => (setStatus(e.target.value as SectionStatus | "all"), setPage(1))}>
           <option value="all">Todas</option>
           {SECTION_STATUSES.map((s) => (
@@ -240,7 +240,7 @@ export function ProjectSections({ projectId, store }: { projectId: string; store
             if (name.trim()) void add();
           }}
         >
-          <Input aria-label="Nombre de la sección" placeholder="Nombre de la sección" value={name} maxLength={80} autoFocus onChange={(e) => setName(e.target.value)} />
+          <Input aria-label="Nombre de la sección" placeholder="Nombre de la sección…" value={name} maxLength={80} autoFocus onChange={(e) => setName(e.target.value)} />
           <Button variant="primary" type="submit" disabled={!name.trim()}>
             Agregar sección
           </Button>
@@ -252,7 +252,7 @@ export function ProjectSections({ projectId, store }: { projectId: string; store
         </form>
       )}
       {p.total === 0 ? (
-        <EmptyState>{mine.length ? "Ninguna sección coincide." : "Nada por acá"}</EmptyState>
+        <EmptyState>{mine.length ? "Ninguna sección coincide." : "Sin elementos"}</EmptyState>
       ) : (
         <Panel title="Secciones" count={p.total} action={<Badge>hitos</Badge>}>
           {p.visible.map((s) => (

@@ -18,19 +18,18 @@ interface SegmentItem<T extends string | number> {
 /** Pills in one row where exactly one is selected (priority, coordinator). */
 export function Segmented<T extends string | number>({ items, value, onChange, label, className }: { items: readonly SegmentItem<T>[]; value: T | null; onChange: (id: T) => void; label: string; className?: string }) {
   return (
-    <div role="radiogroup" aria-label={label} className={cn("flex gap-0.5 rounded-[10px] border border-line bg-panel p-[3px]", className)}>
+    <div role="group" aria-label={label} className={cn("flex gap-0.5 rounded-[10px] border border-line bg-panel p-[3px]", className)}>
       {items.map((it) => (
         <button
           key={it.id}
           type="button"
-          role="radio"
-          aria-checked={it.id === value}
+          aria-pressed={it.id === value}
           disabled={it.disabled}
           title={it.title}
           onClick={() => onChange(it.id)}
           className={cn(
             "h-9 min-w-0 flex-1 truncate rounded-[7px] px-2 text-sm md:h-[30px]",
-            it.id === value ? "bg-fg font-semibold text-panel" : "text-muted-fg active:bg-soft",
+            it.id === value ? "bg-fg font-semibold text-panel" : "text-muted-fg hover:bg-soft hover:text-fg active:bg-soft",
             it.disabled && "cursor-not-allowed opacity-45",
           )}
         >
@@ -95,7 +94,7 @@ export function useOrganize(onDraft: (draft: OrganizeDraft, coordinator: Coordin
       const first = await call("POST /api/organize", { body: { text, coordinator: coordinator.id, projectKey: projectKey || null, targetProjectKey } });
       const job = await pollJob(first, (id) => call("GET /api/organize/:id", { params: { id } }), { signal: ctl.signal });
       if (job.status === "done" && job.draft) emit.current(job.draft, coordinator);
-      else setError(job.error ?? "No se pudo ordenar el pedido. Probá de nuevo o encolá tu texto original.");
+      else setError(job.error ?? "No se pudo ordenar el pedido. Prueba de nuevo o encola tu texto original.");
     } catch (e) {
       if (!ctl.signal.aborted) setError(e instanceof Error ? e.message : "No se pudo ordenar el pedido.");
     } finally {

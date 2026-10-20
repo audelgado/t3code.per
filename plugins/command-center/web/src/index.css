@@ -13,7 +13,7 @@
   --soft: #f0eee9;
   --fg: #1c1b19;
   --tx2: #4a4740;
-  --muted-fg: #77736b;
+  --muted-fg: #68645c;
   --primary: #2563eb;
   --primary-fg: #ffffff;
   --need: #b45309;
@@ -89,6 +89,25 @@ h1 {
   outline-offset: 2px;
   border-radius: 6px;
 }
+h1, h2, h3, h4, h5, h6 {
+  text-wrap: balance;
+  overflow-wrap: anywhere;
+  scroll-margin-top: 5rem;
+}
+button, a, input, select, textarea, summary {
+  touch-action: manipulation;
+  scroll-margin-block: 5rem;
+}
+dialog, dialog [class*="overflow-y-auto"] {
+  overscroll-behavior: contain;
+}
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation: none !important;
+    transition: none !important;
+    scroll-behavior: auto !important;
+  }
+}
 /* 16px keeps iOS from zooming into fields. */
 input,
 select,
@@ -146,8 +165,4 @@ kbd {
 }
 .no-scrollbar::-webkit-scrollbar {
   display: none;
-}
-/* Dialogs take focus programmatically (Sheet); the ring belongs on the controls inside. */
-[role="dialog"]:focus-visible {
-  outline: none;
 }

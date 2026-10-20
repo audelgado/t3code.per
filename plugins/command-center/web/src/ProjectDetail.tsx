@@ -72,7 +72,7 @@ function WorkTab({ work }: { work: Work }) {
   const [page, setPage] = useState(1);
   const done = paginateCollection(work.done, page, DONE_PAGE);
   useEffect(() => setPage(done.page), [done.page]);
-  if (work.open === 0 && work.done.length === 0) return <EmptyState>Nada por acá</EmptyState>;
+  if (work.open === 0 && work.done.length === 0) return <EmptyState>Sin elementos</EmptyState>;
   return (
     <div className="grid gap-4">
       {work.needs.length > 0 && <Panel title="Te necesita" count={work.needs.length}>{needsRows(work)}</Panel>}
@@ -168,7 +168,7 @@ export function ProjectDetail({ entry, tab, view, pinned, onTogglePin }: { entry
               {sections.error ? (
                 <p className="px-4 py-3 text-fail">{sections.error}</p>
               ) : mine.length === 0 ? (
-                <p className="px-4 py-3 text-muted-fg">{sections.sections ? "Nada por acá" : "Cargando…"}</p>
+                <p className="px-4 py-3 text-muted-fg">{sections.sections ? "Sin elementos" : "Cargando…"}</p>
               ) : (
                 mine.slice(0, 4).map((s) => (
                   <a key={s.id} href={href("sections")} className="block px-4 py-3">
@@ -181,7 +181,7 @@ export function ProjectDetail({ entry, tab, view, pinned, onTogglePin }: { entry
           <div className="grid gap-4">
             <Panel title="Memoria" action={seeAll(href("memory"))}>
               {!memory || memory.entries.length === 0 ? (
-                <p className="px-4 py-3 text-muted-fg">{memory ? "Nada por acá" : "Cargando…"}</p>
+                <p className="px-4 py-3 text-muted-fg">{memory ? "Sin elementos" : "Cargando…"}</p>
               ) : (
                 memory.entries.slice(0, 3).map((e) => (
                   <a key={e.id} href={href("memory")} className="flex items-start gap-3 px-4 py-3">
@@ -189,7 +189,7 @@ export function ProjectDetail({ entry, tab, view, pinned, onTogglePin }: { entry
                     <span className="grid min-w-0 flex-1">
                       <span className="line-clamp-2 break-words">{e.text}</span>
                       <span className="text-xs text-muted-fg">
-                        {e.source === "user" ? "vos" : e.source === "agent" ? "agente" : "sistema"} · {ago(e.createdAt)}
+                        {e.source === "user" ? "tú" : e.source === "agent" ? "agente" : "sistema"} · {ago(e.createdAt)}
                       </span>
                     </span>
                   </a>
@@ -198,7 +198,7 @@ export function ProjectDetail({ entry, tab, view, pinned, onTogglePin }: { entry
             </Panel>
             <Panel title="Artefactos" action={seeAll(href("artifacts"))}>
               {!artifacts || artifacts.artifacts.length === 0 ? (
-                <p className="px-4 py-3 text-muted-fg">{artifacts ? "Nada por acá" : "Cargando…"}</p>
+                <p className="px-4 py-3 text-muted-fg">{artifacts ? "Sin elementos" : "Cargando…"}</p>
               ) : (
                 artifacts.artifacts.slice(0, 3).map((a) => (
                   <a key={a.id} href={href("artifacts")} className="flex items-center gap-3 px-4 py-3">

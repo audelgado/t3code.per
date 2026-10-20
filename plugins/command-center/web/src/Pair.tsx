@@ -47,9 +47,9 @@ export function Pair() {
           CC
         </span>
         <div className="grid gap-1.5">
-          <h1 className="text-xl">Vinculá este dispositivo</h1>
+          <h1 className="text-xl">Vincula este dispositivo</h1>
           <p className="text-sm leading-normal text-muted-fg">
-            Corré <code>pair</code> en el servidor y abrí el link que imprime, o pegá el token acá.
+            Ejecuta <code>pair</code> en el servidor y abre el link que imprime, o pega el token aquí.
           </p>
         </div>
         <Field label="Token de vinculación">

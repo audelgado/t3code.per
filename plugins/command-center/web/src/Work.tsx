@@ -159,7 +159,7 @@ export function Work({ taskId }: { taskId: string | null }) {
       <div className="flex flex-wrap items-center gap-2">
         <Tabs label="Filtrar trabajo" value={filters.tab} onChange={(tab: WorkTab) => set({ tab })} items={WORK_TABS.map(([id, label]) => ({ id, label, count: counts[id] }))} />
         <div className="flex w-full flex-wrap gap-2 md:ml-auto md:w-auto">
-          <Input type="search" aria-label="Buscar trabajo" placeholder="Buscar tarea, proyecto o rama" className="md:w-64" value={filters.query} onChange={(e) => set({ query: e.target.value })} />
+          <Input type="search" aria-label="Buscar trabajo" placeholder="Buscar tarea, proyecto o rama…" className="md:w-64" value={filters.query} onChange={(e) => set({ query: e.target.value })} />
           <Select aria-label="Filtrar por proyecto" className="min-w-[15rem] flex-1 md:w-auto md:min-w-0 md:flex-none" value={filters.projectKey} onChange={(e) => set({ projectKey: e.target.value })}>
             <option value="">Todos los proyectos</option>
             {projects.map(([key, title]) => <option key={key} value={key}>{title}</option>)}
@@ -180,7 +180,7 @@ export function Work({ taskId }: { taskId: string | null }) {
           {groups.length === 0 && (
             <div className="p-4">
               <EmptyState action={filters.query || filters.projectKey || filters.machineId || filters.tab !== "all" ? <Button size="sm" onClick={() => { setFilters(NO_FILTERS); setPage(1); }}>Limpiar filtros</Button> : undefined}>
-                {work === null && !error ? "Cargando…" : "Nada por acá"}
+                {work === null && !error ? "Cargando…" : "Sin elementos"}
               </EmptyState>
             </div>
           )}

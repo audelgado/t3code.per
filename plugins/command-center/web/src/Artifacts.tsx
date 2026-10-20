@@ -112,7 +112,7 @@ export function Artifacts({ projectKey }: { projectKey?: string }) {
     rows === null ? (
       error ? null : <p className="text-muted-fg">Cargando…</p>
     ) : rows.length === 0 ? (
-      <EmptyState>{filtered ? "Nada por acá" : "Todavía no hay artefactos. Agregá uno o dejá que un agente llame a artifact_save."}</EmptyState>
+      <EmptyState>{filtered ? "Sin elementos" : "Todavía no hay artefactos. Agrega uno o deja que un agente llame a artifact_save."}</EmptyState>
     ) : (
       <Panel className={split ? "rounded-none border-0 md:h-full" : undefined}>
         {rows.map((a) => {
@@ -170,11 +170,11 @@ export function Artifacts({ projectKey }: { projectKey?: string }) {
 
       {draft && (
         <Card className="grid gap-2">
-          <Input value={draft.title} maxLength={200} autoFocus placeholder="Título" aria-label="Título" onChange={(e) => setDraft({ ...draft, title: e.target.value })} />
+          <Input value={draft.title} maxLength={200} autoFocus placeholder="Título…" aria-label="Título" onChange={(e) => setDraft({ ...draft, title: e.target.value })} />
           <Textarea
             value={draft.content}
             className="min-h-40 font-mono text-sm"
-            placeholder="Pegá HTML o Markdown"
+            placeholder="Pega HTML o Markdown…"
             aria-label="Contenido"
             onChange={(e) => setDraft({ ...draft, content: e.target.value })}
           />
@@ -189,7 +189,7 @@ export function Artifacts({ projectKey }: { projectKey?: string }) {
       )}
 
       <div className="flex flex-wrap gap-2">
-        <Input className="min-w-0 flex-1 md:max-w-sm" type="search" value={search} placeholder="Buscar por título" aria-label="Buscar artefactos" onChange={(e) => setSearch(e.target.value)} />
+        <Input className="min-w-0 flex-1 md:max-w-sm" type="search" value={search} placeholder="Buscar por título…" aria-label="Buscar artefactos" onChange={(e) => setSearch(e.target.value)} />
         {!fixed && (
           <Select className="w-auto max-w-full" value={picked} aria-label="Proyecto" onChange={(e) => setPicked(e.target.value)}>
             <option value="all">Todos los proyectos</option>

@@ -26,7 +26,7 @@ function Card({ entry, onOpen }: { entry: WorkEntry; onOpen: () => void }) {
   const tone = entryTone(entry);
   const why = entryWhy(entry);
   return (
-    <article className="relative rounded-[10px] border border-line bg-panel py-2.5 pr-2.5 pl-3.5">
+    <article className="relative rounded-[10px] border border-line bg-panel py-2.5 pr-2.5 pl-3.5 [content-visibility:auto] [contain-intrinsic-size:auto_10rem]">
       <span aria-hidden className="absolute inset-y-0 left-0 w-1 rounded-l-[9px]" style={{ background: projectColor(entry.projectKey) }} />
       <button type="button" onClick={onOpen} className="grid w-full gap-1.5 text-left">
         <span className="flex items-center gap-1.5">
@@ -68,7 +68,7 @@ export function Board() {
   return (
     <div className="grid grid-cols-[minmax(0,1fr)] gap-3">
       <div className="flex flex-wrap gap-2 md:justify-end">
-        <Input type="search" aria-label="Buscar trabajo" placeholder="Buscar tarea, proyecto o rama" className="md:w-64" value={filters.query} onChange={(e) => setFilters({ ...filters, query: e.target.value })} />
+        <Input type="search" aria-label="Buscar trabajo" placeholder="Buscar tarea, proyecto o rama…" className="md:w-64" value={filters.query} onChange={(e) => setFilters({ ...filters, query: e.target.value })} />
         <Select aria-label="Filtrar por proyecto" className="min-w-[15rem] flex-1 md:w-auto md:min-w-0 md:flex-none" value={filters.projectKey} onChange={(e) => setFilters({ ...filters, projectKey: e.target.value })}>
           <option value="">Todos los proyectos</option>
           {projects.map(([key, title]) => <option key={key} value={key}>{title}</option>)}
@@ -80,15 +80,14 @@ export function Board() {
       </div>
       {error && <ErrorNote>No se pudo cargar las ramas. {error}</ErrorNote>}
 
-      <div role="tablist" aria-label="Columna" className="no-scrollbar -mx-4 flex gap-1.5 overflow-x-auto px-4 md:hidden">
+      <div role="group" aria-label="Columna" className="no-scrollbar -mx-4 flex gap-1.5 overflow-x-auto px-4 md:hidden">
         {COLUMNS.map((c) => {
           const on = c.bucket === column;
           return (
             <button
               key={c.bucket}
               type="button"
-              role="tab"
-              aria-selected={on}
+              aria-pressed={on}
               onClick={() => setColumn(c.bucket)}
               className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-full border border-line bg-panel px-3 text-[13px] font-semibold text-tx2"
               style={on ? { background: TONES[c.tone].fg, borderColor: TONES[c.tone].fg, color: "#fff" } : undefined}
@@ -116,7 +115,7 @@ export function Board() {
               </h2>
               <div className="grid content-start gap-2 px-2 pb-2 md:max-h-[calc(100dvh-14rem)] md:overflow-y-auto">
                 {shown.map((e) => <Card key={e.key} entry={e} onOpen={() => setSelected(e.key)} />)}
-                {items.length === 0 && <p className="px-2 py-5 text-center text-[13px] text-muted-fg">Nada por acá</p>}
+                {items.length === 0 && <p className="px-2 py-5 text-center text-[13px] text-muted-fg">Sin elementos</p>}
                 {c.bucket === "done" && items.length > 0 && (
                   <LinkButton variant="outline" size="sm" href={hashes.page("work")} className="border-dashed bg-transparent text-muted-fg">
                     Historial <ChevronRight className="size-4" aria-hidden />

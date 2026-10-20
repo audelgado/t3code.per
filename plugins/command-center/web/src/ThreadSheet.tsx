@@ -1,11 +1,12 @@
 import { AlertTriangle, ChevronLeft, ChevronRight, ExternalLink, X } from "lucide-react";
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { HomeView, ThreadItem } from "../../server/types.ts";
 import type { ThreadActionApi, ThreadDetail } from "../../server/threadActions.ts";
 import { call } from "./api.ts";
 import { planSteps, requestKindLabel, threadReason, type ThreadReason } from "./homeQueueView.ts";
 import { ago, at } from "./look.ts";
 import { hashes } from "./navigation.ts";
+import { Sheet } from "./ui/Sheet.tsx";
 import { Button, LinkButton } from "./ui/Button.tsx";
 import { Chip, StatusChip } from "./ui/Chip.tsx";
 import { useAct, useProjectTitles } from "./workData.ts";
@@ -23,41 +24,6 @@ const api = call as unknown as <R extends keyof ThreadActionApi>(
 const ACTIVE = new Set(["preparing", "queued", "starting", "running", "waiting"]);
 const TITLE: Record<ThreadReason, string> = { approval: "Aprobación", input: "Pregunta", plan: "Plan" };
 const CHIP: Record<ThreadReason, string> = { approval: "Aprobación", input: "Pregunta", plan: "Revisar plan" };
-
-/** The approval overlay's frame: a bottom sheet on the phone, a centred modal on desktop. Escape or the backdrop closes it. */
-function Overlay({ label, header, footer, onClose, children }: { label: string; header: ReactNode; footer: ReactNode; onClose: () => void; children: ReactNode }) {
-  const ref = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    const previous = document.activeElement;
-    ref.current?.focus();
-    return () => {
-      if (previous instanceof HTMLElement && previous.isConnected) previous.focus();
-    };
-  }, []);
-  useEffect(() => {
-    const key = (e: KeyboardEvent) => e.key === "Escape" && onClose();
-    addEventListener("keydown", key);
-    return () => removeEventListener("keydown", key);
-  }, [onClose]);
-  return (
-    <div className="fixed inset-0 z-50 flex items-end justify-center bg-fg/30 md:items-start md:p-6 md:pt-[8vh]" onClick={onClose}>
-      <div
-        ref={ref}
-        role="dialog"
-        aria-modal="true"
-        aria-label={label}
-        tabIndex={-1}
-        onClick={(e) => e.stopPropagation()}
-        className="flex max-h-[90dvh] w-full max-w-[620px] flex-col overflow-hidden rounded-t-[22px] border border-line bg-panel shadow-[0_-10px_40px_rgba(0,0,0,.2)] outline-none md:max-h-[84dvh] md:rounded-2xl md:shadow-[0_24px_64px_rgba(0,0,0,.28)]"
-      >
-        <div aria-hidden className="mx-auto mt-2 mb-1 h-[5px] w-10 shrink-0 rounded-full bg-[#d6d3cc] md:hidden" />
-        <header className="flex shrink-0 items-center gap-1 border-b-0 px-4 pt-2 pb-2 md:border-b md:border-line md:py-3">{header}</header>
-        <div className="min-h-0 flex-1 overflow-y-auto px-4 pt-3 pb-4">{children}</div>
-        <div className="shrink-0 border-t border-line bg-panel px-4 pt-3 pb-[max(1rem,env(safe-area-inset-bottom))]">{footer}</div>
-      </div>
-    </div>
-  );
-}
 
 /** Thread detail with the actions that fit its state: approve or decline, review a plan, stop, settle. Opens from `#item=<key>`. */
 export function ThreadSheet(props: { item: ThreadItem; view: HomeView; onClose: () => void }) {
@@ -153,7 +119,7 @@ function Thread({ item, view, onClose }: { item: ThreadItem; view: HomeView; onC
   );
 
   return (
-    <Overlay label={reason ? `${TITLE[reason]}: ${item.title}` : item.title} header={header} footer={footer} onClose={onClose}>
+    <Sheet title={reason ? `${TITLE[reason]}: ${item.title}` : item.title} header={header} footer={footer} onClose={onClose}>
       <div className="grid gap-3">
         <div className="flex items-center gap-2 text-[12.5px] text-muted-fg">
           <ProjectTag projectKey={projectKey} name={titles.get(projectKey) ?? machine} className="shrink-0 font-medium text-tx2" />
@@ -187,12 +153,12 @@ function Thread({ item, view, onClose }: { item: ThreadItem; view: HomeView; onC
         {pending && detail?.inputAnswerable && pending.questions && <ThreadInput key={pending.id} questions={pending.questions} busy={busy} onSubmit={(answers) => void act("No se pudo enviar la respuesta", async () => { await api("POST /api/threads/:machine/:thread/answer", { params, body: { requestId: pending.id, answers } }); onClose(); })} />}
         {detail?.canMessage && <form className="grid gap-2" onSubmit={(e) => { e.preventDefault(); if (listening || busy) return; void act("No se pudo enviar el mensaje", async () => { await api("POST /api/threads/:machine/:thread/message", { params, body: { text: message, commandId: messageCommand.current } }); onClose(); }); }}>
           <label className="font-semibold" htmlFor="thread-reply">Responder desde el CC</label>
-          <DictationTextarea id="thread-reply" placeholder="Escribí tu respuesta o la siguiente instrucción" value={message} maxLength={20000} disabled={busy} onListeningChange={setListening} onValueChange={(value) => { setMessage(value); messageCommand.current = crypto.randomUUID(); }} />
+          <DictationTextarea id="thread-reply" placeholder="Escribí tu respuesta o la siguiente instrucción…" value={message} maxLength={20000} disabled={busy} onListeningChange={setListening} onValueChange={(value) => { setMessage(value); messageCommand.current = crypto.randomUUID(); }} />
           <p className="text-xs text-muted-fg">Se envía a este mismo hilo en {machine}.</p>
           <Button type="submit" variant="primary" disabled={busy || listening || !message.trim()}>Enviar mensaje</Button>
         </form>}
         {pending && detail && !detail.answerable && !detail.inputAnswerable && <p className="text-[13px] text-muted-fg">Esta solicitud requiere la interfaz de T3, por ejemplo para iniciar sesión o adjuntar archivos.</p>}
       </div>
-    </Overlay>
+    </Sheet>
   );
 }

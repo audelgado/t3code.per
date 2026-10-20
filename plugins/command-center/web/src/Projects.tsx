@@ -118,7 +118,7 @@ export function Projects({ projectKey, tab }: { projectKey: string | null; tab: 
   return (
     <div className="grid gap-4">
       <div className="grid grid-cols-2 gap-2 md:flex md:flex-wrap md:items-center">
-        <Input className="col-span-2 md:max-w-xs md:flex-1" type="search" aria-label="Buscar proyectos" placeholder="Buscar por nombre o ruta" value={filters.query} onChange={(e) => filter({ query: e.target.value })} />
+        <Input className="col-span-2 md:max-w-xs md:flex-1" type="search" aria-label="Buscar proyectos" placeholder="Buscar por nombre o ruta…" value={filters.query} onChange={(e) => filter({ query: e.target.value })} />
         <Select className="md:w-auto" aria-label="Filtrar proyectos por máquina" value={filters.machineId} onChange={(e) => filter({ machineId: e.target.value })}>
           <option value="">Todas las máquinas</option>
           {machines.map((m) => <option key={m.machineId} value={m.machineId}>{m.machineLabel}</option>)}
@@ -153,7 +153,7 @@ export function Projects({ projectKey, tab }: { projectKey: string | null; tab: 
             <div key={g.id} className="flex items-center gap-2">
               <Input key={g.name} aria-label={`Nombre de ${g.name}`} maxLength={40} defaultValue={g.name} onBlur={(e) => renameGroup(g.id, e.target.value)} />
               <Button variant="ghost" size="icon" aria-label={`Eliminar ${g.name}; sus proyectos se conservan`} onClick={() => removeGroup(g.id)}>
-                <Trash2 className="size-4" />
+                <Trash2 className="size-4" aria-hidden />
               </Button>
             </div>
           ))}
@@ -165,13 +165,13 @@ export function Projects({ projectKey, tab }: { projectKey: string | null; tab: 
                 addGroup();
               }}
             >
-              <Input aria-label="Nombre del grupo nuevo" placeholder="Grupo nuevo" maxLength={40} value={newGroup} onChange={(e) => setNewGroup(e.target.value)} />
+              <Input aria-label="Nombre del grupo nuevo" placeholder="Grupo nuevo…" maxLength={40} value={newGroup} onChange={(e) => setNewGroup(e.target.value)} />
               <Button variant="outline" size="icon" type="submit" aria-label="Agregar grupo" disabled={!newGroup.trim()}>
-                <Plus className="size-4" />
+                <Plus className="size-4" aria-hidden />
               </Button>
             </form>
           )}
-          <p className="text-xs text-muted-fg">Asigná el grupo y el orden desde cada proyecto. Para reordenar elegí el orden manual.</p>
+          <p className="text-xs text-muted-fg">Asigná el grupo y el orden desde cada proyecto. Para reordenar elige el orden manual.</p>
         </Card>
       )}
 
@@ -214,7 +214,7 @@ export function Projects({ projectKey, tab }: { projectKey: string | null; tab: 
                           {e.title}
                         </a>
                         <Button className="relative -my-2 -mr-2" variant="ghost" size="icon" aria-pressed={isPinned} aria-label={isPinned ? `Desfijar ${e.title}` : `Fijar ${e.title}`} onClick={() => togglePin(e.key)}>
-                          {isPinned ? <PinOff className="size-4 text-primary" /> : <Pin className="size-4" />}
+                          {isPinned ? <PinOff className="size-4 text-primary" aria-hidden /> : <Pin className="size-4" aria-hidden />}
                         </Button>
                       </div>
                       <p className="flex min-w-0 items-center gap-1.5 text-xs text-muted-fg">
@@ -245,10 +245,10 @@ export function Projects({ projectKey, tab }: { projectKey: string | null; tab: 
                           {canMove && (
                             <>
                               <Button variant="ghost" size="icon" aria-label={`Subir ${e.title}`} disabled={i === 0} onClick={() => move(b.items, e.key, -1)}>
-                                <ArrowUp className="size-4" />
+                                <ArrowUp className="size-4" aria-hidden />
                               </Button>
                               <Button variant="ghost" size="icon" aria-label={`Bajar ${e.title}`} disabled={i === b.items.length - 1} onClick={() => move(b.items, e.key, 1)}>
-                                <ArrowDown className="size-4" />
+                                <ArrowDown className="size-4" aria-hidden />
                               </Button>
                             </>
                           )}

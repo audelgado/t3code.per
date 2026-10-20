@@ -225,7 +225,7 @@ export function Fleet() {
   const lanes = view ? lanesByMachine(view) : new Map<string, Record<LaneId, LaneItem[]>>();
   return (
     <div className="grid gap-4">
-      {view && machines.length === 0 && <EmptyState>Nada por acá: todavía no hay máquinas.</EmptyState>}
+      {view && machines.length === 0 && <EmptyState>Sin elementos: todavía no hay máquinas.</EmptyState>}
       {error && !infra && (
         <p role="alert" className="text-fail">
           No se pudieron cargar los recursos: {error}

@@ -178,7 +178,7 @@ function EditSheet({ editing, projects, currency, onClose, onSaved }: { editing:
         <div className="flex gap-2">
           <div className="min-w-0 flex-1">
             <Field label={isIncome ? "Importe" : "Por mes"}>
-              <Input inputMode="decimal" value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="0,00" required />
+              <Input inputMode="decimal" value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="0,00…" required />
             </Field>
           </div>
           <div className="w-24">
@@ -334,7 +334,7 @@ export function Finance() {
               <div className="divide-y divide-soft">
                 {paged.total === 0 && (
                   <div className="p-4">
-                    <EmptyState>{tab === "income" ? (month ? "Nada por acá: no hay ingresos este mes." : "Nada por acá: todavía no hay ingresos.") : "Nada por acá: no hay costos activos."}</EmptyState>
+                    <EmptyState>{tab === "income" ? (month ? "Sin elementos: no hay ingresos este mes." : "Sin elementos: todavía no hay ingresos.") : "Sin elementos: no hay costos activos."}</EmptyState>
                   </div>
                 )}
                 {tab === "income"
@@ -351,7 +351,7 @@ export function Finance() {
                           </button>
                           <div className="grid justify-items-end gap-1">
                             <b className="tabular-nums">{money(r.amountCents, r.currency, hide)}</b>
-                            <button type="button" aria-label={`Estado: ${st.label}. Tocá para cambiarlo`} onClick={() => void setIncomeStatus(r, NEXT_STATUS[r.status])}>
+                            <button type="button" aria-label={`Estado: ${st.label}. Pulsa para cambiarlo`} onClick={() => void setIncomeStatus(r, NEXT_STATUS[r.status])}>
                               <Chip tone={st.tone} className="h-[18px] text-[10.5px] md:h-[22px] md:text-xs">{st.label}</Chip>
                             </button>
                           </div>
@@ -382,7 +382,7 @@ export function Finance() {
                     ))}
               </div>
               <div className="grid gap-2 border-t border-line px-4 py-2.5">
-                <p className="text-xs text-muted-fg">{tab === "income" ? "Tocá un estado para cambiarlo." : "Los costos archivados no se suman."}</p>
+                <p className="text-xs text-muted-fg">{tab === "income" ? "Pulsa un estado para cambiarlo." : "Los costos archivados no se suman."}</p>
                 <Pager page={paged} onPageChange={setPage} label={tab === "income" ? "ingresos" : "costos"} />
               </div>
             </section>
@@ -392,7 +392,7 @@ export function Finance() {
               <Panel title="Por cliente" count={view.byClient.length}>
                 {view.byClient.length === 0 ? (
                   <div className="p-4">
-                    <EmptyState>{month ? "Nada por acá: no hay ingresos este mes." : "Nada por acá: todavía no hay ingresos."}</EmptyState>
+                    <EmptyState>{month ? "Sin elementos: no hay ingresos este mes." : "Sin elementos: todavía no hay ingresos."}</EmptyState>
                   </div>
                 ) : (
                   view.byClient.map((c) => (
@@ -410,7 +410,7 @@ export function Finance() {
               <Panel title="Costos por proyecto" count={view.byProject.length}>
                 {view.byProject.length === 0 ? (
                   <div className="p-4">
-                    <EmptyState>Nada por acá: no hay costos activos.</EmptyState>
+                    <EmptyState>Sin elementos: no hay costos activos.</EmptyState>
                   </div>
                 ) : (
                   view.byProject.map((p) => (

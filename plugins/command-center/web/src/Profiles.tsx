@@ -70,14 +70,14 @@ function ProfileSheet({ initial, models, busy, onSave, onDelete, onClose }: { in
       >
         <div className="grid grid-cols-[5rem_1fr] gap-3">
           <Field label="Avatar">
-            <Input value={p.avatar ?? ""} onChange={(e) => patch({ avatar: e.target.value })} maxLength={8} placeholder="🧑" />
+            <Input value={p.avatar ?? ""} onChange={(e) => patch({ avatar: e.target.value })} maxLength={8} placeholder="🧑…" />
           </Field>
           <Field label="Nombre">
             <Input value={p.name} onChange={(e) => patch({ name: e.target.value })} maxLength={40} required autoFocus />
           </Field>
         </div>
         <Field label="Indicaciones del rol">
-          <Textarea value={p.rolePrompt ?? ""} onChange={(e) => patch({ rolePrompt: e.target.value })} maxLength={4000} placeholder="Sos un revisor cuidadoso. Enfocate en…" />
+          <Textarea value={p.rolePrompt ?? ""} onChange={(e) => patch({ rolePrompt: e.target.value })} maxLength={4000} placeholder="Eres un revisor cuidadoso. Concéntrate en…" />
         </Field>
         <Field label="Modelo">
           <Select value={p.model ? key(p.model) : ""} onChange={(e) => patch({ model: options.find((m) => key(m.sel) === e.target.value)?.sel ?? null })}>
@@ -111,7 +111,7 @@ function ProfileSheet({ initial, models, busy, onSave, onDelete, onClose }: { in
             </Select>
           </Field>
         </div>
-        <p className="text-xs text-muted-fg">Los permisos aplican solo a tus propias tareas. Las tareas de agentes siempre los reciben de vos al aprobar.</p>
+        <p className="text-xs text-muted-fg">Los permisos se aplican solo a tus propias tareas. Tú defines los permisos de las tareas de agentes al aprobarlas.</p>
       </form>
     </Sheet>
   );
@@ -176,7 +176,7 @@ export function Profiles() {
         )}
         {profiles?.length === 0 && (
           <div className="p-4">
-            <EmptyState>Nada por acá: todavía no hay perfiles.</EmptyState>
+            <EmptyState>Sin elementos: todavía no hay perfiles.</EmptyState>
           </div>
         )}
         {profiles?.map((p) => (

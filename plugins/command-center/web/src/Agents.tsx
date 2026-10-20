@@ -133,7 +133,7 @@ function ApiAccess() {
           )}
           {agents?.length === 0 && (
             <div className="p-4">
-              <EmptyState>Nada por acá: creá un agente para que otros asistentes o scripts usen el Command Center por MCP.</EmptyState>
+              <EmptyState>Sin elementos: crea un agente para que otros asistentes o scripts usen el Command Center por MCP.</EmptyState>
             </div>
           )}
           {agents?.map((a) => (
@@ -178,7 +178,7 @@ function ApiAccess() {
             }}
           >
             <Field label="Nombre">
-              <Input value={label} onChange={(e) => setLabel(e.target.value)} placeholder="hermes" maxLength={40} autoCapitalize="off" autoCorrect="off" autoFocus />
+              <Input value={label} onChange={(e) => setLabel(e.target.value)} placeholder="hermes…" maxLength={40} autoCapitalize="off" autoCorrect="off" autoFocus />
             </Field>
             <p className="text-xs text-muted-fg">Letras, números, puntos, guiones y guiones bajos. Después vas a ver el token una sola vez.</p>
             {error && (
