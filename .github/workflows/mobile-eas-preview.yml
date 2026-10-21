@@ -64,7 +64,7 @@ jobs:
 
       - name: Setup EAS
         if: steps.expo-token.outputs.present == 'true'
-        uses: expo/expo-github-action@v8
+        uses: expo/expo-github-action@v9
         with:
           # eas-cli 22 renamed `project` to `app` in build JSON, and
           # continuous-deploy-fingerprint still reads `build.project.ownerAccount`.

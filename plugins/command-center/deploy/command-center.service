@@ -15,7 +15,7 @@ Environment=CC_HOME=/var/lib/cc/data
 Environment=CC_PORT=3900
 # CC_PUBLIC_URL, CC_PUSH_SUBJECT and the optional CC_COORDINATOR_* (see env.example); owner cc, mode 600.
 EnvironmentFile=/var/lib/cc/env
-# Node >= 24.13.1. The server listens on 127.0.0.1 only; tailscale serve publishes it on the tailnet.
+# Node >= 24.22.1 < 25 or >= 26.12.1 < 27. The server listens on 127.0.0.1 only; tailscale serve publishes it on the tailnet.
 ExecStart=/usr/bin/node --disable-warning=ExperimentalWarning server/main.ts serve
 Restart=always
 RestartSec=3
