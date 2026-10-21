@@ -22,7 +22,7 @@ On a keyboard, `Ctrl/Cmd+K` opens Pedir, `/` opens search and `?` shows shortcut
 
 ## Install on the VPS
 
-You need systemd, Node 24.13.1 or newer at `/usr/bin/node` (for example from NodeSource), `git`, `curl`, and Tailscale with MagicDNS and HTTPS certificates. The machine name appears in public certificate logs, so pick one you are happy to publish.
+You need systemd, Node ^24.22.1 or ^26.12.1 at `/usr/bin/node` (for example from NodeSource), `git`, `curl`, and Tailscale with MagicDNS and HTTPS certificates. The machine name appears in public certificate logs, so pick one you are happy to publish.
 
 1. Set up official T3 as your normal user: install the `t3` command, then `t3 service install` and `t3 pair --tailscale`. Pair the official phone app with it.
 
